@@ -230,14 +230,10 @@ let rec pure = function
       *)
 
 let insert_let e t k =
-  match e with
-  | Evalue v -> k v
-  | _ ->
-      let x' = Id.genid () in
-      Slet (x', t, e, k (Vvar x'))
+  let x' = Id.genid () in
+  Slet (x', t, e, k (Vvar x'))
 
 let save renv ?triggers:(triggers=true) e t nxt =
-  insert_let e (transl_typ renv t) (fun e ->
   if structured_type t && triggers then
     match e with
     | Vload _ as v -> nxt v
@@ -247,7 +243,7 @@ let save renv ?triggers:(triggers=true) e t nxt =
           Ealloca (true, transl_typ renv t),
           Sseq (Sstore (Vvar id, e), nxt (Vload id)))
   else
-    nxt e)
+    nxt e
 
 (* These utility functions are used in the processing of function definitions *)
 
@@ -282,23 +278,20 @@ let add_formal (env, args) (x, _) t =
 
 let array_length v nxt =
   insert_let (Egep (v, [| Vint (32, 0); Vint (32, 1) |]))
-    (Tpointer (Tint 32)) (fun lenp -> nxt (Eload lenp))
+    (Tpointer (Tint 32)) (fun lenp -> insert_let (Eload lenp) (Tint 32) nxt)
 
-let array_index p v x nxt =
+let array_index p t' v x nxt =
   array_length v (fun l ->
-    insert_let l (Tint 32) (fun l ->
-    insert_let (Ebinop (x, Op_cmp Cle, l)) (Tint 1) (fun c ->
-      nxt (Eassert (c, Egep (v, [| Vint (32, 0); Vint (32, 2); x |]),
-      (Printf.sprintf "index out of bounds in line %d" p.Lexing.pos_lnum))))))
+  insert_let (Ebinop (x, Op_cmp Cle, l)) (Tint 1) (fun c ->
+  insert_let (Eassert (c, Egep (v, [| Vint (32, 0); Vint (32, 2); x |]),
+    Printf.sprintf "index out of bounds in line %d" p.Lexing.pos_lnum)) t' nxt))
 
-let record_index p v i nxt =
+let record_index p tx v i nxt =
   insert_let (Optrtoint v) (Tint 64) (fun ptr ->
   insert_let (Ebinop (ptr, Op_cmp Cne, Vint (64, 0))) (Tint 1) (fun c ->
-    nxt (Eassert (c, Egep (v, [| Vint (32, 0); Vint (32, i+1) |]),
-    (Printf.sprintf "field access to nil record in line %d" p.Lexing.pos_lnum)))))
-
-let side_expr e =
-  Slet (Id.genid (), transl_typ M.empty VOID, e, Sskip)
+  insert_let (Eassert (c, Egep (v, [| Vint (32, 0); Vint (32, i+1) |]),
+    (Printf.sprintf "field access to nil record in line %d" p.Lexing.pos_lnum)))
+    tx nxt))
 
 let rec array_var tenv renv venv loop v nxt =
   var tenv renv venv loop v (fun v' t ->
@@ -327,7 +320,7 @@ and int_exp tenv renv venv loop e nxt =
   typ_exp tenv renv venv loop e INT nxt
 
 and void_exp tenv renv venv loop e nxt =
-  typ_exp tenv renv venv loop e VOID nxt
+  typ_exp tenv renv venv loop e VOID (fun _ -> nxt)
 
 (* Main typechecking/compiling functions *)
 
@@ -335,29 +328,25 @@ and var tenv renv venv loop v nxt =
   match v with
   | PVsimple x ->
       let x, t = find_var x venv in
-      nxt (Evalue (Vload x)) t
+      nxt (Vload x) t
   | PVsubscript (p, v, x) ->
       array_var tenv renv venv loop v (fun v t t' ->
-        save renv ~triggers:(triggers x) v t (fun v ->
-        int_exp tenv renv venv loop x (fun x ->
-          insert_let x (Tint 32) (fun x ->
-          array_index p v x (fun v ->
-            insert_let v (Tpointer (transl_typ renv t')) (fun v ->
-            nxt (Eload v) t'))))))
+      save renv ~triggers:(triggers x) v t (fun v ->
+      int_exp tenv renv venv loop x (fun x ->
+      array_index p (transl_typ renv t') v x (fun v ->
+      insert_let (Eload v) (transl_typ renv t') (fun v -> nxt v t')))))
   | PVfield (p, v, x) -> (* should check for nil XXX *)
       record_var tenv renv venv loop v (fun v t t' ->
-        let i, tx = find_record_field renv t' x in
-        insert_let v (transl_typ renv t) (fun v ->
-        record_index p v i (fun v ->
-          insert_let v (Tpointer (transl_typ renv tx))
-            (fun v -> nxt (Eload v) tx))))
+      let i, tx = find_record_field renv t' x in
+      record_index p (transl_typ renv tx) v i (fun v ->
+      insert_let (Eload v) (transl_typ renv tx) (fun v -> nxt v tx)))
 
-and exp tenv renv (venv : value_desc M.t) loop e nxt =
+and exp tenv renv venv loop e nxt =
   match e with
   | Pint (_, n) ->
-      nxt (Evalue (Vint (32, n))) INT
+      nxt (Vint (32, n)) INT
   | Pstring (_, s) ->
-      nxt (Evalue (Vstring s)) STRING
+      nxt (Vstring s) STRING
   | Pnil p ->
       error p
         "'nil' should be used in a context where \
@@ -371,10 +360,8 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
   | Pbinop (_, x, (Op_and as op), y)
   | Pbinop (_, x, (Op_cmp Ceq as op), y) ->
       int_exp tenv renv venv loop x (fun x ->
-        insert_let x (Tint 32) (fun x ->
-        int_exp tenv renv venv loop y (fun y ->
-          insert_let y (Tint 32) (fun y ->
-          nxt (Ebinop (x, op, y)) INT))))
+      int_exp tenv renv venv loop y (fun y ->
+      insert_let (Ebinop (x, op, y)) (Tint 32) (fun v -> nxt v INT)))
   | Pbinop _ ->
       failwith "binop not implemented"
   | Passign (_, PVsimple x, Pnil _) ->
@@ -382,31 +369,25 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
   | Passign (_, PVsimple x, e) ->
       let x, t = find_var x venv in
       typ_exp tenv renv venv loop e t (fun e ->
-        insert_let e (transl_typ renv t) (fun e ->
-        Sseq (Sstore (Vvar x, e), nxt (Evalue Vundef) VOID)))
+      Sseq (Sstore (Vvar x, e), nxt Vundef VOID))
   | Passign (_, PVsubscript (_, v, e1), Pnil _) ->
       assert false
   | Passign (_, PVsubscript (p, v, e1), e2) ->
       array_var tenv renv venv loop v (fun v t t' ->
-        save renv ~triggers:(triggers e1 || triggers e2) v t (fun v ->
-        int_exp tenv renv venv loop e1 (fun e1 ->
-          insert_let e1 (Tint 32) (fun x ->
-            array_index p v x (fun v ->
-              insert_let v (Tpointer (transl_typ renv t')) (fun v ->
-              typ_exp tenv renv venv loop e2 t'
-                (fun e2 -> insert_let e2 (transl_typ renv t')
-                (fun e2 -> Sseq (Sstore (v, e2), nxt (Evalue Vundef) VOID)))))))))
+      save renv ~triggers:(triggers e1 || triggers e2) v t (fun v ->
+      int_exp tenv renv venv loop e1 (fun e1 ->
+      array_index p (transl_typ renv t') v e1 (fun v ->
+      typ_exp tenv renv venv loop e2 t'
+        (fun e2 -> Sseq (Sstore (v, e2), nxt Vundef VOID))))))
   | Passign (_, PVfield (_, v, x), Pnil _) ->
       assert false
   | Passign (_, PVfield (p, v, x), e) ->
       record_var tenv renv venv loop v (fun v t t' ->
-        let i, tx = find_record_field renv t' x in
-        save renv ~triggers:(triggers e) v t (fun v ->
-        record_index p v i (fun v ->
-          insert_let v (Tpointer (transl_typ renv tx)) (fun v ->
-          typ_exp tenv renv venv loop e tx
-            (fun e -> insert_let e (transl_typ renv tx)
-            (fun e -> Sseq (Sstore (v, e), nxt (Evalue Vundef) VOID)))))))
+      let i, tx = find_record_field renv t' x in
+      save renv ~triggers:(triggers e) v t (fun v ->
+      record_index p (transl_typ renv tx) v i (fun v ->
+      typ_exp tenv renv venv loop e tx
+        (fun e -> Sseq (Sstore (v, e), nxt Vundef VOID)))))
   | Pcall (p, x, xs) ->
       let x, (ts, t) = find_fun x venv in
       if List.length xs <> List.length ts then
@@ -414,7 +395,8 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
           (List.length xs) (List.length ts);
       let rec bind ys = function
         | [], [] ->
-            nxt (Ecall (x, Array.of_list (List.rev ys))) t
+            insert_let (Ecall (x, Array.of_list (List.rev ys)))
+              (transl_typ renv t) (fun call -> nxt call t)
         | x :: xs, t :: ts ->
             typ_exp tenv renv venv loop x t (fun x ->
               save renv ~triggers:(List.exists triggers xs) x t (fun x ->
@@ -425,22 +407,19 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
   | Pseq (_, xs) ->
       let rec bind = function
         | []      ->
-            nxt (Evalue Vundef) VOID
+            nxt Vundef VOID
         | [x]     ->
             exp tenv renv venv loop x nxt
         | x :: x' ->
-            exp tenv renv venv loop x (fun e t ->
-              Slet (Id.genid (), transl_typ renv t, e, bind x'))
+            exp tenv renv venv loop x (fun _ _ -> bind x')
       in
       bind xs
   | Pmakearray (_, x, y, z) ->
       let t, t' = find_array_type x tenv in
       int_exp tenv renv venv loop  y (fun y ->
-        insert_let y (Tint 32) (fun y ->
-        typ_exp tenv renv venv loop z t' (fun z ->
-          (* nxt (Earraymalloc (transl_typ renv t', y)) t))) *)
-          insert_let z (transl_typ renv t') (fun z ->
-          nxt (Earraymalloc (y, z)) t))))
+      typ_exp tenv renv venv loop z t' (fun z ->
+      insert_let (Earraymalloc (y, z)) (transl_typ renv t)
+        (fun arr -> nxt arr t)))
   | Pmakerecord (p, x, xts) ->
       let t, ts = find_record_type tenv renv x in
       let rec bind vs = function
@@ -449,7 +428,7 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
               assert false) in
             insert_let (Emalloc t') (transl_typ renv t) (fun r ->
             let rec bind i = function
-              | [], [] -> nxt (Evalue r) t
+              | [], [] -> nxt r t
               | v :: vs, t :: ts ->
                   insert_let (Egep (r, [| Vint (32, 0); Vint (32, i) |]))
                     (Tpointer (transl_typ renv t)) (fun f ->
@@ -487,33 +466,28 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
             nxt Eundef E.Tvoid))) *)
   | Pif (_, x, y, None) ->
       int_exp tenv renv venv loop x (fun x ->
-        insert_let x (Tint 32) (fun x ->
-        insert_let (Ebinop (x, Op_cmp Cne, Vint (32, 0))) (Tint 1)
-          (fun c -> Sseq (Sif (c, void_exp tenv renv venv loop y side_expr,
-            Sskip), nxt (Evalue Vundef) VOID))))
+      insert_let (Ebinop (x, Op_cmp Cne, Vint (32, 0))) (Tint 1)
+        (fun c -> Sseq (Sif (c, void_exp tenv renv venv loop y Sskip, Sskip),
+          nxt Vundef VOID)))
   | Pif (_, x, y, Some z) ->
       int_exp tenv renv venv loop x (fun x ->
         let tmp = Id.genid () in
         let tt = ref VOID in
         let yy = exp tenv renv venv loop y (fun y yt ->
           tt := yt;
-          insert_let y (transl_typ renv yt) (fun y ->
-          Sstore (Vvar tmp, y))) in
+          Sstore (Vvar tmp, y)) in
         let zz = typ_exp tenv renv venv loop z !tt (fun z ->
-          insert_let z (transl_typ renv !tt) (fun z ->
-          Sstore (Vvar tmp, z))) in
-        insert_let x (Tint 32) (fun x ->
+          Sstore (Vvar tmp, z)) in
         Slet (tmp, Tpointer (transl_typ renv !tt),
           Ealloca (structured_type !tt, transl_typ renv !tt),
           insert_let (Ebinop (x, Op_cmp Cne, Vint (32, 0))) (Tint 1)
             (fun c -> Sseq (Sif (c, yy, zz),
-              nxt (Evalue (Vload tmp)) !tt)))))
+              nxt (Vload tmp) !tt))))
   | Pwhile (_, x, y) ->
       let body = int_exp tenv renv venv loop x (fun x ->
-        insert_let x (Tint 32) (fun x ->
-        insert_let (Ebinop (x, Op_cmp Cne, Vint (32, 0))) (Tint 1)
-          (fun c -> Sif (c, void_exp tenv renv venv true y side_expr, Sbreak)))) in
-      Sseq (Sloop body, nxt (Evalue Vundef) VOID)
+      insert_let (Ebinop (x, Op_cmp Cne, Vint (32, 0))) (Tint 1)
+        (fun c -> Sif (c, void_exp tenv renv venv true y Sskip, Sbreak))) in
+      Sseq (Sloop body, nxt Vundef VOID)
   | Pfor (_, i, x, y, z) ->
       (* int_exp tenv venv looping x (fun x ->
         int_exp tenv venv looping y (fun y ->
@@ -533,12 +507,11 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
       else error p "illegal use of 'break'"
   | Pletvar (_, x, None, y, z) ->
       exp tenv renv venv loop y (fun y yt ->
-        insert_let y (transl_typ renv yt) (fun y ->
-        let id = Id.genid () in (* new_var (transl_typ yt) in *)
-        let venv = add_var x id yt venv in
-        Slet (id, Tpointer (transl_typ renv yt),
-          Ealloca (structured_type yt, transl_typ renv yt),
-          Sseq (Sstore (Vvar id, y), exp tenv renv venv loop z nxt))))
+      let id = Id.genid () in
+      let venv = add_var x id yt venv in
+      Slet (id, Tpointer (transl_typ renv yt),
+        Ealloca (structured_type yt, transl_typ renv yt),
+        Sseq (Sstore (Vvar id, y), exp tenv renv venv loop z nxt)))
   | Pletvar (_, x, Some t, Pnil _, z) ->
       (*
       let t, _ = find_record_type t env in
@@ -549,12 +522,11 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
   | Pletvar (_, x, Some t, y, z) ->
       let t = find_type t tenv in
       typ_exp tenv renv venv loop y t (fun y ->
-        insert_let y (transl_typ renv t) (fun y ->
-        let id = Id.genid () in (* new_var (transl_typ t) in *)
-        let venv = add_var x id t venv in
-        Slet (id, Tpointer (transl_typ renv t),
-          Ealloca (structured_type t, transl_typ renv t),
-          Sseq (Sstore (Vvar id, y), exp tenv renv venv loop z nxt))))
+      let id = Id.genid () in
+      let venv = add_var x id t venv in
+      Slet (id, Tpointer (transl_typ renv t),
+        Ealloca (structured_type t, transl_typ renv t),
+        Sseq (Sstore (Vvar id, y), exp tenv renv venv loop z nxt)))
   | Plettype (_, tys, e) ->
       let tenv, renv = let_type tenv renv tys in
       exp tenv renv venv loop e nxt
@@ -578,7 +550,7 @@ and let_funs tenv renv venv loop funs e nxt =
         | VOID ->
             Sreturn None
         | t ->
-            insert_let e (transl_typ renv t) (fun e -> Sreturn (Some e))) in
+            Sreturn (Some e)) in
 
     { fn_name = f;
       fn_rtyp = Some (transl_typ renv t); (* FIXME XXX *)
@@ -609,8 +581,8 @@ let base_venv =
 
 let program e =
   let base_renv = M.empty in
-  let s = exp base_tenv base_renv base_venv false e (fun e t ->
-    Slet (Id.genid (), transl_typ base_renv t, e, Sreturn (Some (Vint (32, 0))))) in
+  let s = exp base_tenv base_renv base_venv false e
+    (fun _ _ -> Sreturn (Some (Vint (32, 0)))) in
   { prog_body = s;
     prog_strings = [];
     prog_named = !named_structs }

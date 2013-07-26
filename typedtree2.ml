@@ -27,7 +27,6 @@ type exp =
   | Ealloca       of bool * typ
   | Emalloc       of typ
   | Earraymalloc  of value * value
-  | Evalue        of value
   | Eload         of value
   | Ebinop        of value * bin * value
   | Ecall         of Id.t * value array

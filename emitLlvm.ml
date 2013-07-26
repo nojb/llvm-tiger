@@ -149,8 +149,6 @@ let builder_at_entry_block () =
 
 let rec exp env e =
   match e with
-  | Evalue v ->
-      value env v
   | Ealloca (true, t) ->
       let b = builder_at_entry_block () in
       let v = alloca ~build:b (typ t) in
