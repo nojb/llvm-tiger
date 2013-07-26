@@ -178,7 +178,7 @@ let rec exp env e =
       let bb2 = new_block "nay" in
       cond_br (value env v) bb1 bb2;
       position_at_end bb2 the_builder;
-      printf (msg ^ "\n");
+      printf ("Runtime error: " ^ msg ^ "\n");
       ignore (call (declare_function "exit"
         (function_type void_t [| int_t 32 |])
         (global_module ())) [| const_int 2 |]);
