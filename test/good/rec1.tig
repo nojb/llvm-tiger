@@ -1,0 +1,6 @@
+let type rec = { a:int, b : rec }
+var a := rec { a = 123, b = nil }
+in
+a
+end
+

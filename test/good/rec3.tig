@@ -1,0 +1,4 @@
+let type rec = {a : int, b : int }
+var x := rec { a=1, b=45 } in
+x.b
+end

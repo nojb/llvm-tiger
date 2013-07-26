@@ -1,0 +1,4 @@
+let type arr0 = array of int type arr1 = array of arr0 var a := arr1[10] of
+(arr0 [30] of 4) in
+a[1][(arr0 [10] of 34; 10)]
+end

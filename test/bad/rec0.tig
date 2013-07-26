@@ -1,0 +1,2 @@
+let type rec0 = { a : int } type rec0 = {b : int} in a{a=1} end
+
