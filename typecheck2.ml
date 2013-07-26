@@ -284,18 +284,18 @@ let array_length v nxt =
   insert_let (Egep (v, [| Vint (32, 0); Vint (32, 1) |]))
     (Tpointer (Tint 32)) (fun lenp -> nxt (Eload lenp))
 
-let array_index v x nxt =
+let array_index p v x nxt =
   array_length v (fun l ->
     insert_let l (Tint 32) (fun l ->
     insert_let (Ebinop (x, Op_cmp Cle, l)) (Tint 1) (fun c ->
       nxt (Eassert (c, Egep (v, [| Vint (32, 0); Vint (32, 2); x |]),
-      (Printf.sprintf "index out of bounds in line %d" (-1)))))))
+      (Printf.sprintf "index out of bounds in line %d" p.Lexing.pos_lnum))))))
 
-let record_index v i nxt =
-  insert_let (Optrtoint v) (Tint 64) (fun p ->
-  insert_let (Ebinop (p, Op_cmp Cne, Vint (64, 0))) (Tint 1) (fun c ->
+let record_index p v i nxt =
+  insert_let (Optrtoint v) (Tint 64) (fun ptr ->
+  insert_let (Ebinop (ptr, Op_cmp Cne, Vint (64, 0))) (Tint 1) (fun c ->
     nxt (Eassert (c, Egep (v, [| Vint (32, 0); Vint (32, i+1) |]),
-    (Printf.sprintf "field access to nil record in line %d" (-1))))))
+    (Printf.sprintf "field access to nil record in line %d" p.Lexing.pos_lnum)))))
 
 let side_expr e =
   Slet (Id.genid (), transl_typ M.empty VOID, e, Sskip)
@@ -336,19 +336,19 @@ and var tenv renv venv loop v nxt =
   | PVsimple x ->
       let x, t = find_var x venv in
       nxt (Evalue (Vload x)) t
-  | PVsubscript (_, v, x) ->
+  | PVsubscript (p, v, x) ->
       array_var tenv renv venv loop v (fun v t t' ->
         save renv ~triggers:(triggers x) v t (fun v ->
         int_exp tenv renv venv loop x (fun x ->
           insert_let x (Tint 32) (fun x ->
-          array_index v x (fun v ->
+          array_index p v x (fun v ->
             insert_let v (Tpointer (transl_typ renv t')) (fun v ->
             nxt (Eload v) t'))))))
-  | PVfield (_, v, x) -> (* should check for nil XXX *)
+  | PVfield (p, v, x) -> (* should check for nil XXX *)
       record_var tenv renv venv loop v (fun v t t' ->
         let i, tx = find_record_field renv t' x in
         insert_let v (transl_typ renv t) (fun v ->
-        record_index v i (fun v ->
+        record_index p v i (fun v ->
           insert_let v (Tpointer (transl_typ renv tx))
             (fun v -> nxt (Eload v) tx))))
 
@@ -386,23 +386,23 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
         Sseq (Sstore (Vvar x, e), nxt (Evalue Vundef) VOID)))
   | Passign (_, PVsubscript (_, v, e1), Pnil _) ->
       assert false
-  | Passign (_, PVsubscript (_, v, e1), e2) ->
+  | Passign (_, PVsubscript (p, v, e1), e2) ->
       array_var tenv renv venv loop v (fun v t t' ->
         save renv ~triggers:(triggers e1 || triggers e2) v t (fun v ->
         int_exp tenv renv venv loop e1 (fun e1 ->
           insert_let e1 (Tint 32) (fun x ->
-            array_index v x (fun v ->
+            array_index p v x (fun v ->
               insert_let v (Tpointer (transl_typ renv t')) (fun v ->
               typ_exp tenv renv venv loop e2 t'
                 (fun e2 -> insert_let e2 (transl_typ renv t')
                 (fun e2 -> Sseq (Sstore (v, e2), nxt (Evalue Vundef) VOID)))))))))
   | Passign (_, PVfield (_, v, x), Pnil _) ->
       assert false
-  | Passign (_, PVfield (_, v, x), e) ->
+  | Passign (_, PVfield (p, v, x), e) ->
       record_var tenv renv venv loop v (fun v t t' ->
         let i, tx = find_record_field renv t' x in
         save renv ~triggers:(triggers e) v t (fun v ->
-        record_index v i (fun v ->
+        record_index p v i (fun v ->
           insert_let v (Tpointer (transl_typ renv tx)) (fun v ->
           typ_exp tenv renv venv loop e tx
             (fun e -> insert_let e (transl_typ renv tx)

@@ -138,6 +138,11 @@ let gcroot ?build:(b=the_builder) v =
     (function_type void_t [| ptr_t (ptr_t (int_t 8)); ptr_t (int_t 8) |])
   (global_module ())) [| vb; const_null (ptr_t (int_t 8)) |])
 
+let printf msg =
+  ignore (call (declare_function "printf"
+    (var_arg_function_type (int_t 32) [| ptr_t (int_t 8) |])
+    (global_module ())) [| build_global_stringptr msg "" the_builder |])
+
 let builder_at_entry_block () =
   builder_at_end (global_context ())
     (entry_block (block_parent (insertion_block the_builder)))
@@ -175,6 +180,7 @@ let rec exp env e =
       let bb2 = new_block "nay" in
       cond_br (value env v) bb1 bb2;
       position_at_end bb2 the_builder;
+      printf (msg ^ "\n");
       ignore (call (declare_function "exit"
         (function_type void_t [| int_t 32 |])
         (global_module ())) [| const_int 2 |]);
