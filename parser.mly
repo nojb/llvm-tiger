@@ -193,9 +193,9 @@ optional_var_type:
   ;
 
 typdecs:
-  TYPE IDENT EQ typ
+  TYPE pos_ident EQ typ
   { [($2, $4)] }
-  | TYPE IDENT EQ typ typdecs
+  | TYPE pos_ident EQ typ typdecs
   { ($2, $4) :: $5 }
   ;
 

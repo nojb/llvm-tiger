@@ -15,13 +15,21 @@ type type_spec =
   | RECORD  of string * Id.t (* name, unique name *)
   | PLACE   of string
 
-let string_of_type = function
+let rec string_of_type = function
   | VOID -> "void"
   | INT -> "int"
   | STRING -> "string"
-  | ARRAY (id, _)
-  | RECORD (id, _) -> id
-  | PLACE id -> "place(" ^ id ^ ")"
+  | ARRAY (id, t) -> id ^ " = array of " ^ string_of_type t
+  | RECORD (id, _) -> id ^ " = record"
+  | PLACE _ -> assert false
+
+let describe_type = function
+  | VOID -> "void"
+  | INT -> "int"
+  | STRING -> "string"
+  | ARRAY _ -> "array"
+  | RECORD _ -> "record"
+  | PLACE _ -> assert false
 
 let type_equal t1 t2 =
   t1 == t2
@@ -78,24 +86,26 @@ let find_type x tenv =
     error x.p "unbound type '%s'" x.s
 
 let add_type x t tenv =
-  M.add x t tenv
+  M.add x.s t tenv
 
 let find_array_type x tenv =
   match find_type x tenv with
   | ARRAY (_, t') as t -> t, t'
-  | _ ->
-      error x.p "expected '%s' to be array type, is ..." x.s
+  | _ as t ->
+      error x.p "expected '%s' to be of array type, but is '%s'" x.s
+        (describe_type t)
 
 let find_record_type tenv renv x =
   match find_type x tenv with
   | RECORD (ts, _) as t -> t, M.find ts renv
-  | _ ->
-      error x.p "expected '%s' to be record type, is ..." x.s
+  | _ as t ->
+      error x.p "expected '%s' to be of record type, but is '%s'" x.s
+        (describe_type t)
 
 let find_record_field renv t (x : pos_string) =
   let ts = M.find t renv in
   let rec loop i = function
-    | [] -> error x.p "unknown field '%s'" x.s
+    | [] -> error x.p "record type '%s' does not contain field '%s'" t x.s
     | (x', t') :: xs when x' = x.s -> i, t'
     | _ :: xs -> loop (i+1) xs
   in loop 0 ts
@@ -116,10 +126,6 @@ let rec transl_typ renv t =
         && not (List.mem (Id.to_string uid) !visited)
         then begin
           visited := (Id.to_string uid) :: !visited;
-          (*Printf.eprintf "adding new record type: %s" (Id.to_string uid);
-          List.iter (fun (x, t) ->
-            Printf.eprintf "field '%s': %s\n%!" x (string_of_type t)) (M.find rname
-            renv); *)
           named_structs := (Id.to_string uid, Array.of_list
             (Tint 32 :: List.map (fun (_, t) -> loop t) (M.find rname renv))) :: !named_structs
         end;
@@ -136,20 +142,29 @@ let declare_type tenv (x, t) =
   | PTname y ->
       add_type x (find_type y tenv) tenv
   | PTarray y ->
-      add_type x (ARRAY (x, find_type y tenv)) tenv
+      add_type x (ARRAY (x.s, find_type y tenv)) tenv
   | PTrecord xs ->
-      add_type x (RECORD (x, Id.make x)) tenv
+      add_type x (RECORD (x.s, Id.make x.s)) tenv
 
 let check_unique_type_names xts =
-  List.iter (fun (x, _) ->
-    let matches = List.filter (fun (x', _) -> x = x') xts in
-    if List.length matches > 1 then error Lexing.dummy_pos "repeats") xts
+  let rec bind = function
+    | [] -> ()
+    | (x, _) :: xts ->
+        let matches = List.filter (fun (x', _) -> x.s = x'.s) xts in
+        if List.length matches > 0 then
+          let (x', _) = List.hd matches in
+          error x'.p
+            "type name '%s' can only be defined once in each type declaration"
+            x.s
+        else
+          bind xts
+  in bind xts
 
 let define_type tenv (x, _) =
   let visited = ref [] in
   let rec loop y =
     if List.mem y !visited then
-      error Lexing.dummy_pos "cycle does not go through record type";
+      error x.p "type declaration cycle does not pass through record type"
     visited := y :: !visited;
     try
       let t = M.find y tenv in
@@ -158,13 +173,14 @@ let define_type tenv (x, _) =
       | ARRAY (x, PLACE y') -> ARRAY (x, loop y')
       | _ -> t
     with Not_found ->
-      error Lexing.dummy_pos "unbound type '%s'" y
-  in M.add x (loop x) tenv
+      error x.p "unbound type '%s'" y
+        (* FIXME x.p != position of y in general *)
+  in add_type x (loop x.s) tenv
 
 let extract_record_type tenv renv (x, t) =
   match t with
   | PTrecord (xts) ->
-      M.add x (List.map (fun (x, t) -> (x.s, find_type t tenv)) xts) renv
+      M.add x.s (List.map (fun (x, t) -> (x.s, find_type t tenv)) xts) renv
   | _ ->
       renv
 
@@ -271,15 +287,15 @@ let array_length v nxt =
 let array_index v x nxt =
   array_length v (fun l ->
     insert_let l (Tint 32) (fun l ->
-  insert_let (Ebinop (x, Op_cmp Cle, l)) (Tint 1) (fun c ->
-    nxt (Eassert (c, Egep (v, [| Vint (32, 0); Vint (32, 2); x |]),
-    "kaboom")))))
+    insert_let (Ebinop (x, Op_cmp Cle, l)) (Tint 1) (fun c ->
+      nxt (Eassert (c, Egep (v, [| Vint (32, 0); Vint (32, 2); x |]),
+      (Printf.sprintf "index out of bounds in line %d" (-1)))))))
 
 let record_index v i nxt =
-  (* Egep (v, [| Vint (32, 0); Vint (32, i+1) |]) *)
   insert_let (Optrtoint v) (Tint 64) (fun p ->
   insert_let (Ebinop (p, Op_cmp Cne, Vint (64, 0))) (Tint 1) (fun c ->
-    nxt (Eassert (c, Egep (v, [| Vint (32, 0); Vint (32, i+1) |]), "kaboom"))))
+    nxt (Eassert (c, Egep (v, [| Vint (32, 0); Vint (32, i+1) |]),
+    (Printf.sprintf "field access to nil record in line %d" (-1))))))
 
 let side_expr e =
   Slet (Id.genid (), transl_typ M.empty VOID, e, Sskip)
@@ -289,20 +305,23 @@ let rec array_var tenv renv venv loop v nxt =
     match t with
     | ARRAY (_, t') -> nxt v' t t'
     | _ ->
-        error (var_p v) "expected variable of array type, found ...")
+        error (var_p v) "expected variable of array type, but type is '%s'"
+          (describe_type t))
 
 and record_var tenv renv venv loop v nxt =
   var tenv renv venv loop v (fun v' t ->
     match t with
     | RECORD (t', _) -> nxt v' t t'
     | _ ->
-        error (var_p v) "expected variable of record type, found ...")
+        error (var_p v) "expected variable of record type, but type is '%s'"
+          (describe_type t))
 
 and typ_exp tenv renv venv loop e t' nxt =
   exp tenv renv venv loop e (fun e' t ->
     if type_equal t t' then nxt e'
-    else
-      error (exp_p e) "type mismatch, is ..., should be ...")
+    else error (exp_p e)
+      "type mismatch: expected type '%s', instead found '%s'"
+        (string_of_type t') (string_of_type t))
 
 and int_exp tenv renv venv loop e nxt =
   typ_exp tenv renv venv loop e INT nxt
@@ -340,7 +359,9 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
   | Pstring (_, s) ->
       nxt (Evalue (Vstring s)) STRING
   | Pnil p ->
-      error p "illegal use of 'nil'"
+      error p
+        "'nil' should be used in a context where \
+        its type can be determined"
   | Pvar (_, v) ->
       var tenv renv venv loop v nxt
   | Pbinop (_, x, (Op_add as op), y)
@@ -420,7 +441,7 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
           (* nxt (Earraymalloc (transl_typ renv t', y)) t))) *)
           insert_let z (transl_typ renv t') (fun z ->
           nxt (Earraymalloc (y, z)) t))))
-  | Pmakerecord (_, x, xts) ->
+  | Pmakerecord (p, x, xts) ->
       let t, ts = find_record_type tenv renv x in
       let rec bind vs = function
         | [], [] ->
@@ -438,27 +459,26 @@ and exp tenv renv (venv : value_desc M.t) loop e nxt =
         | (x, Pnil _) :: xts, (x', t) :: ts ->
             if x.s = x' then
               bind (Vnull (transl_typ renv t) :: vs) (xts, ts)
-            else (* wrong name *)
-              assert false
+            else
+              if List.exists (fun (x', _) -> x.s = x') ts then
+                error x.p "field '%s' is in the wrong other" x.s
+              else
+                error x.p "field '%s' is unknown" x.s
         | (x, e) :: xts, (x', t) :: ts ->
             if x.s = x' then
               typ_exp tenv renv venv loop e t (fun e ->
                 save renv ~triggers:(List.exists (fun (_, e) -> triggers e) xts) e t (fun e ->
                   bind (e :: vs) (xts, ts)))
-            else (* wrong name *)
-              assert false
-        | [], _ -> (* not enough fields *)
-            assert false
-        | _, [] -> (* too many fields *)
-            assert false
+            else
+              if List.exists (fun (x', _) -> x.s = x') ts then
+                error x.p "field '%s' is in the wrong other" x.s
+              else
+                error x.p "unknown field '%s'" x.s
+        | [], _ ->
+            error p "some fields missing from initialisation"
+        | _, [] ->
+            error p "all fields have already been initialised"
       in bind [] (xts, ts)
-      (* let t, _ = find_record_type x env in
-      let rec loop ys = function
-        | [] -> nxt (Erecord (Array.of_list (List.rev ys))) t
-        | (_, x) :: xs ->
-            exp x (fun x _ -> loop (x :: ys) xs)
-      in loop [] xs
-      (* Erecord (Array.of_list (List.map (fun (_, e) -> exp e) xs)), t *) *)
   (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
       int_exp tenv venv looping x (fun x ->
         int_exp tenv venv looping y (fun y ->
@@ -594,7 +614,3 @@ let program e =
   { prog_body = s;
     prog_strings = [];
     prog_named = !named_structs }
-  (* { fn_name = Id.makeglobal "main";
-    .fn_rtyp = Some (Tint 32);
-    fn_args = [];
-    fn_body = s } *)
