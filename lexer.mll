@@ -80,7 +80,7 @@ rule token = parse
   { RPAREN }
   | [' ' '\t']+
   { token lexbuf }
-  | "(*"
+  | "/*"
   { comment 0 lexbuf }
   | '"'
   { string lexbuf }
@@ -136,8 +136,8 @@ and skip_whitespace = parse
   { EOF }
 
 and comment lvl = parse
-  | "*)" { if lvl = 0 then token lexbuf else comment (lvl-1) lexbuf }
-  | "(*" { comment (lvl+1) lexbuf }
+  | "*/" { if lvl = 0 then token lexbuf else comment (lvl-1) lexbuf }
+  | "/*" { comment (lvl+1) lexbuf }
   | _ { comment lvl lexbuf }
   | eof
   { EOF }
