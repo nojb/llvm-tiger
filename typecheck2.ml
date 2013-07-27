@@ -319,7 +319,7 @@ and typ_exp tenv renv venv loop e t' nxt =
 and int_exp tenv renv venv loop e nxt =
   typ_exp tenv renv venv loop e INT nxt
 
-and void_exp tenv renv venv loop e nxt =
+and void_exp tenv renv venv loop e (nxt : stm) =
   typ_exp tenv renv venv loop e VOID (fun _ -> nxt)
 
 (* Main typechecking/compiling functions *)
@@ -488,20 +488,19 @@ and exp tenv renv venv loop e nxt =
       insert_let (Ebinop (x, Op_cmp Cne, Vint (32, 0))) (Tint 1)
         (fun c -> Sif (c, void_exp tenv renv venv true y Sskip, Sbreak))) in
       Sseq (Sloop body, nxt Vundef VOID)
-  | Pfor (_, i, x, y, z) ->
-      (* int_exp tenv venv looping x (fun x ->
-        int_exp tenv venv looping y (fun y ->
-          let yy = Id.genid () in
-          let id = new_var (Tint 32) in
-          let venv' = add_var i id E.Tint venv in
-          Sseq (Slet (yy, y, Sstore (Eaddr id, x,
-            Sloop (Sif (Ebinop (Eload (Eaddr id), P.Op_cmp P.Cle, Evar yy),
-              void_exp tenv venv' true z
-                (Sstore (.Eaddr id,
-                  Ebinop (Eload (Eaddr id), P.Op_add, Vint (32, 1)),
-                  Sskip)),
-                  Sbreak)))), nxt Eundef E.Tvoid))) *)
-      assert false
+  | Pfor (_, i, x, y, z) -> (* FIXME should check that i not be assigned to *)
+      int_exp tenv renv venv loop x (fun x ->
+      int_exp tenv renv venv loop y (fun y ->
+      let ii = Id.genid () in
+      let venv' = add_var i ii INT venv in
+      let body =
+        insert_let (Eload (Vvar ii)) (Tint 32) (fun ii0 ->
+        insert_let (Ebinop (ii0, Op_cmp Cle, y)) (Tint 1) (fun c ->
+          Sif (c, void_exp tenv renv venv' true z
+            (insert_let (Ebinop (ii0, Op_add, Vint (32, 1))) (Tint 32)
+              (fun ii1 -> Sstore (Vvar ii, ii1))), Sbreak))) in
+      Slet (ii, Tpointer (Tint 32), Ealloca (false, Tint 32),
+      Sseq (Sstore (Vvar ii, x), Sseq (Sloop body, nxt Vundef VOID)))))
   | Pbreak p ->
       if loop then Sbreak (* ignore nxt *)
       else error p "illegal use of 'break'"
