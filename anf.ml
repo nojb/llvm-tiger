@@ -33,6 +33,7 @@ type cexp =
   | CALL of Id.t * value list
   | EXT_CALL of string * value list
   | GEP of value * value list
+  | PTRTOINT of value
 
 type exp =
   | DIE of string

@@ -171,8 +171,8 @@ let rec cexp env e =
       call (M.find x env) (Array.of_list (List.map (value env) ea))
   | GEP (e, ea) ->
       gep (value env e) (Array.of_list (List.map (value env) ea))
-  (* | Optrtoint v ->
-      ptrtoint (value env v) (int_t 64) *)
+  | PTRTOINT v ->
+      ptrtoint (value env v) (int_t 64)
 
 let rec if_exp benv venv = function
     GOTO (blk, vs) ->
@@ -181,9 +181,11 @@ let rec if_exp benv venv = function
       List.iter2 (fun v phi -> add_incoming (value venv v, curr) phi) vs phis;
       blk'
   | _ as e ->
+      let curr = insertion_block the_builder in
       let blk = new_block "" in
       position_at_end blk the_builder;
       exp benv venv e;
+      position_at_end curr the_builder;
       blk
 
 and exp benv venv = function
