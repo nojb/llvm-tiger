@@ -45,7 +45,7 @@ let type_equal t1 t2 =
   | _ -> false *)
 
 type value_desc =
-  | Variable of (Id.t * type_spec)
+  | Variable of (Id.t * type_spec * bool) (* unique_name, type, immutable *)
   | Function of (Id.t * (type_spec list * type_spec))
 
 (* type venv = (string * value_desc) list *)
@@ -61,8 +61,8 @@ let find_var id venv =
     Not_found ->
       error id.p "unbound variable '%s'" id.s
 
-let add_var (x : pos_string) id t venv =
-  M.add x.s (Variable (id, t)) venv
+let add_var (x : pos_string) id ?immutable:(immut=false) t venv =
+  M.add x.s (Variable (id, t, immut)) venv
 
 let add_fun x atyps rtyp venv =
   let id = Id.make x.s in
@@ -328,8 +328,8 @@ and void_exp tenv renv venv loop e nxt =
 and var tenv renv venv loop v nxt =
   match v with
   | PVsimple x ->
-      let x, t = find_var x venv in
-      nxt (VLOAD x) t
+      let x, t, immut = find_var x venv in
+      nxt (if immut then VVAR x else VLOAD x) t
   | PVsubscript (p, v, x) ->
       array_var tenv renv venv loop v (fun v t t' ->
       save renv ~triggers:(triggers x) v t (fun v ->
@@ -367,8 +367,9 @@ and exp tenv renv venv loop e nxt =
       failwith "binop not implemented"
   | Passign (_, PVsimple x, Pnil _) ->
       assert false
-  | Passign (_, PVsimple x, e) ->
-      let x, t = find_var x venv in
+  | Passign (p, PVsimple x0, e) ->
+      let x, t, immut = find_var x0 venv in
+      if immut then error p "variable '%s' should not be assigned to" x0.s;
       typ_exp tenv renv venv loop e t (fun e ->
       LET (Id.genid (), Tint 32, STORE (VVAR x, e), nxt VUNDEF VOID))
   | Passign (_, PVsubscript (_, v, e1), Pnil _) ->
@@ -510,7 +511,7 @@ and exp tenv renv venv loop e nxt =
       int_exp tenv renv venv loop x (fun x ->
       int_exp tenv renv venv loop y (fun y ->
       let ii = Id.genid () in
-      let venv' = add_var i ii INT venv in
+      let venv' = add_var i ii ~immutable:true INT venv in
       LET_BLOCK (cont, [], nxt VUNDEF VOID,
       LET_BLOCK (bl, [ii, Tint 32],
         insert_let (BINOP (VVAR ii, Op_cmp Cle, y)) (Tint 1) (fun c ->
