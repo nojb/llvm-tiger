@@ -387,8 +387,15 @@ and exp tenv renv venv loop e nxt =
       insert_let (BINOP (x, op, y)) (Tint 32) (fun v -> nxt v INT)))
   | Pbinop _ ->
       failwith "binop not implemented"
-  | Passign (_, PVsimple x, Pnil _) ->
-      assert false
+  | Passign (p, PVsimple x, Pnil _) ->
+      let x, t, immut = find_var x venv in
+      begin match t with
+      | RECORD _ ->
+          LET (Id.genid (), Tint 32, STORE (VVAR x, VNULL (transl_typ renv t)),
+          nxt VUNDEF VOID)
+      | _ ->
+          error p "trying to assign 'nil' to a variable of non-record type"
+      end
   | Passign (p, PVsimple x0, e) ->
       let x, t, immut = find_var x0 venv in
       if immut then error p "variable '%s' should not be assigned to" x0.s;

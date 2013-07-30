@@ -1,0 +1,1 @@
+let type r = {a:int} var a := r{a=12} in a := nil end
