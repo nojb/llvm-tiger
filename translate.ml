@@ -274,12 +274,6 @@ let return_type tenv fn =
   | None -> VOID
   | Some t -> find_type t tenv
 
-let add_formal (env, args) (x, _) t =
-  assert false
-  (* let x' = Id.make x in
-  let env = add_variable x x' t env in
-  env, (x', transl_typ t) :: args *)
-
 (* Memory layout of arrays
  *
  * -----------------------------------------------
@@ -623,7 +617,11 @@ and let_funs tenv renv venv loop funs e nxt =
   in
   let addfun2 venv {fn_name; fn_args; fn_rtyp; fn_body} =
     let f, (ts, t) = find_fun fn_name venv in
-    let venv, args = List.fold_left2 add_formal (venv, []) fn_args ts in
+    let venv, args = List.fold_left2
+      (fun (venv, args) (x, _) t -> let x' = Id.make x.s in add_var x x' t venv, x' :: args)
+      (venv, []) fn_args ts in
+    let args' = List.map (fun x -> Id.make (Id.to_string x)) args in
+    let args' = List.combine args' ts in
 
     (* Process the body *)
     let body = typ_exp tenv renv venv None fn_body t
@@ -634,9 +632,16 @@ and let_funs tenv renv venv loop funs e nxt =
         | t ->
             RETURN (VAL e)) in
 
+    let body =
+      List.fold_right2 (fun (x', t') x body ->
+        LET (x, Tpointer (transl_typ renv t'),
+          ALLOCA (structured_type t', (transl_typ renv t')),
+        LET (Id.genid (), Tint 32, STORE (VVAR x, VVAR x'),
+          body))) (List.rev args') (List.rev args) body in
+
     { fn_name = f;
       fn_rtyp = Some (transl_typ renv t); (* FIXME XXX *)
-      fn_args = List.rev args;
+      fn_args = List.rev_map (fun (x, t) -> (x, transl_typ renv t)) args';
       fn_body = body }
   in
   let venv = List.fold_left addfun venv funs in
