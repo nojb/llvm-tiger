@@ -61,7 +61,8 @@ let op2 = function
   | P.Op_add -> build_add
   | P.Op_sub -> build_sub
   | P.Op_mul -> build_mul
-  | P.Op_cmp P.Ceq -> build_icmp Icmp.Eq
+  | P.Op_cmp P.Ceq -> (fun v1 v2 ->
+        build_sext (build_icmp Icmp.Eq v1 v2 "" the_builder) (int_t 32))
   | P.Op_cmp P.Cle -> build_icmp Icmp.Sle
   | P.Op_cmp P.Cne -> build_icmp Icmp.Ne
   (* | A.Bin_and -> build_and
@@ -188,7 +189,7 @@ let rec goto benv venv blk vs =
       let blk' = new_block "" in
       let curr = insertion_block the_builder in
       position_at_end blk' the_builder;
-      let phis' = List.map (fun v -> build_phi [value venv v, curr] "" the_builder) vs in
+      let phis' = List.map (fun v -> build_phi [v, curr] "" the_builder) vs in
       let venv' = List.fold_left2 (fun venv (phi, _) phi' -> M.add phi phi' venv)
         venv phis phis' in
       bi := Emitted (blk', phis');
@@ -197,16 +198,16 @@ let rec goto benv venv blk vs =
       br blk'
   | Emitted (blk, phis) ->
       List.iter2 (fun v phi ->
-        add_incoming (value venv v, insertion_block the_builder) phi) vs
+        add_incoming (v, insertion_block the_builder) phi) vs
         phis;
       br blk
 
 and if_exp benv venv e =
-  let curr = insertion_block the_builder in
+  (* let curr = insertion_block the_builder in *)
   let blk = new_block "" in
   position_at_end blk the_builder;
   exp benv venv e;
-  position_at_end curr the_builder;
+  (* position_at_end curr the_builder; *)
   blk
 
 and exp benv venv = function
@@ -229,7 +230,7 @@ and exp benv venv = function
   | RETURN c ->
       ignore (build_ret (cexp venv c) the_builder)
   | GOTO (blk, vs) ->
-      goto benv venv blk vs
+      goto benv venv blk (List.map (value venv) vs)
 
 let rtyp fd =
   match fd.fn_rtyp with
@@ -244,6 +245,7 @@ let fn_header env fd =
   M.add fd.fn_name f env
 
 let fn_body env fd =
+  (* Format.fprintf Format.std_formatter "@[%a@\n@]" Pr_anf.exp fd.fn_body; *)
   let f = M.find fd.fn_name env in
   position_at_end (entry_block f) the_builder; (* XXX not needed *)
   let env = List.fold_left2 (fun env (x, _) x' ->
@@ -256,8 +258,6 @@ let fn_body env fd =
   br start
 
 let program fd =
-  debug () "in Emit";
-
   initialize ();
 
   let env = List.fold_left fn_header M.empty fd.prog_funs in

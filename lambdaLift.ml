@@ -81,8 +81,12 @@ let rec exp vars funs sols = function
       let sols' = Solver.solve () in
       List.iter (fun fundef ->
         toplevel := { fundef with fn_args = 
-          List.map (fun x -> x, M.find x vars)
+          List.fold_right (fun x args -> (x, M.find x vars) :: args)
+            (S.elements (M.find fundef.fn_name sols')) fundef.fn_args } ::
+              !toplevel) fundefs;
+          (* List.map (fun x -> x, M.find x vars)
             (S.elements (M.find fundef.fn_name sols')) } :: !toplevel) fundefs;
+            *)
       let sols' = join sols sols' in
       exp vars
         (List.fold_right S.add (List.map (fun f -> f.fn_name) fundefs) funs)
