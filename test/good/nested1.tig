@@ -1,0 +1,3 @@
+let var a := 101 function f () = g () function g () = (a := 103; f ()) in
+f ()
+end
