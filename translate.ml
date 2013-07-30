@@ -508,21 +508,13 @@ and exp tenv renv venv loop e nxt =
       insert_let (BINOP (x, Op_cmp Cne, VINT (32, 0))) (Tint 1)
         (fun c ->
           let yy = exp tenv renv venv loop y (fun y yt ->
-            tt := yt; GOTO (bl, [y])) in
+            tt := yt;
+            if yt = VOID then GOTO (bl, []) else GOTO (bl, [y])) in
         IF (c, yy,
-          typ_exp tenv renv venv loop z !tt (fun z -> GOTO (bl, [z])))))
+          typ_exp tenv renv venv loop z !tt
+            (fun z -> if !tt = VOID then GOTO (bl, []) else GOTO (bl, [z])))))
       in
-      LET_BLOCK (bl, [w, transl_typ renv !tt], nxt (VVAR w) !tt, body)
-        (* let yy = exp tenv renv venv loop y (fun y yt ->
-          tt := yt;
-          Sstore (Vvar tmp, y)) in
-        let zz = typ_exp tenv renv venv loop z !tt (fun z ->
-          Sstore (Vvar tmp, z)) in
-        Slet (tmp, Tpointer (transl_typ renv !tt),
-          Ealloca (structured_type !tt, transl_typ renv !tt),
-          insert_let (Ebinop (x, Op_cmp Cne, Vint (32, 0))) (Tint 1)
-            (fun c -> Sseq (Sif (c, yy, zz),
-              nxt (Vload tmp) !tt)))) *)
+      LET_BLOCK (bl, (if !tt = VOID then [] else [w, transl_typ renv !tt]), nxt (VVAR w) !tt, body)
   | Pwhile (_, x, y) ->
       let cont = Id.genid () in
       let bl = Id.genid () in
