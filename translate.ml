@@ -372,8 +372,17 @@ and exp tenv renv venv loop e nxt =
       if immut then error p "variable '%s' should not be assigned to" x0.s;
       typ_exp tenv renv venv loop e t (fun e ->
       LET (Id.genid (), Tint 32, STORE (VVAR x, e), nxt VUNDEF VOID))
-  | Passign (_, PVsubscript (_, v, e1), Pnil _) ->
-      assert false
+  | Passign (p, PVsubscript (_, v, e1), Pnil _) ->
+      array_var tenv renv venv loop v (fun v t t' ->
+      begin match t' with
+      | RECORD _ ->
+          save renv ~triggers:(triggers e1) v t (fun v ->
+          int_exp tenv renv venv loop e1 (fun e1 ->
+          array_index p (transl_typ renv t') v e1 (fun v ->
+          LET (Id.genid (), Tint 32, STORE (v, VNULL (transl_typ renv t')), nxt VUNDEF VOID))))
+      | _ ->
+          error p "trying to assign 'nil' to a field of non-record type"
+      end)
   | Passign (_, PVsubscript (p, v, e1), e2) ->
       array_var tenv renv venv loop v (fun v t t' ->
       save renv ~triggers:(triggers e1 || triggers e2) v t (fun v ->
@@ -424,9 +433,19 @@ and exp tenv renv venv loop e nxt =
             exp tenv renv venv loop x (fun _ _ -> bind x')
       in
       bind xs
+  | Pmakearray (p, x, y, Pnil _) ->
+      let t, t' = find_array_type x tenv in
+      begin match t' with
+      | RECORD _ ->
+          int_exp tenv renv venv loop y (fun y ->
+          insert_let (ARRAY_MALLOC (y, VNULL (transl_typ renv t')))
+            (transl_typ renv t) (fun arr -> nxt arr t))
+      | _ ->
+          error p "array base type must be record type"
+      end
   | Pmakearray (_, x, y, z) ->
       let t, t' = find_array_type x tenv in
-      int_exp tenv renv venv loop  y (fun y ->
+      int_exp tenv renv venv loop y (fun y ->
       typ_exp tenv renv venv loop z t' (fun z ->
       insert_let (ARRAY_MALLOC (y, z)) (transl_typ renv t)
         (fun arr -> nxt arr t)))

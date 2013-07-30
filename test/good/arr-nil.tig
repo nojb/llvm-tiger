@@ -1,0 +1,5 @@
+let type rec = { a : int, b : rec }
+type arr = array of rec
+var a := arr[10] of nil in
+a[3] := nil
+end
