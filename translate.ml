@@ -381,8 +381,16 @@ and exp tenv renv venv loop e nxt =
       array_index p (transl_typ renv t') v e1 (fun v ->
       typ_exp tenv renv venv loop e2 t'
         (fun e2 -> LET (Id.genid (), Tint 32, STORE (v, e2), nxt VUNDEF VOID))))))
-  | Passign (_, PVfield (_, v, x), Pnil _) ->
-      assert false
+  | Passign (p, PVfield (_, v, x), Pnil _) ->
+      record_var tenv renv venv loop v (fun v t t' ->
+      let i, tx = find_record_field renv t' x in
+      begin match tx with
+      | RECORD _ ->
+          record_index p (transl_typ renv tx) v i (fun v ->
+          LET (Id.genid (), Tint 32, STORE (v, VNULL (transl_typ renv tx)), nxt VUNDEF VOID))
+      | _ ->
+          error p "trying to assign 'nil' to a field of non-record type"
+      end)
   | Passign (_, PVfield (p, v, x), e) ->
       record_var tenv renv venv loop v (fun v t t' ->
       let i, tx = find_record_field renv t' x in

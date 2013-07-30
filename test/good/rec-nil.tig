@@ -1,0 +1,1 @@
+let type rec = {a : int, b : rec } var r := rec {a=12, b=nil} in r.b := nil end
