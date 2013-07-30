@@ -174,19 +174,37 @@ let rec cexp env e =
   | PTRTOINT v ->
       ptrtoint (value env v) (int_t 64)
 
-let rec if_exp benv venv = function
-    GOTO (blk, vs) ->
-      let (blk', phis)  = M.find blk benv in
-      let curr          = insertion_block the_builder in
-      List.iter2 (fun v phi -> add_incoming (value venv v, curr) phi) vs phis;
-      blk'
-  | _ as e ->
+type block_info =
+  | Fresh of block_info ref M.t * llvalue M.t * exp * (Id.t * llvm_type) list
+  | Emitted of llbasicblock * llvalue list
+
+let rec goto benv venv blk vs =
+  let bi = M.find blk benv in
+  match !bi with
+  | Fresh (benv, venv, e, phis) ->
+      let blk' = new_block "" in
       let curr = insertion_block the_builder in
-      let blk = new_block "" in
-      position_at_end blk the_builder;
-      exp benv venv e;
+      position_at_end blk' the_builder;
+      let phis' = List.map (fun v -> build_phi [value venv v, curr] "" the_builder) vs in
+      let venv' = List.fold_left2 (fun venv (phi, _) phi' -> M.add phi phi' venv)
+        venv phis phis' in
+      bi := Emitted (blk', phis');
+      exp (M.add blk bi benv) venv' e;
       position_at_end curr the_builder;
-      blk
+      br blk'
+  | Emitted (blk, phis) ->
+      List.iter2 (fun v phi ->
+        add_incoming (value venv v, insertion_block the_builder) phi) vs
+        phis;
+      br blk
+
+and if_exp benv venv e =
+  let curr = insertion_block the_builder in
+  let blk = new_block "" in
+  position_at_end blk the_builder;
+  exp benv venv e;
+  position_at_end curr the_builder;
+  blk
 
 and exp benv venv = function
     DIE msg ->
@@ -197,13 +215,7 @@ and exp benv venv = function
   | IF (v, e1, e2) ->
       cond_br (value venv v) (if_exp benv venv e1) (if_exp benv venv e2)
   | LET_BLOCK (blk, phis, e1, e2) ->
-      let blk' = new_block (Id.to_string blk) in
-      let curr = insertion_block the_builder in
-      position_at_end blk' the_builder;
-      let phis' = List.map (fun phi -> build_phi [] "" the_builder) phis in
-      let benv' = M.add blk (blk', phis') benv in
-      exp benv' venv e1;
-      position_at_end curr the_builder;
+      let benv' = M.add blk (ref (Fresh (benv, venv, e1, phis))) benv in
       exp benv' venv e2
   | LET (id, _, c, e) ->
       let v = cexp venv c in
@@ -214,10 +226,7 @@ and exp benv venv = function
   | RETURN c ->
       ignore (build_ret (cexp venv c) the_builder)
   | GOTO (blk, vs) ->
-      let (blk, phis) = M.find blk benv in
-      List.iter2 (fun v phi ->
-        add_incoming (value venv v, insertion_block the_builder) phi) vs phis;
-      br blk
+      goto benv venv blk vs
 
 let rtyp fd =
   match fd.fn_rtyp with

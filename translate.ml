@@ -511,11 +511,12 @@ and exp tenv renv venv loop e nxt =
       int_exp tenv renv venv loop y (fun y ->
       let ii = Id.genid () in
       let venv' = add_var i ii INT venv in
+      LET_BLOCK (cont, [], nxt VUNDEF VOID,
       LET_BLOCK (bl, [ii, Tint 32],
         insert_let (BINOP (VVAR ii, Op_cmp Cle, y)) (Tint 1) (fun c ->
           IF (c, void_exp tenv renv venv' (Some cont) z
             (insert_let (BINOP (VVAR ii, Op_add, VINT (32, 1))) (Tint 32) (fun ii ->
-              GOTO (bl, [ii]))), GOTO (cont, []))), GOTO (bl, [x]))))
+              GOTO (bl, [ii]))), GOTO (cont, []))), GOTO (bl, [x])))))
       (* let body =
         insert_let (Eload (Vvar ii)) (Tint 32) (fun ii0 ->
         insert_let (Ebinop (ii0, Op_cmp Cle, y)) (Tint 1) (fun c ->
