@@ -580,22 +580,28 @@ and exp tenv renv venv loop e nxt =
       ALLOCA (structured_type yt, transl_typ renv yt),
       LET (Id.genid (), Tint 32, STORE (VVAR id, y),
       exp tenv renv venv loop z nxt)))
-  | Pletvar (_, x, Some t, Pnil _, z) ->
-      (*
-      let t, _ = find_record_type t env in
-      let env, x = E.add_variable x t env in
-      Eletvar (x, transl_typ t, Enull (transl_typ t), exp' env inloop z nxt)
-      *)
-      assert false
+  | Pletvar (p, x, Some t, Pnil _, z) ->
+      let t = find_type t tenv in
+      begin match t with
+      | RECORD _ ->
+          let id = Id.genid () in
+          let venv = add_var x id t venv in
+          LET (id, Tpointer (transl_typ renv t),
+          ALLOCA (structured_type t, transl_typ renv t),
+          LET (Id.genid (), Tint 32, STORE (VVAR id, VNULL (transl_typ renv t)),
+          exp tenv renv venv loop z nxt))
+      | _ ->
+          error p "expected record type, found '%s'" (describe_type t)
+      end
   | Pletvar (_, x, Some t, y, z) ->
-      assert false
-      (* let t = find_type t tenv in
+      let t = find_type t tenv in
       typ_exp tenv renv venv loop y t (fun y ->
       let id = Id.genid () in
       let venv = add_var x id t venv in
-      Slet (id, Tpointer (transl_typ renv t),
-        Ealloca (structured_type t, transl_typ renv t),
-        Sseq (Sstore (Vvar id, y), exp tenv renv venv loop z nxt))) *)
+      LET (id, Tpointer (transl_typ renv t),
+      ALLOCA (structured_type t, transl_typ renv t),
+      LET (Id.genid (), Tint 32, STORE (VVAR id, y),
+      exp tenv renv venv loop z nxt)))
   | Plettype (_, tys, e) ->
       let tenv, renv = let_type tenv renv tys in
       exp tenv renv venv loop e nxt

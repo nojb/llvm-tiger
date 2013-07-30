@@ -1,0 +1,2 @@
+let type r = {a : int} var a : r := nil in a.a end
+
