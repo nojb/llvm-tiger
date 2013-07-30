@@ -1,5 +1,6 @@
 let parse ch =
  (* Pr_anf.f *)
+  LambdaLift.f
     (Translate.program
       (Parser.program Lexer.token
         (Lexing.from_channel ch)))

@@ -47,6 +47,7 @@ type exp =
 type prog = {
   prog_named : (string * llvm_type list) list;
   prog_strings : (Id.t * string) list;
+  prog_funs : (Id.t, llvm_type, exp) fundef list;
   prog_body : exp
 }
 

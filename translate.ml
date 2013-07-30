@@ -672,4 +672,5 @@ let program e =
     (fun _ _ -> RETURN (VAL (VINT (32, 0)))) in
   { prog_body = s;
     prog_strings = [];
+    prog_funs = [];
     prog_named = !named_structs }

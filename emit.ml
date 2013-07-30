@@ -6,6 +6,9 @@ module P = Parsetree
 
 module M = Map.Make (Id)
 
+let debug () =
+  Printf.ksprintf (fun msg -> Printf.fprintf stderr "Debug: Emit: %s\n%!" msg)
+
 let dllvm = ref false
 
 (*
@@ -240,24 +243,25 @@ let fn_header env fd =
   set_linkage Linkage.Internal f;
   M.add fd.fn_name f env
 
-(* let add_var (id, _, t) env =
-  M.add id (build_alloca (typ t) (Id.to_string id) the_builder) env *)
-
 let fn_body env fd =
   let f = M.find fd.fn_name env in
-  (* let b = L.builder_at_end (L.global_context ()) (L.entry_block f) in *)
-  (* let env = List.fold_left2 (fun env (x, _) x' ->
-    L.set_value_name (Id.to_string x) x';
-    M.add x x' env) env fun_args (Array.to_list (L.params f)) in *)
+  position_at_end (entry_block f) the_builder; (* XXX not needed *)
+  let env = List.fold_left2 (fun env (x, _) x' ->
+    (* L.set_value_name (Id.to_string x) x'; *)
+    M.add x x' env) env fd.fn_args (Array.to_list (params f)) in
+  let start = append_block (global_context ()) "start" f in
+  position_at_end start the_builder;
+  exp M.empty env fd.fn_body;
   position_at_end (entry_block f) the_builder;
-  exp M.empty env fd.fn_body
+  br start
 
 let program fd =
+  debug () "in Emit";
+
   initialize ();
-  (* let env = List.fold_left (fn_body m) env fd in *)
-  (* let env = fn_header M.empty fd in *)
-  (* fn_body env fd; *)
-  (* List.iter (fundec2 m env) fs;*)
+
+  let env = List.fold_left fn_header M.empty fd.prog_funs in
+  List.iter (fn_body env) fd.prog_funs;
 
   let main = define_function "main"
     (function_type (i32_type (global_context ())) [||]) (global_module ()) in
@@ -267,7 +271,7 @@ let program fd =
     struct_types := (rname, t) :: !struct_types;
     struct_set_body t (Array.of_list (List.map llvm_type rftyps)) false) fd.prog_named;
   position_at_end start the_builder;
-  exp M.empty M.empty fd.prog_body;
+  exp M.empty env fd.prog_body;
   position_at_end (entry_block main) the_builder;
   br start;
   global_module ()
