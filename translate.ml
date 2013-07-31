@@ -299,16 +299,16 @@ let array_length v nxt =
 let array_index p t' v x nxt =
   array_length v (fun l ->
   insert_let (BINOP (x, Op_cmp Cle, l)) (Tint 1) (fun c ->
-  IF (c, insert_let (GEP (v, [ VINT (32, 0); VINT (32, 2); x ])) t' nxt,
-    DIE (Printf.sprintf "Runtime error: index out of bounds in line %d\n"
-    p.Lexing.pos_lnum))))
+  CHECK (c, insert_let (GEP (v, [VINT (32, 0); VINT (32, 2); x])) t' nxt,
+    Printf.sprintf "Runtime error: index out of bounds in line %d\n"
+    p.Lexing.pos_lnum)))
 
 let record_index p tx v i nxt =
   insert_let (PTRTOINT v) (Tint 64) (fun ptr ->
   insert_let (BINOP (ptr, Op_cmp Cne, VINT (64, 0))) (Tint 1) (fun c ->
-  IF (c, insert_let (GEP (v, [ VINT (32, 0); VINT (32, i+1) ])) tx nxt,
-    DIE (Printf.sprintf "field access to nil record in line %d"
-      p.Lexing.pos_lnum))))
+  CHECK (c, insert_let (GEP (v, [ VINT (32, 0); VINT (32, i+1) ])) tx nxt,
+    Printf.sprintf "field access to nil record in line %d"
+    p.Lexing.pos_lnum)))
 
 let rec array_var tenv renv venv loop v nxt =
   var tenv renv venv loop v (fun v' t ->

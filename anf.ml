@@ -36,7 +36,7 @@ type cexp =
   | PTRTOINT of value
 
 type exp =
-  | DIE of string
+  | CHECK of value * exp * string
   | LET of Id.t * llvm_type * cexp * exp
   | IF of value * exp * exp
   | RETURN of cexp
@@ -77,7 +77,7 @@ let fv_cexp = function
   | PTRTOINT v -> fv_value v
 
 let rec fv = function
-  | DIE _ -> S.empty
+  | CHECK (v, e, _) -> S.union (fv_value v) (fv e)
   | LET (x, _, e1, e2) ->
       S.union (fv_cexp e1) (S.remove x (fv e2))
   | IF (v, e1, e2) ->
@@ -95,7 +95,7 @@ let rec fv = function
             (fv fundef.fn_body))) S.empty fundefs)
 
 let rec fc = function
-  | DIE _ -> S.empty
+  | CHECK (_, e, _) -> fc e
   | LET (_, _, CALL (x, _), e2) ->
       S.add x (fc e2)
   | LET (_, _, _, e2) ->

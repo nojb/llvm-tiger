@@ -53,8 +53,8 @@ let cexp sols = function
   | _ as c -> c
 
 let rec exp vars funs sols = function
-  | DIE s ->
-      DIE s
+  | CHECK (v, e, msg) ->
+      CHECK (v, exp vars funs sols e, msg)
   | LET (x, t, c, e) ->
       LET (x, t, cexp sols c, exp (M.add x t vars) funs sols e)
   | IF (v, e1, e2) ->

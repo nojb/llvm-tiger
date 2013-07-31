@@ -203,19 +203,27 @@ let rec goto benv venv blk vs =
       br blk
 
 and if_exp benv venv e =
-  (* let curr = insertion_block the_builder in *)
   let blk = new_block "" in
+  let curr = insertion_block the_builder in
   position_at_end blk the_builder;
   exp benv venv e;
-  (* position_at_end curr the_builder; *)
+  position_at_end curr the_builder;
+  blk
+
+and die msg =
+  let blk = new_block "" in
+  let curr = insertion_block the_builder in
+  position_at_end blk the_builder;
+  printf msg;
+  ignore (call (declare_function "exit"
+    (function_type void_t [| int_t 32 |])
+    (global_module ())) [| const_int 2 |]);
+  position_at_end curr the_builder;
   blk
 
 and exp benv venv = function
-    DIE msg ->
-      printf msg;
-      ignore (call (declare_function "exit"
-        (function_type void_t [| int_t 32 |])
-        (global_module ())) [| const_int 2 |])
+    CHECK (v, e, msg) ->
+      cond_br (value venv v) (if_exp benv venv e) (die msg)
   | IF (v, e1, e2) ->
       cond_br (value venv v) (if_exp benv venv e1) (if_exp benv venv e2)
   | LET_BLOCK (blk, phis, e1, e2) ->
