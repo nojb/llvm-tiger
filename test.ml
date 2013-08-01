@@ -1,12 +1,10 @@
 let parse ch =
- (* Pr_anf.f *)
-  LambdaLift.f
-    (Translate.program
+    (Typing.program
       (Parser.program Lexer.token
         (Lexing.from_channel ch)))
 
 (* let _ =
   parse stdin *)
 
-let _ =
-  Llvm.dump_module (Emit.program (parse stdin))
+(* let _ =
+  Llvm.dump_module (Emit.program (parse stdin)) *)

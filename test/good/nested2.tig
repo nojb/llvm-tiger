@@ -1,0 +1,12 @@
+let var a := 101 var b := 102
+function f () =
+let var c := 103
+function g () =
+c := a + b
+in
+c := a
+end
+in
+b
+end
+

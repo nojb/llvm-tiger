@@ -42,7 +42,7 @@ and exp =
   | Pfor of pos * pos_string * exp * exp * exp
   | Pbreak of pos
   | Pletvar of pos * pos_string * pos_string option * exp * exp
-  | Pletfuns of pos * (pos_string, pos_string, exp) fundef list * exp
+  | Pletfuns of pos * (pos_string, pos_string option, pos_string, exp) fundef list * exp
   | Plettype of pos * (pos_string * typ) list * exp
 
 let exp_p = function

@@ -2,6 +2,6 @@ Id
 Parsetree
 Parser
 Lexer
-Anf
-Translate
+Typedtree
+Typing
 Test
