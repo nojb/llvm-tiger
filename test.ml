@@ -1,4 +1,5 @@
 let parse ch =
+  Translate.program
     (Typing.program
       (Parser.program Lexer.token
         (Lexing.from_channel ch)))

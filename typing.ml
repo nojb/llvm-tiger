@@ -299,9 +299,9 @@ and var env v : Typedtree.var * type_spec =
 and exp env e =
   match e with
   | Pint (_, n) ->
-      Tint n, INT
+      TCint n, INT
   | Pstring (_, s) ->
-      Tstring s, STRING
+      TCstring s, STRING
   | Pnil p ->
       error p
         "'nil' should be used in a context where \
@@ -352,7 +352,7 @@ and exp env e =
       begin match t' with
       | RECORD _ ->
           let e1 = int_exp env e1 in
-          Tassign (TVsubscript (p'.Lexing.pos_lnum, v, e1), Tnil t'), VOID
+          Tassign (TVsubscript (p'.Lexing.pos_lnum, v, e1), TCnil t'), VOID
       | _ ->
           error p "trying to assign 'nil' to a field of non-record type"
       end
@@ -366,7 +366,7 @@ and exp env e =
       let i, tx = find_record_field env t' x in
       begin match tx with
       | RECORD _ ->
-          Tassign (TVfield (p'.Lexing.pos_lnum, v, i), Tnil t'), VOID
+          Tassign (TVfield (p'.Lexing.pos_lnum, v, i), TCnil t'), VOID
       | _ ->
           error p "trying to assign 'nil' to a field of non-record type"
       end
@@ -410,7 +410,7 @@ and exp env e =
       let t, t' = find_array_type x env in
       begin match t' with
       | RECORD _ ->
-          Tmakearray (int_exp env y, Tnil t'), t
+          Tmakearray (int_exp env y, TCnil t'), t
       | _ ->
           error p "array base type must be record type"
       end
@@ -467,7 +467,7 @@ and exp env e =
             nxt Eundef E.Tvoid))) *)
   | Pif (_, x, y, None) ->
       let x = int_exp env x in
-      Tif (x, void_exp env y, Tseq []), VOID
+      Tif (x, void_exp env y, Tseq [], true), VOID
   | Pif (_, x, y, Some z) ->
       assert false
       (* let bl = Id.genid () in
@@ -518,7 +518,7 @@ and exp env e =
       let acc = ref Local in
       let env = add_var x yt env.lvl acc env in
       let z, zt = exp env z in
-      Tletvar (x.s, acc, y, z), zt
+      Tletvar (x.s, acc, structured_type yt, yt, y, z), zt
   | Pletvar (p, x, Some t, Pnil _, z) ->
       let t = find_type t env in
       begin match t with
@@ -526,7 +526,7 @@ and exp env e =
           let acc = ref Local in
           let env = add_var x t env.lvl acc env in
           let z, zt = exp env z in
-          Tletvar (x.s, acc, Tnil t, z), zt
+          Tletvar (x.s, acc, true, t, TCnil t, z), zt
       | _ ->
           error p "expected record type, found '%s'" (describe_type t)
       end
@@ -536,7 +536,7 @@ and exp env e =
       let acc = ref Local in
       let env = add_var x t env.lvl acc env in
       let z, zt = exp env z in
-      Tletvar (x.s, acc, y, z), zt
+      Tletvar (x.s, acc, structured_type t, t, y, z), zt
   | Plettype (_, tys, e) ->
       let env = let_type env tys in
       exp env e
@@ -607,7 +607,7 @@ let program e =
     fp = [ref 0];
     lvl = 0
   } in
-  exp base_env e
+  fst (exp base_env e)
   (*
   { prog_body = s;
     prog_strings = [];
