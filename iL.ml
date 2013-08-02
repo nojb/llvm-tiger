@@ -24,7 +24,14 @@ type unary =
   | Ptrtoint  of llvm_type
 
 type label =
-  string
+  L of string
+
+module Label =
+  struct
+    type t = label
+    let compare (L lbl1) (L lbl2) = compare lbl1 lbl2
+    let equal (L lbl1) (L lbl2) = lbl1 = lbl2
+  end;;
 
 type block =
   | Binary    of string * binary * value * value * block
@@ -40,12 +47,12 @@ type block =
   | Br        of label
   | Ret       of value option
 
-module M = Map.Make (String)
+module LM = Map.Make (Label)
 
 type fundef = {
   name : string;
   rtyp : llvm_type option;
   args : (string * llvm_type) list;
-  body : block M.t;
+  body : block LM.t;
   main : label
 }

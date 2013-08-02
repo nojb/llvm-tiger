@@ -22,19 +22,19 @@ type var =
   | TVfield of int * var * int
 
 and exp =
-  | Tint of int
-  | Tstring of string
-  | Tnil of type_spec
+  | TCint of int
+  | TCstring of string
+  | TCnil of type_spec
   | Tvar of var
   | Tbinop of exp * bin * exp
   | Tassign of var * exp
-  | Tcall of string * exp list
+  | Tcall of string * (exp * bool (* is_ptr *)) list
   | Tseq of exp list
   | Tmakearray of exp * exp
   | Tmakerecord of string * exp list
-  | Tif of exp * exp * exp
+  | Tif of exp * exp * exp * bool (* is_void *)
   | Twhile of exp * exp
   | Tfor of string * exp * exp * exp
   | Tbreak
-  | Tletvar of string * access ref * exp * exp
+  | Tletvar of string * access ref * bool (* is_ptr *) * type_spec * exp * exp
   | Tletfuns of (string, type_spec, type_spec * access ref, exp) fundef list * exp

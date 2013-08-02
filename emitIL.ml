@@ -2,7 +2,8 @@ open IL
 open Llvm
 
 module M = Map.Make (String)
-module S = Set.Make (String)
+module LM = Map.Make (Label)
+module LS = Set.Make (Label)
 
 let debug () =
   Printf.ksprintf (fun msg ->
@@ -123,7 +124,7 @@ let llvm_unary = function
       (fun v dst build -> build_ptrtoint v (llvm_type ty) dst build)
 
 type env = {
-  lenv : llbasicblock M.t;
+  lenv : llbasicblock LM.t;
   venv : llvalue M.t;
   phis : (llvalue * label * value) list
 }
@@ -162,7 +163,7 @@ let rec block env b =
       if List.length good = 0 then
         fatal () "phi 'good' incoming values has no good ones";
       let phi = build_phi (List.map (fun (lbl, v) ->
-          (value env v, M.find lbl env.lenv)) good) dst the_builder in
+          (value env v, LM.find lbl env.lenv)) good) dst the_builder in
       let env = List.fold_left (fun env (lbl, v) ->
         add_phi phi lbl v env) env bad in
       block env nxt
@@ -177,10 +178,10 @@ let rec block env b =
       block env nxt
   | Condbr (v, lbl1, lbl2) ->
       ignore (build_cond_br (value env v)
-        (M.find lbl1 env.lenv) (M.find lbl2 env.lenv) the_builder);
+        (LM.find lbl1 env.lenv) (LM.find lbl2 env.lenv) the_builder);
       env, [lbl1; lbl2]
   | Br (lbl) ->
-      ignore (build_br (M.find lbl env.lenv) the_builder);
+      ignore (build_br (LM.find lbl env.lenv) the_builder);
       env, [lbl]
   | Ret (None) ->
       ignore (build_ret_void the_builder);
@@ -220,28 +221,28 @@ let fn_body fundef =
     List.fold_left (fun env (x, _) ->
       incr count;
       M.add x (param f !count) env) M.empty fundef.args in
-  let lenv = M.fold (fun n _ lenv ->
+  let lenv = LM.fold (fun (L n as lbl) _ lenv ->
     let blk = append_block (global_context ()) n f in
-    M.add n blk lenv) fundef.body M.empty in
+    LM.add lbl blk lenv) fundef.body LM.empty in
   let rec loop visited env lbl =
-    if S.mem lbl visited then ()
+    if LS.mem lbl visited then ()
     else begin
-      let visited = S.add lbl visited in
-      position_at_end (M.find lbl lenv) the_builder;
-      let env, follow = block env (M.find lbl fundef.body) in
-      (* let follow = List.filter (fun lbl -> not (S.mem lbl visited)) follow in
+      let visited = LS.add lbl visited in
+      position_at_end (LM.find lbl lenv) the_builder;
+      let env, follow = block env (LM.find lbl fundef.body) in
+      (* let follow = List.filter (fun lbl -> not (LS.mem lbl visited)) follow in
   * *)
       let good, bad = List.partition (fun (_, lbl', _) ->
-        S.mem lbl' visited && List.mem lbl' follow) env.phis in
+        LS.mem lbl' visited && List.mem lbl' follow) env.phis in
       List.iter (fun (phi, lbl, v) ->
-        add_incoming (value env.venv v, M.find lbl lenv) phi) good;
+        add_incoming (value env.venv v, LM.find lbl lenv) phi) good;
       let env = { env with phis = bad } in
       List.iter (fun n -> loop visited env n) follow
     end
   in
-  loop S.empty { lenv = lenv; venv = env; phis = [] } fundef.main;
+  loop LS.empty { lenv = lenv; venv = env; phis = [] } fundef.main;
   position_at_end (entry_block f) the_builder;
-  ignore (build_br (M.find fundef.main lenv) the_builder)
+  ignore (build_br (LM.find fundef.main lenv) the_builder)
 
 let program fundefs =
   initialize ();
