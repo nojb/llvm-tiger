@@ -100,31 +100,6 @@ let array_exists p a =
     else loop (i+1)
   in loop 0
 
-let rec triggers (e : Typedtree.exp) : bool =
-  match e with
-  | TCint _
-  | TCstring _
-  | TCnil _ -> false
-  | Tvar (v) -> triggers_var v
-  | Tbinop (e1, _, e2) -> triggers e1 || triggers e2
-  | Tassign (v, e) -> triggers_var v || triggers e
-  | Tcall _ -> true
-  | Tseq (es) -> List.exists triggers es
-  | Tmakearray _
-  | Tmakerecord _ -> true
-  | Tif (e1, e2, e3, _) -> triggers e1 || triggers e2 || triggers e3
-  | Twhile (e1, e2) -> triggers e1 || triggers e2
-  | Tfor (_, e1, e2, e3) -> triggers e1 || triggers e2 || triggers e3
-  | Tbreak -> false
-  | Tletvar (_, _, _, _, e1, e2) -> triggers e1 || triggers e2
-  | Tletfuns (_, e) -> triggers e
-
-and triggers_var = function
-  | TVlocal _
-  | TVnonLocal _ -> false
-  | TVsubscript (_, v, e) -> triggers_var v || triggers e
-  | TVfield (_, v, _) -> triggers_var v
-
   (*
 let rec pure = function
   | Eundef
