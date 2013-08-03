@@ -366,22 +366,20 @@ and exp env e =
       let e = typ_exp env e tx in
       Tassign (TVfield (p.Lexing.pos_lnum, v, i), e), VOID
   | Pcall (p, x, xs) ->
-      assert false
-      (* let x, (ts, t) = find_fun x venv in
+      let fi = find_fun x env in
+      let ts, t = fi.fsign in
       if List.length xs <> List.length ts then
         error p "bad arity: is %d, should be %d"
           (List.length xs) (List.length ts);
       let rec bind ys = function
         | [], [] ->
-            insert_let (CALL (x, List.rev ys)) (transl_typ env t)
-              (fun call -> nxt call t)
+            Tcall (x.s, List.rev ys), t
         | x :: xs, t :: ts ->
-            typ_exp tenv renv venv loop x t (fun x ->
-              save renv ~triggers:(List.exists triggers xs) x t (fun x ->
-              bind (x :: ys) (xs, ts)))
+            let x = typ_exp env x t in
+            bind ((x, structured_type t) :: ys) (xs, ts)
         | _ ->
             assert false
-      in bind [] (xs, ts) *)
+      in bind [] (xs, ts)
   | Pseq (_, xs) ->
       let rec bind = function
         | []      ->
