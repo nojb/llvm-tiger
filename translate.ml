@@ -500,7 +500,8 @@ let program fundefs =
       end else
         M.add n (param f !count) env) M.empty fundef.fn_args in
     exp env (entry_block f) fundef.fn_body
-      (fun x -> ignore (build_ret (llvm_value x) g_builder));
+      (fun x -> if classify_type fundef.fn_rtyp = TypeKind.Void then ignore
+      (build_ret_void g_builder) else ignore (build_ret (llvm_value x) g_builder));
     position_at_end (entry_block f) g_builder;
     ignore (build_br startbb g_builder) in
 

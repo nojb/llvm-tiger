@@ -296,7 +296,11 @@ let rec tr_function_body env fundef =
       (List.map2 (fun (x, _) t -> (x.s, (transl_typ env t, IsPtr (structured_type t), IsFree false)))
       fundef.fn_args ts) in
 
-  toplevel := { fn_name = fi.fname; fn_rtyp = transl_typ env t; fn_args = formals; fn_body =
+  let tr_rtyp = function
+    | VOID -> Llvm.void_type (Llvm.global_context ())
+    | t -> transl_typ env t in
+
+  toplevel := { fn_name = fi.fname; fn_rtyp = tr_rtyp t; fn_args = formals; fn_body =
     body } :: !toplevel
 
 and let_funs env fundefs e =
