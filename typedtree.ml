@@ -43,7 +43,7 @@ and exp =
   | Tseq of exp list
   | Tmakearray of type_spec * exp * exp (* element type, size, init value *)
   | Tmakerecord of type_spec * (exp * ptr_flag) list
-  | Tif of exp * exp * exp * void_flag
+  | Tif of exp * exp * exp * void_flag * type_spec
   | Twhile of exp * exp
   | Tfor of string * exp * exp * exp
   | Tbreak
@@ -61,7 +61,7 @@ let rec triggers (e : exp) : bool =
   | Tseq (es) -> List.exists triggers es
   | Tmakearray _
   | Tmakerecord _ -> true
-  | Tif (e1, e2, e3, _) -> triggers e1 || triggers e2 || triggers e3
+  | Tif (e1, e2, e3, _, _) -> triggers e1 || triggers e2 || triggers e3
   | Twhile (e1, e2) -> triggers e1 || triggers e2
   | Tfor (_, e1, e2, e3) -> triggers e1 || triggers e2 || triggers e3
   | Tbreak -> false

@@ -361,7 +361,7 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
           .Sseq (T.Sif (Ebinop (x, op, y),
             void_exp tenv venv looping z Sskip, Sskip),
             nxt Eundef E.Tvoid))) *)
-  | Tif (x, y, z, IsVoid true) -> (* result is void *)
+  | Tif (x, y, z, IsVoid true, _) -> (* result is void *)
       let nextbb = new_block () in
       let yesbb  = new_block () in
       let naybb  = new_block () in
@@ -374,23 +374,20 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       exp env breakbb z (fun _ -> ignore (build_br nextbb g_builder));
       position_at_end nextbb g_builder;
       nxt nil
-  | Tif (x, y, z, IsVoid false) ->
+  | Tif (x, y, z, IsVoid false, ty) ->
       let nextbb = new_block () in
       let yesbb  = new_block () in
       let naybb  = new_block () in
-      let yy     = ref nil in
-      let zz     = ref nil in
+      let tmp    = VAL (alloca false (transl_typ ty)) in
       exp env breakbb x (fun x ->
         binop (build_icmp Icmp.Ne) x (const_int 32 0) (fun c ->
         ignore (cond_br c yesbb naybb)));
       position_at_end yesbb g_builder;
-      exp env breakbb y (fun y -> yy := y; ignore (build_br nextbb g_builder));
-      let yesbb = insertion_block g_builder in
+      exp env breakbb y (fun y -> store y tmp (fun _ -> ()); ignore (build_br nextbb g_builder));
       position_at_end naybb g_builder;
-      exp env breakbb z (fun z -> zz := z; ignore (build_br nextbb g_builder));
-      let naybb = insertion_block g_builder in
+      exp env breakbb z (fun z -> store z tmp (fun _ -> ()); ignore (build_br nextbb g_builder));
       position_at_end nextbb g_builder;
-      phi [!yy, yesbb; !zz, naybb] nxt
+      load tmp nxt
   | Twhile (x, y) ->
       let nextbb = new_block () in
       let testbb = new_block () in
