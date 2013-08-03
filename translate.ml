@@ -188,6 +188,9 @@ let gep v vs =
 let binop op v1 v2 =
   VAL (op (llvm_value v1) (llvm_value v2) "" g_builder)
 
+let unop op v =
+  VAL (op (llvm_value v) "" g_builder)
+
 let call v0 vs =
   VAL (build_call v0 (Array.of_list (List.map llvm_value vs)) "" g_builder)
 
@@ -227,12 +230,18 @@ let array_index lnum v x =
   gep v [ const_int 32 0; const_int 32 2; x ]
 
 let record_index lnum v i =
-  assert false
-  (* insert_let (PTRTOINT v) (Tint 64) (fun ptr ->
-  insert_let (BINOP (ptr, Op_cmp Cne, VINT (64, 0))) (Tint 1) (fun c ->
-  CHECK (c, insert_let (GEP (v, [ VINT (32, 0); VINT (32, i+1) ])) tx nxt,
-    Printf.sprintf "field access to nil record in line %d"
-    p.Lexing.pos_lnum))) *)
+  let ptrtoint v s b =
+    build_ptrtoint v (int_t Sys.word_size) s b in
+  let yesbb = new_block () in
+  let diebb = new_block () in
+  let ptr = unop ptrtoint v in
+  let c = binop (build_icmp Icmp.Ne) ptr (const_int Sys.word_size 0) in
+  cond_br c yesbb diebb;
+  position_at_end diebb g_builder;
+  die (Printf.sprintf
+    "Runtime error: field access to nil record in line %d\n" lnum);
+  position_at_end yesbb g_builder;
+  gep v [ const_int 32 0; const_int 32 (i+1) ]
 
 (* Main typechecking/compiling functions *)
 
