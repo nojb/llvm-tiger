@@ -29,6 +29,9 @@ let llvm_value = function
 let int_t w =
   integer_type g_context w
 
+let void_t =
+  void_type g_context
+
 let ptr_t t =
   pointer_type t
 
@@ -164,6 +167,16 @@ let malloc v =
     (function_type (ptr_t (int_t 8)) [| int_t 32 |]) g_module)
     [| v |] "" g_builder
 
+let alloca is_ptr ty =
+  let b = builder_at_end g_context
+    (entry_block (block_parent (insertion_block g_builder))) in
+  let a = build_alloca ty "" b in
+  let v = build_pointercast a (ptr_t (ptr_t (int_t 8))) "" b in
+  ignore (build_call (declare_function "llvm.gcroot"
+    (function_type void_t [| ptr_t (ptr_t (int_t 8)); ptr_t (int_t 8) |])
+  g_module) [| v; const_null0 (ptr_t (int_t 8)) |] "" b);
+  a
+
 (* let add v1 v2 =
   VAL (build_add (llvm_value v1) (llvm_value v2) "" g_builder)
 
@@ -205,9 +218,6 @@ let printf msg =
     (var_arg_function_type (int_t 32) [| ptr_t (int_t 8) |])
     g_module) [| build_global_stringptr msg "" g_builder |] "" g_builder)
 
-let void_t =
-  void_type g_context
-
 let die msg =
   printf msg;
   ignore (build_call (declare_function "exit"
@@ -243,8 +253,7 @@ let save triggers v (nxt : llvm_value -> unit) =
     match v with
     | LOADVAL _ -> nxt v
     | VAL v ->
-        let a = build_alloca (type_of v) "" g_builder in
-        (* gcroot FIXME XXX *)
+        let a = alloca true (type_of v) in
         ignore (build_store v a g_builder);
         nxt (LOADVAL a)
   else
@@ -439,8 +448,7 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
   | Tletvar (x, acc, is_ptr, ty, y, z) ->
       begin match !acc with
       | Local ->
-          let a = build_alloca (transl_typ ty) "" g_builder in
-          (* gcroot FIXME *)
+          let a = alloca is_ptr (transl_typ ty) in
           exp env breakbb y (fun y ->
           store y (VAL a) (fun _ ->
           exp (M.add x a env) breakbb z nxt))
