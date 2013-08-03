@@ -344,7 +344,7 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       let naybb  = new_block () in
       exp env breakbb x (fun x ->
         binop (build_icmp Icmp.Ne) x (const_int 32 0) (fun c ->
-        ignore (cond_br c yesbb nextbb)));
+        ignore (cond_br c yesbb naybb)));
       position_at_end yesbb g_builder;
       exp env breakbb y (fun _ -> ignore (build_br nextbb g_builder));
       position_at_end naybb g_builder;

@@ -469,7 +469,10 @@ and exp env e =
       let x = int_exp env x in
       Tif (x, void_exp env y, Tseq [], true), VOID
   | Pif (_, x, y, Some z) ->
-      assert false
+      let x = int_exp env x in
+      let y, ty = exp env y in
+      let z = typ_exp env z ty in
+      Tif (x, y, z, ty = VOID), ty
       (* let bl = Id.genid () in
       let w = Id.genid () in
       let tt = ref VOID in
