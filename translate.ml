@@ -31,8 +31,8 @@ let new_block () =
   append_block g_context "" f
 
 let llvm_value = function
-  | VAL v -> dump_value v; v
-  | LOADVAL v -> dump_value v; build_load v "" g_builder
+  | VAL v -> v
+  | LOADVAL v -> build_load v "" g_builder
 
 let int_t w =
   integer_type g_context w
@@ -179,12 +179,7 @@ let dump_llvm_value = function
   | LOADVAL v -> dump_value v
 
 let store v p nxt =
-  debug () "store";
-  dump_llvm_value v;
-  dump_llvm_value p;
-  dump_module g_module;
   ignore (build_store (llvm_value v) (llvm_value p) g_builder);
-  debug () "success!";
   nxt (const_int 32 0)
 
 let gep v vs nxt =
@@ -195,7 +190,6 @@ let binop op v1 v2 nxt =
   nxt (VAL (op (llvm_value v1) (llvm_value v2) "" g_builder))
 
 let call v0 vs =
-  dump_value v0;
   VAL (build_call v0 (Array.of_list (List.map llvm_value vs)) "" g_builder)
 
 let phi incoming nxt =
@@ -223,8 +217,6 @@ let array_index lnum v x nxt =
   let yesbb = new_block () in
   let diebb = new_block () in
   array_length v (fun l ->
-  (* dump_value (llvm_value x);
-  dump_value (llvm_value l); *)
   binop (build_icmp Icmp.Sle) x l (fun c1 ->
   binop (build_icmp Icmp.Sge) x (const_int 32 0) (fun c2 ->
   binop build_and c1 c2 (fun c -> cond_br c yesbb diebb)));
@@ -257,10 +249,8 @@ let save triggers v (nxt : llvm_value -> unit) =
 let rec var env breakbb v (nxt : llvm_value -> unit) =
   match v with
   | TVsimple (x, IsImm true) ->
-      dump_value (M.find x env);
       nxt (VAL (M.find x env))
   | TVsimple (x, IsImm false) ->
-      dump_value (M.find x env);
       nxt (LOADVAL (M.find x env))
   | TVsubscript (lnum, v, x) ->
       var env breakbb v (fun v ->
@@ -324,7 +314,6 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
   | Tcall (x, xs) ->
       let rec bind ys = function
         | [] ->
-            List.iter dump_value (List.map llvm_value ys);
             nxt (call (getfun x) (List.rev ys))
         | (ArgExp (x, IsPtr is_ptr)) :: xs ->
             exp env breakbb x (fun x ->
@@ -347,7 +336,6 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       let a = malloc (build_add (const_int0 32 8)
         (build_mul (llvm_value y) (size_of (transl_typ t)) "" g_builder)
         "" g_builder) in
-       dump_value a;
       nxt (VAL (build_pointercast a (ptr_t (struct_type g_context
         [| int_t 32; int_t 32; array_type (transl_typ t) 0 |])) "" g_builder))))
   | Tmakerecord (t, xts) ->
@@ -393,7 +381,7 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       let zz     = ref nil in
       exp env breakbb x (fun x ->
         binop (build_icmp Icmp.Ne) x (const_int 32 0) (fun c ->
-        ignore (cond_br c yesbb nextbb)));
+        ignore (cond_br c yesbb naybb)));
       position_at_end yesbb g_builder;
       exp env breakbb y (fun y -> yy := y; ignore (build_br nextbb g_builder));
       let yesbb = insertion_block g_builder in
