@@ -170,7 +170,7 @@ let malloc v =
 let mul v1 v2 =
   VAL (build_mul (llvm_value v1) (llvm_value v2) "" g_builder) *)
 
-let load env v nxt =
+let load v nxt =
   nxt (VAL (build_load (llvm_value v) "" g_builder))
 
 let nil =
@@ -197,18 +197,36 @@ let phi incoming nxt =
 let cond_br c yaybb naybb =
   ignore (build_cond_br (llvm_value c) yaybb naybb g_builder)
 
-let array_length v nxt =
-  gep v [ const_int 32 0; const_int 32 1 ] nxt
+let array_length v (nxt : llvm_value -> unit) =
+  gep v [ const_int 32 0; const_int 32 1 ] (fun l -> load l nxt)
+
+let printf msg =
+  ignore (build_call (declare_function "printf"
+    (var_arg_function_type (int_t 32) [| ptr_t (int_t 8) |])
+    g_module) [| build_global_stringptr msg "" g_builder |] "" g_builder)
+
+let void_t =
+  void_type g_context
+
+let die msg =
+  printf msg;
+  ignore (build_call (declare_function "exit"
+    (function_type void_t [| int_t 32 |]) g_module) [| const_int0 32 2 |] ""
+    g_builder)
 
 let array_index lnum v x nxt =
+  let yesbb = new_block () in
+  let diebb = new_block () in
   array_length v (fun l ->
-  binop (build_icmp Icmp.Sle) x l (fun c ->
-    assert false))
-  (* array_length v (fun l ->
-  insert_let (BINOP (x, Op_cmp Cle, l)) (Tint 1) (fun c ->
-  CHECK (c, insert_let (GEP (v, [VINT (32, 0); VINT (32, 2); x])) t' nxt,
-    Printf.sprintf "Runtime error: index out of bounds in line %d\n"
-    p.Lexing.pos_lnum))) *)
+  (* dump_value (llvm_value x);
+  dump_value (llvm_value l); *)
+  binop (build_icmp Icmp.Sle) x l (fun c1 ->
+  binop (build_icmp Icmp.Sge) x (const_int 32 0) (fun c2 ->
+  binop build_and c1 c2 (fun c -> cond_br c yesbb diebb)));
+  position_at_end diebb g_builder;
+  die (Printf.sprintf "Runtime error: index out of bounds in line %d\n" lnum);
+  position_at_end yesbb g_builder;
+  gep v [ const_int 32 0; const_int 32 2; x ] nxt)
 
 let record_index lnum v i nxt =
   assert false
@@ -245,11 +263,11 @@ let rec var env breakbb v (nxt : llvm_value -> unit) =
       save (triggers x) v (fun v ->
       exp env breakbb x (fun x ->
       array_index lnum v x (fun v ->
-      load env v nxt))))
+      load v nxt))))
   | TVfield (lnum, v, i) ->
       var env breakbb v (fun v ->
       record_index lnum v i (fun v ->
-      load env v nxt))
+      load v nxt))
 
 and exp env breakbb e (nxt : llvm_value -> unit) =
   match e with
