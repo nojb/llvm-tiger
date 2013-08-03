@@ -400,7 +400,9 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
           binop build_add !ir (const_int 32 1) (fun plusone ->
           let curr = insertion_block g_builder in
           add_incoming (llvm_value plusone, curr) (llvm_value !ir);
-          ignore (build_br testbb g_builder)))))
+          ignore (build_br testbb g_builder)))));
+      position_at_end nextbb g_builder;
+      nxt nil
   | Tbreak ->
       ignore (build_br breakbb g_builder) (* ignore nxt *)
   | Tletvar (x, acc, is_ptr, ty, y, z) ->

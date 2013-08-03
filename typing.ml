@@ -490,28 +490,11 @@ and exp env e =
       (VVAR w) !tt, body) *)
   | Pwhile (_, x, y) ->
       Twhile (int_exp env x, void_exp { env with in_loop = true } y), VOID
-  | Pfor (_, i, x, y, z) -> (* FIXME should check that i not be assigned to *)
-      assert false
-      (* let bl = Id.genid () in
-      let cont = Id.genid () in
-      int_exp tenv renv venv loop x (fun x ->
-      int_exp tenv renv venv loop y (fun y ->
-      let ii = Id.genid () in
-      let venv' = add_var i ii ~immutable:true INT venv in
-      LET_BLOCK (cont, [], nxt VUNDEF VOID,
-      LET_BLOCK (bl, [ii, Tint 32],
-        insert_let (BINOP (VVAR ii, Op_cmp Cle, y)) (Tint 1) (fun c ->
-          IF (c, void_exp tenv renv venv' (Some cont) z
-            (insert_let (BINOP (VVAR ii, Op_add, VINT (32, 1))) (Tint 32) (fun ii ->
-              GOTO (bl, [ii]))), GOTO (cont, []))), GOTO (bl, [x])))))
-      (* let body =
-        insert_let (Eload (Vvar ii)) (Tint 32) (fun ii0 ->
-        insert_let (Ebinop (ii0, Op_cmp Cle, y)) (Tint 1) (fun c ->
-          Sif (c, void_exp tenv renv venv' true z
-            (insert_let (Ebinop (ii0, Op_add, Vint (32, 1))) (Tint 32)
-              (fun ii1 -> Sstore (Vvar ii, ii1))), Sbreak))) in
-      Slet (ii, Tpointer (Tint 32), Ealloca (false, Tint 32),
-      Sseq (Sstore (Vvar ii, x), Sseq (Sloop body, nxt Vundef VOID))))) *) *)
+  | Pfor (_, i, x, y, z) ->
+      let x = int_exp env x in
+      let y = int_exp env y in
+      let env' = add_var i ~immutable:true INT env.lvl (ref Local) env in
+      Tfor (i.s, x, y, void_exp { env' with in_loop = true } z), VOID
   | Pbreak _ when env.in_loop ->
       Tbreak, VOID
   | Pbreak p ->
