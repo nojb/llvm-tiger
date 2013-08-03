@@ -31,7 +31,7 @@ and exp =
   | Tcall of string * (exp * bool (* is_ptr *)) list
   | Tseq of exp list
   | Tmakearray of exp * exp
-  | Tmakerecord of string * exp list
+  | Tmakerecord of type_spec * (exp * bool (* is_ptr *)) list
   | Tif of exp * exp * exp * bool (* is_void *)
   | Twhile of exp * exp
   | Tfor of string * exp * exp * exp

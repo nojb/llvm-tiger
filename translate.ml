@@ -303,35 +303,22 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       typ_exp tenv renv venv loop z t' (fun z ->
       insert_let (ARRAY_MALLOC (y, z)) (transl_typ renv t)
         (fun arr -> nxt arr t))) *)
-  | Tmakerecord (x, xts) ->
-      assert false
-      (* let t, ts = find_record_type tenv renv x in
+  | Tmakerecord (t, xts) ->
       let rec bind vs = function
-        | [], [] ->
-            let t' = (match transl_typ renv t with Tpointer t' -> t' | _ ->
-              assert false) in
-            insert_let (MALLOC t') (transl_typ renv t) (fun r ->
+        | [] ->
+            let t' = element_type (transl_typ t) in
+            let r = VAL (build_malloc t' "" g_builder) in
             let rec bind i = function
-              | [], [] -> nxt r t
-              | v :: vs, t :: ts ->
-                  insert_let (GEP (r, [ VINT (32, 0); VINT (32, i) ]))
-                    (Tpointer (transl_typ renv t)) (fun f ->
-                      LET (Id.genid (), Tint 32, STORE (f, v), bind (i+1) (vs, ts)))
-              | _ -> assert false
-            in bind 1 (List.rev vs, List.map snd ts))
-        | (x, e) :: xts, (x', t) :: ts ->
-            if x.s = x' then
-              typ_exp tenv renv venv loop e t (fun e ->
-                save renv ~triggers:(List.exists (fun (_, e) -> triggers e) xts) e t (fun e ->
-                  bind (e :: vs) (xts, ts)))
-            else
-              if List.exists (fun (x', _) -> x.s = x') ts then
-                error x.p "field '%s' is in the wrong other" x.s
-              else
-                error x.p "unknown field '%s'" x.s
-        | _ ->
-            assert false
-      in bind [] (xts, ts) *)
+              | [] -> nxt r
+              | v :: vs ->
+                  gep r [ const_int 32 0; const_int 32 i]
+                    (fun f -> store v f (fun _ -> bind (i+1) vs))
+            in bind 1 (List.rev vs)
+        | (x, is_ptr) :: xts ->
+            exp env breakbb x (fun x ->
+              save is_ptr x (fun x ->
+                bind (x :: vs) xts))
+      in bind [] xts
   (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
       int_exp tenv venv looping x (fun x ->
         int_exp tenv venv looping y (fun y ->

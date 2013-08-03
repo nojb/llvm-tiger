@@ -128,13 +128,13 @@ let find_record_type env x =
         (describe_type t)
 
 let find_record_field env t (x : pos_string) =
-  assert false
-  (* let ts = M.find t env.renv in
+  let t = match t with RECORD (t, _) -> t | _ -> assert false in
+  let ts = M.find t env.renv in
   let rec loop i = function
     | [] -> error x.p "record type '%s' does not contain field '%s'" t x.s
     | (x', t') :: xs when x' = x.s -> i, t'
     | _ :: xs -> loop (i+1) xs
-  in loop 0 ts *)
+  in loop 0 ts
 
 (* let named_structs : (string * llvm_type list) list ref = ref []
 
@@ -372,7 +372,7 @@ and exp env e =
       end
   | Passign (_, PVfield (p, v, x), e) ->
       let v, t' = record_var env v in
-      let i, tx = find_record_field env.renv t' x in
+      let i, tx = find_record_field env t' x in
       let e = typ_exp env e tx in
       Tassign (TVfield (p.Lexing.pos_lnum, v, i), e), VOID
   | Pcall (p, x, xs) ->
@@ -420,11 +420,11 @@ and exp env e =
       let z = typ_exp env z t' in
       Tmakearray (y, z), t
   | Pmakerecord (p, x, xts) ->
-      assert false
-      (* let t, ts = find_record_type tenv renv x in
+      let t, ts = find_record_type env x in
       let rec bind vs = function
         | [], [] ->
-            let t' = (match transl_typ renv t with Tpointer t' -> t' | _ ->
+            Tmakerecord (t, List.rev vs), t
+            (* let t' = (match transl_typ renv t with Tpointer t' -> t' | _ ->
               assert false) in
             insert_let (MALLOC t') (transl_typ renv t) (fun r ->
             let rec bind i = function
@@ -434,10 +434,10 @@ and exp env e =
                     (Tpointer (transl_typ renv t)) (fun f ->
                       LET (Id.genid (), Tint 32, STORE (f, v), bind (i+1) (vs, ts)))
               | _ -> assert false
-            in bind 1 (List.rev vs, List.map snd ts))
+            in bind 1 (List.rev vs, List.map snd ts)) *)
         | (x, Pnil _) :: xts, (x', t) :: ts ->
             if x.s = x' then
-              bind (VNULL (transl_typ renv t) :: vs) (xts, ts)
+              bind ((TCnil t, false) :: vs) (xts, ts)
             else
               if List.exists (fun (x', _) -> x.s = x') ts then
                 error x.p "field '%s' is in the wrong other" x.s
@@ -445,9 +445,8 @@ and exp env e =
                 error x.p "field '%s' is unknown" x.s
         | (x, e) :: xts, (x', t) :: ts ->
             if x.s = x' then
-              typ_exp tenv renv venv loop e t (fun e ->
-                save renv ~triggers:(List.exists (fun (_, e) -> triggers e) xts) e t (fun e ->
-                  bind (e :: vs) (xts, ts)))
+              let e = typ_exp env e t in
+              bind ((e, structured_type t) :: vs) (xts, ts)
             else
               if List.exists (fun (x', _) -> x.s = x') ts then
                 error x.p "field '%s' is in the wrong other" x.s
@@ -458,7 +457,6 @@ and exp env e =
         | _, [] ->
             error p "all fields have already been initialised"
       in bind [] (xts, ts)
-      *)
   (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
       int_exp tenv venv looping x (fun x ->
         int_exp tenv venv looping y (fun y ->
