@@ -16,6 +16,11 @@ let g_context = global_context ()
 let g_module  = create_module g_context ""
 let g_builder = builder g_context
 
+let getfun n =
+  match lookup_function n g_module with
+  | Some f -> f
+  | None -> assert false
+
 let new_block () =
   (* this assumes that the builder is already set up
    * inside a function *)
@@ -171,10 +176,12 @@ let alloca is_ptr ty =
   let b = builder_at_end g_context
     (entry_block (block_parent (insertion_block g_builder))) in
   let a = build_alloca ty "" b in
-  let v = build_pointercast a (ptr_t (ptr_t (int_t 8))) "" b in
-  ignore (build_call (declare_function "llvm.gcroot"
-    (function_type void_t [| ptr_t (ptr_t (int_t 8)); ptr_t (int_t 8) |])
-  g_module) [| v; const_null0 (ptr_t (int_t 8)) |] "" b);
+  if is_ptr then begin
+    let v = build_pointercast a (ptr_t (ptr_t (int_t 8))) "" b in
+    ignore (build_call (declare_function "llvm.gcroot"
+      (function_type void_t [| ptr_t (ptr_t (int_t 8)); ptr_t (int_t 8) |])
+      g_module) [| v; const_null0 (ptr_t (int_t 8)) |] "" b)
+  end;
   a
 
 (* let add v1 v2 =
@@ -200,8 +207,8 @@ let gep v vs nxt =
 let binop op v1 v2 nxt =
   nxt (VAL (op (llvm_value v1) (llvm_value v2) "" g_builder))
 
-let call _ =
-  assert false
+let call v0 vs =
+  VAL (build_call v0 (Array.of_list (List.map llvm_value vs)) "" g_builder)
 
 let phi incoming nxt =
   nxt (VAL (build_phi
@@ -330,16 +337,15 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       record_index lnum v i (fun v ->
       exp env breakbb e (fun e -> store e v nxt))))
   | Tcall (x, xs) ->
-      assert false
-      (* let rec bind ys = function
+      let rec bind ys = function
         | [] ->
-            call (Function x) (List.rev ys) nxt
+            nxt (call (getfun x) (List.rev ys))
         | (x, is_ptr) :: xs ->
             exp env breakbb x (fun x ->
               let triggersfst (x, _) = triggers x in
               save (is_ptr && List.exists triggersfst xs) x (fun x ->
               bind (x :: ys) xs))
-      in bind [] xs *)
+      in bind [] xs
   | Tseq (xs) ->
       let rec bind = function
         | []      -> nxt nil
@@ -456,46 +462,38 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
           assert false
       end
   | Tletfuns (fundefs, e) ->
-      let_funs env breakbb fundefs e nxt
+      let curr = insertion_block g_builder in
+      let_funs env fundefs;
+      position_at_end curr g_builder;
+      exp env breakbb e nxt
 
-and let_funs env breakbb fundefs e nxt =
-  assert false
-  (* let addfun venv fn =
-    fst (add_fun fn.fn_name
-      (List.map (fun (_, t) -> find_type t tenv) fn.fn_args)
-      (return_type tenv fn) venv)
-  in
-  let addfun2 venv {fn_name; fn_args; fn_rtyp; fn_body} =
-    let f, (ts, t) = find_fun fn_name venv in
-    let venv, args = List.fold_left2
-      (fun (venv, args) (x, _) t -> let x' = Id.make x.s in add_var x x' t venv, x' :: args)
-      (venv, []) fn_args ts in
-    let args' = List.map (fun x -> Id.make (Id.to_string x)) args in
-    let args' = List.combine args' ts in
+and let_funs env fundefs =
 
-    (* Process the body *)
-    let body = typ_exp tenv renv venv None fn_body t
-      (fun e ->
-        match t with
-        | VOID ->
-            RETURN (VAL (VINT (32, 0)))
-        | t ->
-            RETURN (VAL e)) in
+  let declare_fundef fundef =
+    ignore (define_function fundef.fn_name
+      (function_type (transl_typ fundef.fn_rtyp)
+        (Array.of_list (List.map (fun (_, (t, _, _)) -> transl_typ t)
+        fundef.fn_args)))
+    g_module) in
 
-    let body =
-      List.fold_right2 (fun (x', t') x body ->
-        LET (x, Tpointer (transl_typ renv t'),
-          ALLOCA (structured_type t', (transl_typ renv t')),
-        LET (Id.genid (), Tint 32, STORE (VVAR x, VVAR x'),
-          body))) (List.rev args') (List.rev args) body in
+  let define_fundef fundef =
+    let f = getfun fundef.fn_name in
+    position_at_end (entry_block f) g_builder;
+    let startbb = new_block () in
+    position_at_end startbb g_builder;
+    let count = ref (-1) in
+    let env = List.fold_left (fun env (n, (t, _, is_ptr)) ->
+      incr count;
+      let a = alloca is_ptr (transl_typ t) in
+      store (VAL (param f !count)) (VAL a) (fun _ -> ());
+      M.add n a env) env fundef.fn_args in
+    exp env (entry_block f) fundef.fn_body
+      (fun x -> ignore (build_ret (llvm_value x) g_builder));
+    position_at_end (entry_block f) g_builder;
+    ignore (build_br startbb g_builder) in
 
-    { fn_name = f;
-      fn_rtyp = Some (transl_typ renv t); (* FIXME XXX *)
-      fn_args = List.rev_map (fun (x, t) -> (x, transl_typ renv t)) args';
-      fn_body = body }
-  in
-  let venv = List.fold_left addfun venv funs in
-  LET_REC (List.map (addfun2 venv) funs, exp tenv renv venv loop e nxt) *)
+  List.iter declare_fundef fundefs;
+  List.iter define_fundef fundefs
 
   (*
 let base_venv =

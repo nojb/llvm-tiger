@@ -37,4 +37,4 @@ and exp =
   | Tfor of string * exp * exp * exp
   | Tbreak
   | Tletvar of string * access ref * bool (* is_ptr *) * type_spec * exp * exp
-  | Tletfuns of (string, type_spec, type_spec * access ref, exp) fundef list * exp
+  | Tletfuns of (string, type_spec, type_spec * access ref * bool (* is_ptr *), exp) fundef list * exp

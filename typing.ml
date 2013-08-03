@@ -373,7 +373,7 @@ and exp env e =
           (List.length xs) (List.length ts);
       let rec bind ys = function
         | [], [] ->
-            Tcall (x.s, List.rev ys), t
+            Tcall (fi.fname, List.rev ys), t
         | x :: xs, t :: ts ->
             let x = typ_exp env x t in
             bind ((x, structured_type t) :: ys) (xs, ts)
@@ -541,7 +541,7 @@ and let_funs env funs e =
 
     { fn_name = fi.fname;
       fn_rtyp = t;
-      fn_args = List.map2 (fun (x, acc) t -> (x.s, (t, acc))) args' ts;
+      fn_args = List.map2 (fun (x, acc) t -> (x.s, (t, acc, structured_type t))) args' ts;
       fn_body = body }
   in
 
