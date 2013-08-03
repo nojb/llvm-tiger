@@ -57,45 +57,6 @@ let const_null0 =
 let const_null t =
   VAL (const_null t)
 
-(* let named_structs : (string * llvm_type list) list ref = ref [] *)
-
-(* let rec transl_typ t =
-  match t with
-  | INT -> int_t 32
-  | VOID -> int_t 32
-  | ARRAY (_, t) ->
-      pointer_type (struct_type g_context
-        [| int_t 32; int_t 32; array_type (transl_typ t) 0 |])
-  | _ -> assert false
-  (* let visited : string list ref = ref [] in
-  let rec loop t =
-    match t with
-    | INT -> Tint 32
-    | VOID -> Tint 32
-    | STRING -> Tpointer (Tint 8)
-    | ARRAY (_, t) -> (* { i32, i32, [0 x t] }* *)
-        Tpointer (Tstruct [| Tint 32; Tint 32; Tarray (0, transl_typ t) |])
-    | RECORD (rname, uid) ->
-        if not (List.exists (fun (x, _) -> x = Id.to_string uid) !named_structs)
-        && not (List.mem (Id.to_string uid) !visited)
-        then begin
-          visited := (Id.to_string uid) :: !visited;
-          named_structs := (Id.to_string uid,
-            (Tint 32 :: List.map (fun (_, t) -> loop t) (M.find rname renv))) :: !named_structs
-        end;
-        Tpointer (Tnamedstruct (Id.to_string uid))
-    | PLACE _ ->
-        assert false
-  in loop t *) *)
-
-(* let rec structured_type t =
-  match t with
-  | PLACE _ -> assert false
-  | STRING
-  | ARRAY _
-  | RECORD _ -> true
-  | _ -> false *)
-
 let array_exists p a =
   let rec loop i =
     if i >= Array.length a then false
@@ -442,11 +403,6 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       exp env breakbb y (fun y ->
         store y (VAL a);
         exp (M.add x a env) breakbb z nxt)
-  (* | Tletfuns (fundefs, e) ->
-      let curr = insertion_block g_builder in
-      let_funs env fundefs;
-      position_at_end curr g_builder;
-      exp env breakbb e nxt *)
 
   (*
 let base_venv =
@@ -467,15 +423,6 @@ let base_venv =
     *)
 
 let program fundefs =
-  (* let main = define_function "main" (function_type (int_t 32) [| |]) g_module in
-  position_at_end (entry_block main) g_builder; (* this is necessary so that neW_block works! *)
-  let startbb = new_block () in
-  position_at_end startbb g_builder;
-  exp M.empty (entry_block main) e
-    (fun _ -> ignore (build_ret (const_int0 32 0) g_builder));
-  position_at_end (entry_block main) g_builder;
-  ignore (build_br startbb g_builder);
-  dump_module g_module *)
 
   let declare_fundef fundef =
     ignore (define_function fundef.fn_name
