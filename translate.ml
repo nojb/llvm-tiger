@@ -211,7 +211,8 @@ let die msg =
   printf msg;
   ignore (build_call (declare_function "exit"
     (function_type void_t [| int_t 32 |]) g_module) [| const_int0 32 2 |] ""
-    g_builder)
+    g_builder);
+  build_unreachable g_builder
 
 let array_index lnum v x nxt =
   let yesbb = new_block () in
