@@ -29,6 +29,9 @@ let llvm_value = function
 let int_t w =
   integer_type g_context w
 
+let ptr_t t =
+  pointer_type t
+
   (* order matters *)
 let const_int0 w n =
   const_int (int_t w) n
@@ -36,6 +39,9 @@ let const_int0 w n =
   (* This one shadows Llvm.const_int *)
 let const_int w n =
   VAL (const_int (int_t w) n)
+
+let const_null0 =
+  const_null
 
 let const_null t =
   VAL (const_null t)
@@ -46,6 +52,9 @@ let rec transl_typ t =
   match t with
   | INT -> int_t 32
   | VOID -> int_t 32
+  | ARRAY (_, t) ->
+      pointer_type (struct_type g_context
+        [| int_t 32; int_t 32; array_type (transl_typ t) 0 |])
   | _ -> assert false
   (* let visited : string list ref = ref [] in
   let rec loop t =
@@ -145,6 +154,21 @@ let rec pure = function
  *
  * %a_i = getelementptr T %a, 0, 2, 0, i ; has type t*
  * *)
+
+let size_of t = (* as a i32 *)
+  const_ptrtoint (const_gep (const_null0 (ptr_t t))
+    [| const_int0 32 1 |]) (int_t 32)
+
+let malloc v =
+  build_call (declare_function "malloc"
+    (function_type (ptr_t (int_t 8)) [| int_t 32 |]) g_module)
+    [| v |] "" g_builder
+
+(* let add v1 v2 =
+  VAL (build_add (llvm_value v1) (llvm_value v2) "" g_builder)
+
+let mul v1 v2 =
+  VAL (build_mul (llvm_value v1) (llvm_value v2) "" g_builder) *)
 
 let load env v nxt =
   nxt (VAL (build_load (llvm_value v) "" g_builder))
@@ -296,13 +320,15 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
         | x :: x' -> exp env breakbb x (fun _ -> bind x')
       in
       bind xs
-  | Tmakearray (y, z) ->
-      assert false
-      (* let t, t' = find_array_type x tenv in
-      int_exp tenv renv venv loop y (fun y ->
-      typ_exp tenv renv venv loop z t' (fun z ->
-      insert_let (ARRAY_MALLOC (y, z)) (transl_typ renv t)
-        (fun arr -> nxt arr t))) *)
+  | Tmakearray (t, y, z) ->
+      exp env breakbb y (fun y ->
+      exp env breakbb z (fun z ->
+      let a = malloc (build_add (const_int0 32 8)
+        (build_mul (llvm_value y) (size_of (transl_typ t)) "" g_builder)
+        "" g_builder) in
+       dump_value a;
+      nxt (VAL (build_pointercast a (ptr_t (struct_type g_context
+        [| int_t 32; int_t 32; array_type (transl_typ t) 0 |])) "" g_builder))))
   | Tmakerecord (t, xts) ->
       let rec bind vs = function
         | [] ->

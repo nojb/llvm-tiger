@@ -410,7 +410,7 @@ and exp env e =
       let t, t' = find_array_type x env in
       begin match t' with
       | RECORD _ ->
-          Tmakearray (int_exp env y, TCnil t'), t
+          Tmakearray (t', int_exp env y, TCnil t'), t
       | _ ->
           error p "array base type must be record type"
       end
@@ -418,7 +418,7 @@ and exp env e =
       let t, t' = find_array_type x env in
       let y = int_exp env y in
       let z = typ_exp env z t' in
-      Tmakearray (y, z), t
+      Tmakearray (t', y, z), t
   | Pmakerecord (p, x, xts) ->
       let t, ts = find_record_type env x in
       let rec bind vs = function
