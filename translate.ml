@@ -1,39 +1,52 @@
 open Globals
 open Parsetree
 open Typedtree
-open IL
+open Llvm
 
 module M = Map.Make (String)
 
-exception Error of Lexing.position * string
+let fatal () =
+  Printf.ksprintf (fun message -> failwith (Printf.sprintf "Fatal: %s\n%!" message))
 
-let error p =
-  Printf.ksprintf (fun message -> raise (Error (p, message)))
+type llvm_value =
+  | VAL of llvalue
+  | LOADVAL of llvalue
 
-let gentmp () =
-  Printf.sprintf "tmp__%d" (unique ())
+let g_context = global_context ()
+let g_module  = create_module g_context ""
+let g_builder = builder g_context
 
-let genlabel () =
-  L (Printf.sprintf "block__%d" (unique ()))
+let new_block () =
+  (* this assumes that the builder is already set up
+   * inside a function *)
+  let f = block_parent (insertion_block g_builder) in
+  append_block g_context "" f
 
-module LM = Map.Make (Label)
+let llvm_value = function
+  | VAL v -> v
+  | LOADVAL v -> build_load v "" g_builder
 
-type env = {
-  venv : llvm_type M.t;
-  lenv : block LM.t ref;
-  curr : label
-}
+let int_t w =
+  integer_type g_context w
 
-let new_env () = {
-  venv = M.empty;
-  lenv = ref LM.empty;
-  curr = genlabel ()
-}
+  (* order matters *)
+let const_int0 w n =
+  const_int (int_t w) n
+
+  (* This one shadows Llvm.const_int *)
+let const_int w n =
+  VAL (const_int (int_t w) n)
+
+let const_null t =
+  VAL (const_null t)
 
 (* let named_structs : (string * llvm_type list) list ref = ref [] *)
 
 let rec transl_typ t =
-  assert false
+  match t with
+  | INT -> int_t 32
+  | VOID -> int_t 32
+  | _ -> assert false
   (* let visited : string list ref = ref [] in
   let rec loop t =
     match t with
@@ -133,51 +146,40 @@ let rec pure = function
  * %a_i = getelementptr T %a, 0, 2, 0, i ; has type t*
  * *)
 
-let load_type = function
-  | Tpointer t -> t
-  | _ -> assert false
-
-let load (v, t) nxt =
-  let tmp = gentmp () in
-  Load (tmp, v, nxt (Var tmp, load_type t))
+let load env v nxt =
+  nxt (VAL (build_load (llvm_value v) "" g_builder))
 
 let nil =
-  Int (32, 0), Tint 32
+  const_int 32 0
 
-let store (v, _) (p, _) nxt = (* does not check the types XXX *)
-  Store (v, p, nxt nil)
+let store v p nxt =
+  ignore (build_store (llvm_value v) (llvm_value p) g_builder);
+  nxt (const_int 32 0)
 
-let gep (v, t) vts nxt =
-  assert false
-  (* let tmp = gentmp () in
-  Gep (tmp, v, vs, nxt (Var tmp, ...)) *)
+let gep v vs nxt =
+  nxt (VAL (build_gep (llvm_value v)
+    (Array.of_list (List.map llvm_value vs)) "" g_builder))
 
-let binop op (v1, t1) (v2, t2) nxt =
-  let tmp = gentmp () in
-  match op, t1, t2 with
-  | Add, Tint n, Tint m 
-  | Sub, Tint n, Tint m 
-  | Mul, Tint n, Tint m 
-  | Div, Tint n, Tint m ->
-      assert (n = m);
-      Binary (tmp, op, v1, v2, nxt (Var tmp, Tint n))
-  | Icmp _, Tint n, Tint m when n = m ->
-      Binary (tmp, op, v1, v2, nxt (Var tmp, Tint 1))
+let binop op v1 v2 nxt =
+  nxt (VAL (op (llvm_value v1) (llvm_value v2) "" g_builder))
 
 let call _ =
   assert false
 
-let phi _ =
-  assert false
+let phi incoming nxt =
+  nxt (VAL (build_phi
+    (List.map (fun (v, bb) -> llvm_value v, bb) incoming) "" g_builder))
 
-let cond_br (c, _) yay nay = (* does not check the types XXX *)
-  Condbr (c, yay, nay)
+let cond_br c yaybb naybb =
+  ignore (build_cond_br (llvm_value c) yaybb naybb g_builder)
 
 let array_length v nxt =
-  gep v [ Int (32, 0); Int (32, 1) ] (fun l -> load l nxt)
+  gep v [ const_int 32 0; const_int 32 1 ] nxt
 
 let array_index lnum v x nxt =
-  assert false
+  array_length v (fun l ->
+  binop (build_icmp Icmp.Sle) x l (fun c ->
+    assert false))
   (* array_length v (fun l ->
   insert_let (BINOP (x, Op_cmp Cle, l)) (Tint 1) (fun c ->
   CHECK (c, insert_let (GEP (v, [VINT (32, 0); VINT (32, 2); x])) t' nxt,
@@ -194,100 +196,104 @@ let record_index lnum v i nxt =
 
 (* Main typechecking/compiling functions *)
 
-let save triggers (v, t) (nxt : value * llvm_type -> block) =
+let save triggers v (nxt : llvm_value -> unit) =
   if triggers then
     match v with
-    | Loadvar _ -> nxt (v, load_type t)
-    | _ ->
-        let id = gentmp () in
-        Alloca (id, t, true,
-        Store (Var id, v,
-        nxt (Loadvar id, t)))
+    | LOADVAL _ -> nxt v
+    | VAL v ->
+        let a = build_alloca (type_of v) "" g_builder in
+        (* gcroot FIXME XXX *)
+        ignore (build_store v a g_builder);
+        nxt (LOADVAL a)
   else
-    nxt (v, t)
+    nxt v
 
-let find x env =
-  M.find x env.venv
-
-let new_block env lbl b =
-  env.lenv := LM.add lbl b !(env.lenv)
-
-let rec var env lbreak v (nxt : value * llvm_type -> block) =
+let rec var env breakbb v (nxt : llvm_value -> unit) =
   match v with
-  | TVlocal x (* XXX FIXME immutable *) ->
-      nxt (Loadvar x, load_type (find x env))
+  | TVlocal (x, true) ->
+      nxt (VAL (M.find x env))
+  | TVlocal (x, false) ->
+      nxt (LOADVAL (M.find x env))
   | TVnonLocal (dlvl, idx) ->
       assert false
   | TVsubscript (lnum, v, x) ->
-      var env lbreak v (fun v ->
+      var env breakbb v (fun v ->
       save (triggers x) v (fun v ->
-      exp env lbreak x (fun x ->
+      exp env breakbb x (fun x ->
       array_index lnum v x (fun v ->
-      load v nxt))))
+      load env v nxt))))
   | TVfield (lnum, v, i) ->
-      var env lbreak v (fun v ->
+      var env breakbb v (fun v ->
       record_index lnum v i (fun v ->
-      load v nxt))
+      load env v nxt))
 
-and exp env lbreak e (nxt : value * llvm_type -> block) : block =
+and exp env breakbb e (nxt : llvm_value -> unit) =
   match e with
   | TCint (n) ->
-      nxt (Int (32, n), Tint 32)
+      nxt (const_int 32 n)
   (* | Pstring (_, s) ->
       nxt (Vstring s) STRING *)
   | TCnil t ->
-      nxt (Null (transl_typ t), transl_typ t)
+      nxt (const_null (transl_typ t))
   | Tvar (v) ->
-      var env lbreak v nxt
+      var env breakbb v nxt
   | Tbinop (x, Op_add, y) ->
-      exp env lbreak x (fun x ->
-      exp env lbreak y (fun y ->
-      binop Add x y nxt))
+      exp env breakbb x (fun x ->
+      exp env breakbb y (fun y ->
+      binop build_add x y nxt))
   | Tbinop (x, Op_sub, y) ->
-      exp env lbreak x (fun x ->
-      exp env lbreak y (fun y ->
-      binop Sub x y nxt))
+      exp env breakbb x (fun x ->
+      exp env breakbb y (fun y ->
+      binop build_sub x y nxt))
   | Tbinop (x, Op_mul, y) ->
-      exp env lbreak x (fun x ->
-      exp env lbreak y (fun y ->
-      binop Mul x y nxt))
+      exp env breakbb x (fun x ->
+      exp env breakbb y (fun y ->
+      binop build_mul x y nxt))
   | Tbinop (x, Op_div, y) ->
-      exp env lbreak x (fun x ->
-      exp env lbreak y (fun y ->
-      binop Div x y nxt))
+      exp env breakbb x (fun x ->
+      exp env breakbb y (fun y ->
+      binop build_sdiv x y nxt))
   | Tbinop (x, Op_cmp Ceq, y) ->
-      exp env lbreak x (fun x ->
-      exp env lbreak y (fun y ->
-      binop (Icmp Eq) x y nxt))
+      exp env breakbb x (fun x ->
+      exp env breakbb y (fun y ->
+      binop (build_icmp Icmp.Eq) x y nxt))
   | Tbinop _ ->
       failwith "binop not implemented"
-  (* | Tassign (TVsimple x, e) ->
-      exp env lbreak e (fun e -> store e (Var x, M.find x env) nxt) *)
+  | Tassign (TVlocal (_, true), _) ->
+      assert false
+  | Tassign (TVlocal (x, false), e) ->
+      exp env breakbb e (fun e ->
+      store e (VAL (M.find x env)) nxt)
+  | Tassign (TVnonLocal (dlvl, fp), e) ->
+      assert false
+      (* exp env lbreak e (fun e -> store e (Var x, M.find x env) nxt) *)
   | Tassign (TVsubscript (lnum, v, e1), e2) ->
-      var env lbreak v (fun v ->
+      var env breakbb v (fun v ->
       save (triggers e1 || triggers e2) v (fun v ->
-      exp env lbreak e1 (fun e1 ->
+      exp env breakbb e1 (fun e1 ->
       array_index lnum v e1 (fun v ->
-      exp env lbreak e2 (fun e2 -> store e2 v nxt)))))
+      exp env breakbb e2 (fun e2 -> store e2 v nxt)))))
   | Tassign (TVfield (lnum, v, i), e) ->
-      var env lbreak v (fun v ->
+      var env breakbb v (fun v ->
       save (triggers e) v (fun v ->
       record_index lnum v i (fun v ->
-      exp env lbreak e (fun e -> store e v nxt))))
+      exp env breakbb e (fun e -> store e v nxt))))
   | Tcall (x, xs) ->
-      let rec bind ys = function
+      assert false
+      (* let rec bind ys = function
         | [] ->
             call (Function x) (List.rev ys) nxt
         | (x, is_ptr) :: xs ->
-            exp env lbreak x (fun x ->
-              save (is_ptr && List.exists triggers (List.map fst xs)) x (fun x ->
+            exp env breakbb x (fun x ->
+              let triggersfst (x, _) = triggers x in
+              save (is_ptr && List.exists triggersfst xs) x (fun x ->
               bind (x :: ys) xs))
-      in bind [] xs
+      in bind [] xs *)
   | Tseq (xs) ->
       let rec bind = function
         | []      -> nxt nil
-        | [x]     -> exp env lbreak x nxt
-        | x :: x' -> exp env lbreak x (fun _ -> bind x')
+        | [x]     -> exp env breakbb x nxt
+        | x :: x' -> exp env breakbb x (fun _ -> bind x')
       in
       bind xs
   | Tmakearray (y, z) ->
@@ -333,73 +339,85 @@ and exp env lbreak e (nxt : value * llvm_type -> block) : block =
             void_exp tenv venv looping z Sskip, Sskip),
             nxt Eundef E.Tvoid))) *)
   | Tif (x, y, z, true) -> (* result is void *)
-      let cont = genlabel () in
-      let yay  = genlabel () in
-      let nay  = genlabel () in
-      new_block env yay (exp env lbreak y (fun _ -> Br cont));
-      new_block env nay (exp env lbreak z (fun _ -> Br cont));
-      new_block env cont (nxt nil);
-      exp env lbreak x (fun x ->
-        binop (Icmp Ne) x (Int (32, 0), Tint 32) (fun c ->
-        cond_br c yay nay))
+      let nextbb = new_block () in
+      let yesbb  = new_block () in
+      let naybb  = new_block () in
+      exp env breakbb x (fun x ->
+        binop (build_icmp Icmp.Ne) x (const_int 32 0) (fun c ->
+        ignore (cond_br c yesbb nextbb)));
+      position_at_end yesbb g_builder;
+      exp env breakbb y (fun _ -> ignore (build_br nextbb g_builder));
+      position_at_end naybb g_builder;
+      exp env breakbb z (fun _ -> ignore (build_br nextbb g_builder));
+      position_at_end nextbb g_builder;
+      nxt nil
   | Tif (x, y, z, false) ->
-      let cont = genlabel () in
-      let yay  = genlabel () in
-      let nay  = genlabel () in
-      let yy   = ref nil in
-      let zz   = ref nil in
-      new_block env yay (exp env lbreak y (fun y -> yy := y; Br cont));
-      new_block env nay (exp env lbreak z (fun z -> zz := z; Br cont));
-      new_block env cont (phi [yay, !yy; nay, !zz] nxt);
-      exp env lbreak x (fun x ->
-        binop (Icmp Ne) x (Int (32, 0), Tint 32) (fun c -> cond_br c yay nay))
+      let nextbb = new_block () in
+      let yesbb  = new_block () in
+      let naybb  = new_block () in
+      let yy     = ref nil in
+      let zz     = ref nil in
+      exp env breakbb x (fun x ->
+        binop (build_icmp Icmp.Ne) x (const_int 32 0) (fun c ->
+        ignore (cond_br c yesbb nextbb)));
+      position_at_end yesbb g_builder;
+      exp env breakbb y (fun y -> yy := y; ignore (build_br nextbb g_builder));
+      let yesbb = insertion_block g_builder in
+      position_at_end naybb g_builder;
+      exp env breakbb z (fun z -> zz := z; ignore (build_br nextbb g_builder));
+      let naybb = insertion_block g_builder in
+      position_at_end nextbb g_builder;
+      phi [!yy, yesbb; !zz, naybb] nxt
   | Twhile (x, y) ->
-      let cont = genlabel () in
-      let test = genlabel () in
-      let body = genlabel () in
-      new_block env cont (nxt nil);
-      new_block env test (exp env lbreak x (fun x ->
-        binop (Icmp Ne) x (Int (32, 0), Tint 32) (fun c ->
-        cond_br c body cont)));
-      new_block env body (exp env (Some cont) y (fun _ -> Br test));
-      Br test
+      let nextbb = new_block () in
+      let testbb = new_block () in
+      let bodybb = new_block () in
+      ignore (build_br testbb g_builder);
+      position_at_end testbb g_builder;
+      exp env breakbb x (fun x ->
+        binop (build_icmp Icmp.Ne) x (const_int 32 0) (fun c ->
+        ignore (cond_br c bodybb nextbb)));
+      position_at_end bodybb g_builder;
+      exp env nextbb y (fun _ -> ignore (build_br testbb g_builder));
+      position_at_end nextbb g_builder;
+      nxt nil
   | Tfor (i, x, y, z) ->
-      let cont = genlabel () in
-      let test = genlabel () in
-      let body = genlabel () in
-      let x1 = ref nil in
-      new_block env cont (nxt nil);
-      new_block env body (exp env (Some cont) z (fun _ ->
-        binop Add (Var i, Tint 32) (Int (32, 1), Tint 32) (fun i1 -> x1 := i1; Br test)));
-      exp env lbreak x (fun x ->
-      exp env lbreak y (fun y ->
-        new_block env test (phi [env.curr, x; body, !x1] (fun i ->
-          binop (Icmp Le) i y (fun c ->
-          cond_br c test cont)));
-        Br test))
+      let nextbb = new_block () in
+      let testbb = new_block () in
+      let bodybb = new_block () in
+      let ir     = ref nil in
+      exp env breakbb x (fun x ->
+      exp env breakbb y (fun y ->
+        let curr = insertion_block g_builder in
+        ignore (build_br testbb g_builder);
+        position_at_end testbb g_builder;
+        phi [x, curr] (fun ii ->
+          ir := ii;
+          binop (build_icmp Icmp.Sle) ii y (fun c ->
+          cond_br c bodybb nextbb));
+        position_at_end bodybb g_builder;
+        exp (M.add i (llvm_value !ir) env) nextbb z (fun _ ->
+          binop build_add !ir (const_int 32 1) (fun plusone ->
+          let curr = insertion_block g_builder in
+          add_incoming (llvm_value plusone, curr) (llvm_value !ir);
+          ignore (build_br testbb g_builder)))))
   | Tbreak ->
-      begin match lbreak with
-        Some cont -> Br cont (* ignore nxt *)
-      | None -> assert false
-      end
+      ignore (build_br breakbb g_builder) (* ignore nxt *)
   | Tletvar (x, acc, is_ptr, ty, y, z) ->
       begin match !acc with
       | Local ->
-          assert false
-          (* exp env lbreak y (fun y ->
-          alloca is_ptr (transl_typ ty) (fun a ->
-          store y a (exp (add x (transl_typ ty) env) lbreak z nxt))) *)
-          (* LET (id, Tpointer (transl_typ renv yt),
-          Alloca (x, is_ptr, transl_typ yt,
-          Store (Var x, y,
-          exp lbreak z nxt)))) *)
+          let a = build_alloca (transl_typ ty) "" g_builder in
+          (* gcroot FIXME *)
+          exp env breakbb y (fun y ->
+          store y (VAL a) (fun _ ->
+          exp (M.add x a env) breakbb z nxt))
       | NonLocal _ ->
           assert false
       end
   | Tletfuns (fundefs, e) ->
-      let_funs lbreak fundefs e nxt
+      let_funs env breakbb fundefs e nxt
 
-and let_funs lbreak fundefs e nxt =
+and let_funs env breakbb fundefs e nxt =
   assert false
   (* let addfun venv fn =
     fst (add_fun fn.fn_name
@@ -457,10 +475,12 @@ let base_venv =
     *)
 
 let program e =
-  let env = new_env () in
-  let s = exp env None e (fun _ -> Ret (Some (Int (32, 0)))) in
-  s
-  (* { prog_body = s;
-    prog_strings = [];
-    prog_funs = [];
-    prog_named = !named_structs } *)
+  let main = define_function "main" (function_type (int_t 32) [| |]) g_module in
+  position_at_end (entry_block main) g_builder; (* this is necessary so that neW_block works! *)
+  let startbb = new_block () in
+  position_at_end startbb g_builder;
+  exp M.empty (entry_block main) e
+    (fun _ -> ignore (build_ret (const_int0 32 0) g_builder));
+  position_at_end (entry_block main) g_builder;
+  ignore (build_br startbb g_builder);
+  dump_module g_module

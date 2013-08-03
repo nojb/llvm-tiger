@@ -283,7 +283,7 @@ and var env v : Typedtree.var * type_spec =
             vi.vaccess := NonLocal fp;
             TVnonLocal (dlvl, fp), vi.vtype
           else
-            TVlocal x.s, vi.vtype
+            TVlocal (x.s, vi.vimm), vi.vtype
       | NonLocal (fp) ->
           TVnonLocal (dlvl, fp), vi.vtype
       end
@@ -341,7 +341,7 @@ and exp env e =
             vi.vaccess := NonLocal fp;
             TVnonLocal (dlvl, fp), vi.vtype
           else
-            TVlocal x.s, vi.vtype
+            TVlocal (x.s, vi.vimm), vi.vtype
       | NonLocal (fp) ->
           TVnonLocal (dlvl, fp), vi.vtype
       end in

@@ -16,7 +16,7 @@ type access =
   | NonLocal of int
 
 type var =
-  | TVlocal of string
+  | TVlocal of string * bool
   | TVnonLocal of int * int
   | TVsubscript of int * var * exp
   | TVfield of int * var * int

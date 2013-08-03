@@ -4,6 +4,9 @@ let parse ch =
       (Parser.program Lexer.token
         (Lexing.from_channel ch)))
 
+let _ =
+  parse stdin
+
 (* let _ =
   parse stdin *)
 
