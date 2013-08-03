@@ -68,3 +68,74 @@ let var_p = function
   | PVsimple s -> s.p
   | PVsubscript (p, _, _)
   | PVfield (p, _, _) -> p
+
+module S = Set.Make (String)
+
+let remove_list l s =
+  List.fold_right S.remove l s
+
+let union_list l =
+  List.fold_left S.union S.empty l
+
+let rec fc = function
+  | Pint _
+  | Pstring _
+  | Pnil _ -> S.empty
+  | Pvar (_, v) -> fc_var v
+  | Pbinop (_, e1, _, e2) -> S.union (fc e1) (fc e2)
+  | Passign (_, v, e) -> S.union (fc_var v) (fc e)
+  | Pcall (_, x, es) ->
+      S.add x.s (union_list (List.map fc es))
+  | Pseq (_, es) ->
+      union_list (List.map fc es)
+  | Pmakearray (_, _, e1, e2) -> S.union (fc e1) (fc e2)
+  | Pmakerecord (_, _, xes) ->
+      union_list (List.map (fun (_, e) -> fc e) xes)
+  | Pif (_, e1, e2, None) -> S.union (fc e1) (fc e2)
+  | Pif (_, e1, e2, Some e3) -> S.union (fc e1) (S.union (fc e2) (fc e3))
+  | Pwhile (_, e1, e2) -> S.union (fc e1) (fc e2)
+  | Pfor (_, _, e1, e2, e3) -> S.union (fc e1) (S.union (fc e2) (fc e3))
+  | Pbreak _ -> S.empty
+  | Pletvar (_, _, _, e1, e2) -> S.union (fc e1) (fc e2)
+  | Pletfuns (_, fundefs, e) ->
+      remove_list (List.map (fun fundef -> fundef.fn_name.s) fundefs)
+        (S.union (fc e) (union_list (List.map
+          (fun fundef -> fc fundef.fn_body) fundefs)))
+  | Plettype (_, _, e) -> fc e
+
+and fc_var = function
+  | PVsimple _ -> S.empty
+  | PVsubscript (_, v, e) -> S.union (fc_var v) (fc e)
+  | PVfield (_, v, _) -> fc_var v
+
+let rec fv = function
+  | Pint _
+  | Pstring _
+  | Pnil _ -> S.empty
+  | Pvar (_, v) -> fv_var v
+  | Pbinop (_, e1, _, e2) -> S.union (fv e1) (fv e2)
+  | Passign (_, v, e) -> S.union (fv_var v) (fv e)
+  | Pcall (_, _, es)
+  | Pseq (_, es) ->
+      List.fold_left S.union S.empty (List.map fv es)
+  | Pmakearray (_, _, e1, e2) -> S.union (fv e1) (fv e2)
+  | Pmakerecord (_, _, xes) ->
+      List.fold_left S.union S.empty (List.map (fun (_, e) -> fv e) xes)
+  | Pif (_, e1, e2, None) -> S.union (fv e1) (fv e2)
+  | Pif (_, e1, e2, Some e3) -> S.union (fv e1) (S.union (fv e2) (fv e3))
+  | Pwhile (_, e1, e2) -> S.union (fv e1) (fv e2)
+  | Pfor (_, i, e1, e2, e3) ->
+      S.union (fv e1) (S.union (fv e2) (S.remove i.s (fv e3)))
+  | Pbreak _ -> S.empty
+  | Pletvar (_, x, _, e1, e2) -> S.union (fv e1) (S.remove x.s (fv e2))
+  | Pletfuns (_, fundefs, e) ->
+      S.union (fv e)
+        (union_list (List.map (fun fundef ->
+          remove_list (List.map (fun (x, _) -> x.s) fundef.fn_args)
+            (fv fundef.fn_body)) fundefs))
+  | Plettype (_, _, e) -> fv e
+
+and fv_var = function
+  | PVsimple x -> S.singleton x.s
+  | PVsubscript (_, v, e) -> S.union (fv_var v) (fv e)
+  | PVfield (_, v, _) -> fv_var v

@@ -11,15 +11,26 @@ type type_spec =
 type bin =
   Parsetree.bin
 
-type access =
-  | Local
-  | NonLocal of int
+type ptr_flag =
+  | IsPtr of bool
 
-type var =
-  | TVlocal of string * bool
-  | TVnonLocal of int * int
-  | TVsubscript of int * var * exp
-  | TVfield of int * var * int
+type free_flag =
+  | IsFree of bool
+
+type void_flag =
+  | IsVoid of bool
+
+type imm_flag =
+  | IsImm of bool
+
+type arg =
+  | ArgNonLocal of string
+  | ArgExp of exp * ptr_flag
+
+and var =
+  | TVsimple of string * imm_flag
+  | TVsubscript of int (* line no *) * var * exp
+  | TVfield of int (* line no *) * var * int
 
 and exp =
   | TCint of int
@@ -28,16 +39,15 @@ and exp =
   | Tvar of var
   | Tbinop of exp * bin * exp
   | Tassign of var * exp
-  | Tcall of string * (exp * bool (* is_ptr *)) list
+  | Tcall of string * arg list
   | Tseq of exp list
   | Tmakearray of type_spec * exp * exp (* element type, size, init value *)
-  | Tmakerecord of type_spec * (exp * bool (* is_ptr *)) list
-  | Tif of exp * exp * exp * bool (* is_void *)
+  | Tmakerecord of type_spec * (exp * ptr_flag) list
+  | Tif of exp * exp * exp * void_flag
   | Twhile of exp * exp
   | Tfor of string * exp * exp * exp
   | Tbreak
-  | Tletvar of string * access ref * bool (* is_ptr *) * type_spec * exp * exp
-  | Tletfuns of (string, type_spec, type_spec * access ref * bool (* is_ptr *), exp) fundef list * exp
+  | Tletvar of string * ptr_flag * type_spec * exp * exp
 
 let rec triggers (e : exp) : bool =
   match e with
@@ -55,12 +65,10 @@ let rec triggers (e : exp) : bool =
   | Twhile (e1, e2) -> triggers e1 || triggers e2
   | Tfor (_, e1, e2, e3) -> triggers e1 || triggers e2 || triggers e3
   | Tbreak -> false
-  | Tletvar (_, _, _, _, e1, e2) -> triggers e1 || triggers e2
-  | Tletfuns (_, e) -> triggers e
+  | Tletvar (_, _, _, e1, e2) -> triggers e1 || triggers e2
 
 and triggers_var = function
-  | TVlocal _
-  | TVnonLocal _ -> false
+  | TVsimple _ -> false
   | TVsubscript (_, v, e) -> triggers_var v || triggers e
   | TVfield (_, v, _) -> triggers_var v
 

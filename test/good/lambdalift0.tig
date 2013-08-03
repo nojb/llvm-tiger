@@ -1,0 +1,2 @@
+let var a := 13 function f () : int = a in f () end
+

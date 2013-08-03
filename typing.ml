@@ -39,8 +39,6 @@ let type_equal t1 t2 =
 
 type var_info = {
   vtype : type_spec;
-  vaccess : access ref;
-  vlevel : int;
   vimm : bool
 }
 
@@ -65,8 +63,11 @@ type env = {
   tenv : type_spec M.t;
   renv : (string * type_spec) list M.t;
   in_loop : bool;
-  lvl : int;
-  fp : int ref list
+
+  (* used for lambda lifting *)
+  vars : type_spec M.t;
+  funs : S.t;
+  sols : S.t M.t
 }
 
 let find_var id env =
@@ -78,12 +79,11 @@ let find_var id env =
     Not_found ->
       error id.p "unbound variable '%s'" id.s
 
-let add_var (x : pos_string) ?immutable:(immut=false) t lvl acc env =
-  let vi = {
-    vtype = t; vlevel = lvl;
-    vaccess = acc; vimm = immut }
-  in
-  { env with venv = M.add x.s (Variable vi) env.venv }
+let add_var (x : pos_string) ?immutable:(immut=false) t env =
+  let vi = { vtype = t; vimm = immut } in
+  { env with
+      venv = M.add x.s (Variable vi) env.venv;
+      vars = M.add x.s t env.vars }
 
 let add_fun x atyps rtyp env =
   let fi = {
@@ -213,7 +213,81 @@ let array_exists p a =
 
 (* These utility functions are used in the processing of function definitions *)
 
-let rec array_var env v =
+let tr_return_type env fn =
+  match fn.fn_rtyp with
+  | None -> VOID
+  | Some t -> find_type t env
+
+let tr_function_header env fn =
+  add_fun fn.fn_name
+    (List.map (fun (_, t) -> find_type t env) fn.fn_args)
+    (tr_return_type env fn) env
+
+let check_unique_fundef_names fundefs =
+  let rec bind = function
+    | [] -> ()
+    | fundef :: fundefs ->
+        let matches =
+          List.filter (fun fundef' -> fundef.fn_name.s = fundef'.fn_name.s)
+          fundefs in
+        if List.length matches > 0 then
+          let fundef' = List.hd matches in
+          error fundef'.fn_name.p
+            "function name '%s' can only be defined once in each type declaration"
+            fundef'.fn_name.s
+        else
+          bind fundefs
+  in bind fundefs
+
+let toplevel : (string, type_spec, type_spec * ptr_flag * free_flag, exp) fundef list ref =
+  ref []
+
+let rec tr_function_body env fundef =
+  let fi = find_fun fundef.fn_name env in
+  let ts, t = fi.fsign in
+
+  let env = List.fold_left2 (fun env (x, _) t -> add_var x t env) env fundef.fn_args ts in
+
+  (* Process the body *)
+  let body = typ_exp env fundef.fn_body t in
+
+  let formals =
+    let getfree x =
+      let t = M.find x env.vars in
+      (t, IsPtr (structured_type t), IsFree true)
+    in
+    List.fold_right (fun x args -> (x, getfree x) :: args)
+      (S.elements (M.find fundef.fn_name.s env.sols))
+      (List.map2 (fun (x, _) t -> (x.s, (t, IsPtr (structured_type t), IsFree false)))
+      fundef.fn_args ts) in
+
+  toplevel := { fn_name = fi.fname; fn_rtyp = t; fn_args = formals; fn_body =
+    body } :: !toplevel
+
+and let_funs env fundefs e =
+  let join m1 m2 = M.fold M.add m1 m2 in
+
+  check_unique_fundef_names fundefs;
+
+  Solver.reset ();
+  List.iter (fun f ->
+    let gs' = S.elements (fc f.fn_body) in
+    let gs  = List.filter (fun fundef -> List.mem f.fn_name.s gs') fundefs in
+    let sf  = S.filter (fun v -> M.mem v env.vars) (fv f.fn_body) in
+    let hs  = List.filter (fun h -> S.mem h env.funs) gs' in
+    let sf  = union_list (sf :: List.map (fun h -> M.find h env.sols) hs) in
+    Solver.add_equation f.fn_name.s sf (List.map (fun g -> g.fn_name.s) gs))
+    fundefs;
+  let sols' = Solver.solve () in
+  let sols' = join env.sols sols' in
+  let funs' = List.fold_right S.add (List.map (fun f -> f.fn_name.s) fundefs)
+    env.funs in
+  let env' = { env with funs = funs'; sols = sols' } in
+  let env' = List.fold_left tr_function_header env' fundefs in
+  List.iter (tr_function_body env') fundefs;
+  exp env' e
+
+and array_var env v =
   let v', t = var env v in
     match t with
     | ARRAY (_, t') -> v', t'
@@ -248,21 +322,7 @@ and var env v : Typedtree.var * type_spec =
   match v with
   | PVsimple x ->
       let vi = find_var x env in
-      let dlvl = env.lvl - vi.vlevel in
-      begin match !(vi.vaccess) with
-      | Local ->
-          debug () "dlvl for %s = %d" x.s dlvl;
-          if dlvl > 0 then
-            let fpr = List.nth env.fp dlvl in
-            let fp = !fpr in
-            incr fpr;
-            vi.vaccess := NonLocal fp;
-            TVnonLocal (dlvl, fp), vi.vtype
-          else
-            TVlocal (x.s, vi.vimm), vi.vtype
-      | NonLocal (fp) ->
-          TVnonLocal (dlvl, fp), vi.vtype
-      end
+      TVsimple (x.s, IsImm vi.vimm), vi.vtype
   | PVsubscript (p, v, x) ->
       let v, t' = array_var env v in
       let x = int_exp env x in
@@ -300,43 +360,15 @@ and exp env e =
       let vi = find_var x env in
       begin match vi.vtype with
       | RECORD _ ->
-          let dlvl = env.lvl - vi.vlevel in
-          let v = begin match !(vi.vaccess) with
-          | Local ->
-              if dlvl > 0 then
-                let fpr = List.nth env.fp dlvl in
-                let fp = !fpr in
-                incr fpr;
-                vi.vaccess := NonLocal fp;
-                TVnonLocal (dlvl, fp)
-              else
-                TVlocal (x.s, vi.vimm)
-          | NonLocal (fp) ->
-              TVnonLocal (dlvl, fp)
-          end in
-          Tassign (v, TCnil vi.vtype), VOID
+          Tassign (TVsimple (x.s, IsImm false), TCnil vi.vtype), VOID
       | _ ->
           error p "trying to assign 'nil' to a variable of non-record type"
       end
   | Passign (p, PVsimple x, e) ->
       let vi = find_var x env in
       if vi.vimm then error p "variable '%s' should not be assigned to" x.s;
-      let dlvl = env.lvl - vi.vlevel in
-      let v, t = begin match !(vi.vaccess) with
-      | Local ->
-          if dlvl > 0 then
-            let fpr = List.nth env.fp dlvl in
-            let fp = !fpr in
-            incr fpr;
-            vi.vaccess := NonLocal fp;
-            TVnonLocal (dlvl, fp), vi.vtype
-          else
-            TVlocal (x.s, vi.vimm), vi.vtype
-      | NonLocal (fp) ->
-          TVnonLocal (dlvl, fp), vi.vtype
-      end in
-      let e = typ_exp env e t in
-      Tassign (v, e), VOID
+      let e = typ_exp env e vi.vtype in
+      Tassign (TVsimple (x.s, IsImm vi.vimm), e), VOID
   | Passign (p, PVsubscript (p', v, e1), Pnil _) ->
       let v, t' = array_var env v in
       begin match t' with
@@ -373,10 +405,13 @@ and exp env e =
           (List.length xs) (List.length ts);
       let rec bind ys = function
         | [], [] ->
-            Tcall (fi.fname, List.rev ys), t
+            let actuals =
+              List.fold_right (fun x ys -> ArgNonLocal x :: ys)
+                (S.elements (M.find x.s env.sols)) (List.rev ys) in
+            Tcall (fi.fname, actuals), t
         | x :: xs, t :: ts ->
             let x = typ_exp env x t in
-            bind ((x, structured_type t) :: ys) (xs, ts)
+            bind (ArgExp (x, IsPtr (structured_type t)) :: ys) (xs, ts)
         | _ ->
             assert false
       in bind [] (xs, ts)
@@ -425,7 +460,7 @@ and exp env e =
             in bind 1 (List.rev vs, List.map snd ts)) *)
         | (x, Pnil _) :: xts, (x', t) :: ts ->
             if x.s = x' then
-              bind ((TCnil t, false) :: vs) (xts, ts)
+              bind ((TCnil t, IsPtr false) :: vs) (xts, ts)
             else
               if List.exists (fun (x', _) -> x.s = x') ts then
                 error x.p "field '%s' is in the wrong other" x.s
@@ -434,7 +469,7 @@ and exp env e =
         | (x, e) :: xts, (x', t) :: ts ->
             if x.s = x' then
               let e = typ_exp env e t in
-              bind ((e, structured_type t) :: vs) (xts, ts)
+              bind ((e, IsPtr (structured_type t)) :: vs) (xts, ts)
             else
               if List.exists (fun (x', _) -> x.s = x') ts then
                 error x.p "field '%s' is in the wrong other" x.s
@@ -453,12 +488,12 @@ and exp env e =
             nxt Eundef E.Tvoid))) *)
   | Pif (_, x, y, None) ->
       let x = int_exp env x in
-      Tif (x, void_exp env y, Tseq [], true), VOID
+      Tif (x, void_exp env y, Tseq [], IsVoid true), VOID
   | Pif (_, x, y, Some z) ->
       let x = int_exp env x in
       let y, ty = exp env y in
       let z = typ_exp env z ty in
-      Tif (x, y, z, ty = VOID), ty
+      Tif (x, y, z, IsVoid (ty = VOID)), ty
       (* let bl = Id.genid () in
       let w = Id.genid () in
       let tt = ref VOID in
@@ -479,7 +514,7 @@ and exp env e =
   | Pfor (_, i, x, y, z) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      let env' = add_var i ~immutable:true INT env.lvl (ref Local) env in
+      let env' = add_var i ~immutable:true INT env in
       Tfor (i.s, x, y, void_exp { env' with in_loop = true } z), VOID
   | Pbreak _ when env.in_loop ->
       Tbreak, VOID
@@ -487,68 +522,30 @@ and exp env e =
       error p "illegal use of 'break'"
   | Pletvar (_, x, None, y, z) ->
       let y, yt = exp env y in
-      let acc = ref Local in
-      let env = add_var x yt env.lvl acc env in
+      let env = add_var x yt env in
       let z, zt = exp env z in
-      Tletvar (x.s, acc, structured_type yt, yt, y, z), zt
+      Tletvar (x.s, IsPtr (structured_type yt), yt, y, z), zt
   | Pletvar (p, x, Some t, Pnil _, z) ->
       let t = find_type t env in
       begin match t with
       | RECORD _ ->
-          let acc = ref Local in
-          let env = add_var x t env.lvl acc env in
+          let env = add_var x t env in
           let z, zt = exp env z in
-          Tletvar (x.s, acc, true, t, TCnil t, z), zt
+          Tletvar (x.s, IsPtr true, t, TCnil t, z), zt
       | _ ->
           error p "expected record type, found '%s'" (describe_type t)
       end
   | Pletvar (_, x, Some t, y, z) ->
       let t = find_type t env in
       let y = typ_exp env y t in
-      let acc = ref Local in
-      let env = add_var x t env.lvl acc env in
+      let env = add_var x t env in
       let z, zt = exp env z in
-      Tletvar (x.s, acc, structured_type t, t, y, z), zt
+      Tletvar (x.s, IsPtr (structured_type t), t, y, z), zt
   | Plettype (_, tys, e) ->
       let env = let_type env tys in
       exp env e
   | Pletfuns (_, funs, e) ->
       let_funs env funs e
-
-and let_funs env funs e =
-  let return_type env fn =
-    match fn.fn_rtyp with
-    | None -> VOID
-    | Some t -> find_type t env in
-
-  let addfun env fn =
-    add_fun fn.fn_name
-      (List.map (fun (_, t) -> find_type t env) fn.fn_args)
-      (return_type env fn) env
-  in
-
-  let addfun2 env fundef =
-    let new_lvl = env.lvl+1 in
-    let fi = find_fun fundef.fn_name env in
-    let ts, t = fi.fsign in
-    let args' = List.map (fun (x, _) -> (x, ref Local)) fundef.fn_args in
-    let env = List.fold_left2
-      (fun env (x, acc) t -> add_var x t new_lvl acc env) env args' ts in
-
-    (* Process the body *)
-    let body = typ_exp
-      { env with lvl = new_lvl; in_loop = false; fp = ref 0 :: env.fp } fundef.fn_body t in
-
-    { fn_name = fi.fname;
-      fn_rtyp = t;
-      fn_args = List.map2 (fun (x, acc) t -> (x.s, (t, acc, structured_type t))) args' ts;
-      fn_body = body }
-  in
-
-  let env = List.fold_left addfun env funs in
-  let fundefs = List.map (addfun2 env) funs in (* order matters ! *)
-  let e, t = exp env e in
-  Tletfuns (fundefs, e), t
 
 let base_tenv =
   M.add "int" INT (M.add "string" STRING M.empty)
@@ -571,15 +568,18 @@ let base_venv =
     M.add x (Function (Id.make x, (ts, t))) venv) M.empty stdlib *)
 
 let program e =
+  toplevel := [];
   let base_env = {
     tenv = base_tenv;
     renv = M.empty;
     venv = base_venv;
     in_loop = false;
-    fp = [ref 0];
-    lvl = 0
+    vars = M.empty;
+    funs = S.empty;
+    sols = M.empty
   } in
-  fst (exp base_env e)
+  let e, _ = exp base_env e in
+  { fn_name = "main"; fn_rtyp = INT; fn_args = []; fn_body = Tseq [e; TCint 0] } :: !toplevel
   (*
   { prog_body = s;
     prog_strings = [];

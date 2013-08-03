@@ -5,6 +5,9 @@ open Llvm
 
 module M = Map.Make (String)
 
+let debug () =
+  Printf.ksprintf (fun message -> Printf.fprintf stderr "Debug: %s\n%!" message)
+
 let fatal () =
   Printf.ksprintf (fun message -> failwith (Printf.sprintf "Fatal: %s\n%!" message))
 
@@ -28,8 +31,8 @@ let new_block () =
   append_block g_context "" f
 
 let llvm_value = function
-  | VAL v -> v
-  | LOADVAL v -> build_load v "" g_builder
+  | VAL v -> dump_value v; v
+  | LOADVAL v -> dump_value v; build_load v "" g_builder
 
 let int_t w =
   integer_type g_context w
@@ -171,8 +174,17 @@ let load v nxt =
 let nil =
   const_int 32 0
 
+let dump_llvm_value = function
+  | VAL v
+  | LOADVAL v -> dump_value v
+
 let store v p nxt =
+  debug () "store";
+  dump_llvm_value v;
+  dump_llvm_value p;
+  dump_module g_module;
   ignore (build_store (llvm_value v) (llvm_value p) g_builder);
+  debug () "success!";
   nxt (const_int 32 0)
 
 let gep v vs nxt =
@@ -183,6 +195,7 @@ let binop op v1 v2 nxt =
   nxt (VAL (op (llvm_value v1) (llvm_value v2) "" g_builder))
 
 let call v0 vs =
+  dump_value v0;
   VAL (build_call v0 (Array.of_list (List.map llvm_value vs)) "" g_builder)
 
 let phi incoming nxt =
@@ -243,12 +256,12 @@ let save triggers v (nxt : llvm_value -> unit) =
 
 let rec var env breakbb v (nxt : llvm_value -> unit) =
   match v with
-  | TVlocal (x, true) ->
+  | TVsimple (x, IsImm true) ->
+      dump_value (M.find x env);
       nxt (VAL (M.find x env))
-  | TVlocal (x, false) ->
+  | TVsimple (x, IsImm false) ->
+      dump_value (M.find x env);
       nxt (LOADVAL (M.find x env))
-  | TVnonLocal (dlvl, idx) ->
-      assert false
   | TVsubscript (lnum, v, x) ->
       var env breakbb v (fun v ->
       save (triggers x) v (fun v ->
@@ -292,14 +305,11 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       binop (build_icmp Icmp.Eq) x y nxt))
   | Tbinop _ ->
       failwith "binop not implemented"
-  | Tassign (TVlocal (_, true), _) ->
+  | Tassign (TVsimple (_, IsImm true), _) ->
       assert false
-  | Tassign (TVlocal (x, false), e) ->
+  | Tassign (TVsimple (x, IsImm false), e) ->
       exp env breakbb e (fun e ->
       store e (VAL (M.find x env)) nxt)
-  | Tassign (TVnonLocal (dlvl, fp), e) ->
-      assert false
-      (* exp env lbreak e (fun e -> store e (Var x, M.find x env) nxt) *)
   | Tassign (TVsubscript (lnum, v, e1), e2) ->
       var env breakbb v (fun v ->
       save (triggers e1 || triggers e2) v (fun v ->
@@ -314,12 +324,15 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
   | Tcall (x, xs) ->
       let rec bind ys = function
         | [] ->
+            List.iter dump_value (List.map llvm_value ys);
             nxt (call (getfun x) (List.rev ys))
-        | (x, is_ptr) :: xs ->
+        | (ArgExp (x, IsPtr is_ptr)) :: xs ->
             exp env breakbb x (fun x ->
-              let triggersfst (x, _) = triggers x in
-              save (is_ptr && List.exists triggersfst xs) x (fun x ->
+              let triggers = function ArgExp (x, _) -> triggers x | _ -> false in
+              save (is_ptr && List.exists triggers xs) x (fun x ->
               bind (x :: ys) xs))
+        | (ArgNonLocal x) :: xs ->
+            bind (VAL (M.find x env) :: ys) xs
       in bind [] xs
   | Tseq (xs) ->
       let rec bind = function
@@ -348,7 +361,7 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
                   gep r [ const_int 32 0; const_int 32 i]
                     (fun f -> store v f (fun _ -> bind (i+1) vs))
             in bind 1 (List.rev vs)
-        | (x, is_ptr) :: xts ->
+        | (x, IsPtr is_ptr) :: xts ->
             exp env breakbb x (fun x ->
               save is_ptr x (fun x ->
                 bind (x :: vs) xts))
@@ -359,7 +372,7 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
           .Sseq (T.Sif (Ebinop (x, op, y),
             void_exp tenv venv looping z Sskip, Sskip),
             nxt Eundef E.Tvoid))) *)
-  | Tif (x, y, z, true) -> (* result is void *)
+  | Tif (x, y, z, IsVoid true) -> (* result is void *)
       let nextbb = new_block () in
       let yesbb  = new_block () in
       let naybb  = new_block () in
@@ -372,7 +385,7 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       exp env breakbb z (fun _ -> ignore (build_br nextbb g_builder));
       position_at_end nextbb g_builder;
       nxt nil
-  | Tif (x, y, z, false) ->
+  | Tif (x, y, z, IsVoid false) ->
       let nextbb = new_block () in
       let yesbb  = new_block () in
       let naybb  = new_block () in
@@ -426,49 +439,16 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       nxt nil
   | Tbreak ->
       ignore (build_br breakbb g_builder) (* ignore nxt *)
-  | Tletvar (x, acc, is_ptr, ty, y, z) ->
-      begin match !acc with
-      | Local ->
-          let a = alloca is_ptr (transl_typ ty) in
-          exp env breakbb y (fun y ->
-          store y (VAL a) (fun _ ->
-          exp (M.add x a env) breakbb z nxt))
-      | NonLocal _ ->
-          assert false
-      end
-  | Tletfuns (fundefs, e) ->
+  | Tletvar (x, IsPtr is_ptr, ty, y, z) ->
+      let a = alloca is_ptr (transl_typ ty) in
+      exp env breakbb y (fun y ->
+      store y (VAL a) (fun _ ->
+      exp (M.add x a env) breakbb z nxt))
+  (* | Tletfuns (fundefs, e) ->
       let curr = insertion_block g_builder in
       let_funs env fundefs;
       position_at_end curr g_builder;
-      exp env breakbb e nxt
-
-and let_funs env fundefs =
-
-  let declare_fundef fundef =
-    ignore (define_function fundef.fn_name
-      (function_type (transl_typ fundef.fn_rtyp)
-        (Array.of_list (List.map (fun (_, (t, _, _)) -> transl_typ t)
-        fundef.fn_args)))
-    g_module) in
-
-  let define_fundef fundef =
-    let f = getfun fundef.fn_name in
-    position_at_end (entry_block f) g_builder;
-    let startbb = new_block () in
-    position_at_end startbb g_builder;
-    let count = ref (-1) in
-    let env = List.fold_left (fun env (n, (t, _, is_ptr)) ->
-      incr count;
-      let a = alloca is_ptr (transl_typ t) in
-      store (VAL (param f !count)) (VAL a) (fun _ -> ());
-      M.add n a env) env fundef.fn_args in
-    exp env (entry_block f) fundef.fn_body
-      (fun x -> ignore (build_ret (llvm_value x) g_builder));
-    position_at_end (entry_block f) g_builder;
-    ignore (build_br startbb g_builder) in
-
-  List.iter declare_fundef fundefs;
-  List.iter define_fundef fundefs
+      exp env breakbb e nxt *)
 
   (*
 let base_venv =
@@ -488,8 +468,8 @@ let base_venv =
     M.add x (Function (Id.make x, (ts, t))) venv) M.empty stdlib
     *)
 
-let program e =
-  let main = define_function "main" (function_type (int_t 32) [| |]) g_module in
+let program fundefs =
+  (* let main = define_function "main" (function_type (int_t 32) [| |]) g_module in
   position_at_end (entry_block main) g_builder; (* this is necessary so that neW_block works! *)
   let startbb = new_block () in
   position_at_end startbb g_builder;
@@ -497,4 +477,36 @@ let program e =
     (fun _ -> ignore (build_ret (const_int0 32 0) g_builder));
   position_at_end (entry_block main) g_builder;
   ignore (build_br startbb g_builder);
+  dump_module g_module *)
+
+  let declare_fundef fundef =
+    ignore (define_function fundef.fn_name
+      (function_type (transl_typ fundef.fn_rtyp)
+        (Array.of_list (List.map (fun (_, (t, _, IsFree is_free)) ->
+          if is_free then pointer_type (transl_typ t) else (transl_typ t))
+        fundef.fn_args)))
+    g_module) in
+
+  let define_fundef fundef =
+    let f = getfun fundef.fn_name in
+    position_at_end (entry_block f) g_builder;
+    let startbb = new_block () in
+    position_at_end startbb g_builder;
+    let count = ref (-1) in
+    let env = List.fold_left (fun env (n, (t, IsPtr is_ptr, IsFree is_free)) ->
+      incr count;
+      if not is_free then begin
+        let a = alloca is_ptr (transl_typ t) in
+        store (VAL (param f !count)) (VAL a) (fun _ -> ());
+        M.add n a env
+      end else
+        M.add n (param f !count) env) M.empty fundef.fn_args in
+    exp env (entry_block f) fundef.fn_body
+      (fun x -> ignore (build_ret (llvm_value x) g_builder));
+    position_at_end (entry_block f) g_builder;
+    ignore (build_br startbb g_builder) in
+
+  List.iter declare_fundef fundefs;
+  List.iter define_fundef fundefs;
+
   dump_module g_module
