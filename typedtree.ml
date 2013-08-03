@@ -35,19 +35,19 @@ and var =
 and exp =
   | TCint of int
   | TCstring of string
-  | TCnil of type_spec
+  | TCnil of Llvm.lltype
   | Tvar of var
   | Tbinop of exp * bin * exp
   | Tassign of var * exp
   | Tcall of string * arg list
   | Tseq of exp list
-  | Tmakearray of type_spec * exp * exp (* element type, size, init value *)
-  | Tmakerecord of type_spec * (exp * ptr_flag) list
-  | Tif of exp * exp * exp * void_flag * type_spec
+  | Tmakearray of Llvm.lltype * exp * exp (* element type, size, init value *)
+  | Tmakerecord of Llvm.lltype * (exp * ptr_flag) list
+  | Tif of exp * exp * exp * void_flag * Llvm.lltype
   | Twhile of exp * exp
   | Tfor of string * exp * exp * exp
   | Tbreak
-  | Tletvar of string * ptr_flag * type_spec * exp * exp
+  | Tletvar of string * ptr_flag * Llvm.lltype * exp * exp
 
 let rec triggers (e : exp) : bool =
   match e with

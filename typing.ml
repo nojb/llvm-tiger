@@ -136,6 +136,41 @@ let find_record_field env t (x : pos_string) =
     | _ :: xs -> loop (i+1) xs
   in loop 0 ts
 
+let named_structs : (string * Llvm.lltype) list ref = ref []
+
+let rec transl_typ env t =
+  let open Llvm in
+  let int_t w = integer_type (global_context ()) w in
+  let visited : string list ref = ref [] in
+  let rec loop t =
+    match t with
+    | INT   -> int_t 32
+    | VOID  -> int_t 32
+    | STRING -> pointer_type (int_t 8)
+    | ARRAY (_, t) -> (* { i32, i32, [0 x t] }* *)
+        pointer_type (struct_type (global_context ())
+          [| int_t 32; int_t 32; array_type (loop t) 0 |])
+    | RECORD (rname, uid) ->
+        if not (List.exists (fun (x, _) -> x = Id.to_string uid) !named_structs)
+        && not (List.mem (Id.to_string uid) !visited)
+        then begin
+          visited := (Id.to_string uid) :: !visited;
+          let ty = named_struct_type (global_context ()) (Id.to_string uid) in
+          named_structs := (Id.to_string uid, ty) :: !named_structs;
+          struct_set_body ty
+            (Array.of_list (int_t 32 :: List.map (fun (_, t) -> loop t) (M.find rname
+            env.renv))) false;
+          (* ()) (Id.to_string uid)) :: !named_structs
+            (Tint 32 :: List.map (fun (_, t) -> loop t) (M.find rname
+            env.renv))) :: !named_structs *)
+        end;
+        pointer_type (List.assoc (Id.to_string uid) !named_structs)
+        (* pointer_type (named_struct_type 
+        Tpointer (Tnamedstruct (Id.to_string uid)) *)
+    | PLACE _ ->
+        assert false
+  in loop t
+
 let declare_type env (x, t) =
   let find_type y env =
     try M.find y.s env.tenv
@@ -239,7 +274,7 @@ let check_unique_fundef_names fundefs =
           bind fundefs
   in bind fundefs
 
-let toplevel : (string, type_spec, type_spec * ptr_flag * free_flag, exp) fundef list ref =
+let toplevel : (string, Llvm.lltype, Llvm.lltype * ptr_flag * free_flag, exp) fundef list ref =
   ref []
 
 let rec tr_function_body env fundef =
@@ -254,14 +289,14 @@ let rec tr_function_body env fundef =
   let formals =
     let getfree x =
       let t = M.find x env.vars in
-      (t, IsPtr (structured_type t), IsFree true)
+      (transl_typ env t, IsPtr (structured_type t), IsFree true)
     in
     List.fold_right (fun x args -> (x, getfree x) :: args)
       (S.elements (M.find fundef.fn_name.s env.sols))
-      (List.map2 (fun (x, _) t -> (x.s, (t, IsPtr (structured_type t), IsFree false)))
+      (List.map2 (fun (x, _) t -> (x.s, (transl_typ env t, IsPtr (structured_type t), IsFree false)))
       fundef.fn_args ts) in
 
-  toplevel := { fn_name = fi.fname; fn_rtyp = t; fn_args = formals; fn_body =
+  toplevel := { fn_name = fi.fname; fn_rtyp = transl_typ env t; fn_args = formals; fn_body =
     body } :: !toplevel
 
 and let_funs env fundefs e =
@@ -360,7 +395,8 @@ and exp env e =
       let vi = find_var x env in
       begin match vi.vtype with
       | RECORD _ ->
-          Tassign (TVsimple (x.s, IsImm false), TCnil vi.vtype), VOID
+          Tassign (TVsimple (x.s, IsImm false),
+            TCnil (transl_typ env vi.vtype)), VOID
       | _ ->
           error p "trying to assign 'nil' to a variable of non-record type"
       end
@@ -374,7 +410,8 @@ and exp env e =
       begin match t' with
       | RECORD _ ->
           let e1 = int_exp env e1 in
-          Tassign (TVsubscript (p'.Lexing.pos_lnum, v, e1), TCnil t'), VOID
+          Tassign (TVsubscript (p'.Lexing.pos_lnum, v, e1),
+            TCnil (transl_typ env t')), VOID
       | _ ->
           error p "trying to assign 'nil' to a field of non-record type"
       end
@@ -388,7 +425,8 @@ and exp env e =
       let i, tx = find_record_field env t' x in
       begin match tx with
       | RECORD _ ->
-          Tassign (TVfield (p'.Lexing.pos_lnum, v, i), TCnil t'), VOID
+          Tassign (TVfield (p'.Lexing.pos_lnum, v, i),
+            TCnil (transl_typ env t')), VOID
       | _ ->
           error p "trying to assign 'nil' to a field of non-record type"
       end
@@ -433,7 +471,8 @@ and exp env e =
       let t, t' = find_array_type x env in
       begin match t' with
       | RECORD _ ->
-          Tmakearray (t', int_exp env y, TCnil t'), t
+          Tmakearray (transl_typ env t', int_exp env y,
+            TCnil (transl_typ env t')), t
       | _ ->
           error p "array base type must be record type"
       end
@@ -441,12 +480,12 @@ and exp env e =
       let t, t' = find_array_type x env in
       let y = int_exp env y in
       let z = typ_exp env z t' in
-      Tmakearray (t', y, z), t
+      Tmakearray (transl_typ env t', y, z), t
   | Pmakerecord (p, x, xts) ->
       let t, ts = find_record_type env x in
       let rec bind vs = function
         | [], [] ->
-            Tmakerecord (t, List.rev vs), t
+            Tmakerecord (transl_typ env t, List.rev vs), t
             (* let t' = (match transl_typ renv t with Tpointer t' -> t' | _ ->
               assert false) in
             insert_let (MALLOC t') (transl_typ renv t) (fun r ->
@@ -460,7 +499,7 @@ and exp env e =
             in bind 1 (List.rev vs, List.map snd ts)) *)
         | (x, Pnil _) :: xts, (x', t) :: ts ->
             if x.s = x' then
-              bind ((TCnil t, IsPtr false) :: vs) (xts, ts)
+              bind ((TCnil (transl_typ env t), IsPtr false) :: vs) (xts, ts)
             else
               if List.exists (fun (x', _) -> x.s = x') ts then
                 error x.p "field '%s' is in the wrong other" x.s
@@ -488,12 +527,12 @@ and exp env e =
             nxt Eundef E.Tvoid))) *)
   | Pif (_, x, y, None) ->
       let x = int_exp env x in
-      Tif (x, void_exp env y, Tseq [], IsVoid true, VOID), VOID
+      Tif (x, void_exp env y, Tseq [], IsVoid true, transl_typ env VOID), VOID
   | Pif (_, x, y, Some z) ->
       let x = int_exp env x in
       let y, ty = exp env y in
       let z = typ_exp env z ty in
-      Tif (x, y, z, IsVoid (ty = VOID), ty), ty
+      Tif (x, y, z, IsVoid (ty = VOID), transl_typ env ty), ty
       (* let bl = Id.genid () in
       let w = Id.genid () in
       let tt = ref VOID in
@@ -524,14 +563,14 @@ and exp env e =
       let y, yt = exp env y in
       let env = add_var x yt env in
       let z, zt = exp env z in
-      Tletvar (x.s, IsPtr (structured_type yt), yt, y, z), zt
+      Tletvar (x.s, IsPtr (structured_type yt), transl_typ env yt, y, z), zt
   | Pletvar (p, x, Some t, Pnil _, z) ->
       let t = find_type t env in
       begin match t with
       | RECORD _ ->
           let env = add_var x t env in
           let z, zt = exp env z in
-          Tletvar (x.s, IsPtr true, t, TCnil t, z), zt
+          Tletvar (x.s, IsPtr true, transl_typ env t, TCnil (transl_typ env t), z), zt
       | _ ->
           error p "expected record type, found '%s'" (describe_type t)
       end
@@ -540,7 +579,7 @@ and exp env e =
       let y = typ_exp env y t in
       let env = add_var x t env in
       let z, zt = exp env z in
-      Tletvar (x.s, IsPtr (structured_type t), t, y, z), zt
+      Tletvar (x.s, IsPtr (structured_type t), transl_typ env t, y, z), zt
   | Plettype (_, tys, e) ->
       let env = let_type env tys in
       exp env e
@@ -579,7 +618,7 @@ let program e =
     sols = M.empty
   } in
   let e, _ = exp base_env e in
-  { fn_name = "main"; fn_rtyp = INT; fn_args = []; fn_body = Tseq [e; TCint 0] } :: !toplevel
+  { fn_name = "main"; fn_rtyp = transl_typ base_env INT; fn_args = []; fn_body = Tseq [e; TCint 0] } :: !toplevel
   (*
   { prog_body = s;
     prog_strings = [];

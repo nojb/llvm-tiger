@@ -59,7 +59,7 @@ let const_null t =
 
 (* let named_structs : (string * llvm_type list) list ref = ref [] *)
 
-let rec transl_typ t =
+(* let rec transl_typ t =
   match t with
   | INT -> int_t 32
   | VOID -> int_t 32
@@ -86,7 +86,7 @@ let rec transl_typ t =
         Tpointer (Tnamedstruct (Id.to_string uid))
     | PLACE _ ->
         assert false
-  in loop t *)
+  in loop t *) *)
 
 (* let rec structured_type t =
   match t with
@@ -182,6 +182,9 @@ let store v p =
   ignore (build_store (llvm_value v) (llvm_value p) g_builder)
 
 let gep v vs =
+  dump_llvm_value v;
+  prerr_endline (string_of_lltype (element_type (type_of (llvm_value v))));
+  List.iter dump_llvm_value vs;
   VAL (build_gep (llvm_value v)
     (Array.of_list (List.map llvm_value vs)) "" g_builder)
 
@@ -280,7 +283,7 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
   (* | Pstring (_, s) ->
       nxt (Vstring s) STRING *)
   | TCnil t ->
-      nxt (const_null (transl_typ t))
+      nxt (const_null t)
   | Tvar (v) ->
       var env breakbb v nxt
   | Tbinop (x, Op_add, y) ->
@@ -345,14 +348,14 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       exp env breakbb y (fun y ->
       exp env breakbb z (fun z ->
       let a = malloc (build_add (const_int0 32 8)
-        (build_mul (llvm_value y) (size_of (transl_typ t)) "" g_builder)
+        (build_mul (llvm_value y) (size_of t) "" g_builder)
         "" g_builder) in
       nxt (VAL (build_pointercast a (ptr_t (struct_type g_context
-        [| int_t 32; int_t 32; array_type (transl_typ t) 0 |])) "" g_builder))))
+        [| int_t 32; int_t 32; array_type t 0 |])) "" g_builder))))
   | Tmakerecord (t, xts) ->
       let rec bind vs = function
         | [] ->
-            let t' = element_type (transl_typ t) in
+            let t' = element_type t in
             let r = VAL (build_malloc t' "" g_builder) in
             let rec bind i = function
               | [] -> nxt r
@@ -389,7 +392,7 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       let nextbb = new_block () in
       let yesbb  = new_block () in
       let naybb  = new_block () in
-      let tmp    = VAL (alloca false (transl_typ ty)) in
+      let tmp    = VAL (alloca false ty) in
       exp env breakbb x (fun x ->
         let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in
         cond_br c yesbb naybb);
@@ -435,7 +438,7 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
   | Tbreak ->
       ignore (build_br breakbb g_builder) (* ignore nxt *)
   | Tletvar (x, IsPtr is_ptr, ty, y, z) ->
-      let a = alloca is_ptr (transl_typ ty) in
+      let a = alloca is_ptr ty in
       exp env breakbb y (fun y ->
         store y (VAL a);
         exp (M.add x a env) breakbb z nxt)
@@ -476,9 +479,9 @@ let program fundefs =
 
   let declare_fundef fundef =
     ignore (define_function fundef.fn_name
-      (function_type (transl_typ fundef.fn_rtyp)
+      (function_type fundef.fn_rtyp
         (Array.of_list (List.map (fun (_, (t, _, IsFree is_free)) ->
-          if is_free then pointer_type (transl_typ t) else (transl_typ t))
+          if is_free then pointer_type t else t)
         fundef.fn_args)))
     g_module) in
 
@@ -491,7 +494,7 @@ let program fundefs =
     let env = List.fold_left (fun env (n, (t, IsPtr is_ptr, IsFree is_free)) ->
       incr count;
       if not is_free then begin
-        let a = alloca is_ptr (transl_typ t) in
+        let a = alloca is_ptr t in
         store (VAL (param f !count)) (VAL a);
         M.add n a env
       end else
