@@ -136,30 +136,6 @@ let find_record_field env t (x : pos_string) =
     | _ :: xs -> loop (i+1) xs
   in loop 0 ts
 
-(* let named_structs : (string * llvm_type list) list ref = ref []
-
-let rec transl_typ env t =
-  let visited : string list ref = ref [] in
-  let rec loop t =
-    match t with
-    | INT -> Tint 32
-    | VOID -> Tint 32
-    | STRING -> Tpointer (Tint 8)
-    | ARRAY (_, t) -> (* { i32, i32, [0 x t] }* *)
-        Tpointer (Tstruct [| Tint 32; Tint 32; Tarray (0, transl_typ env t) |])
-    | RECORD (rname, uid) ->
-        if not (List.exists (fun (x, _) -> x = Id.to_string uid) !named_structs)
-        && not (List.mem (Id.to_string uid) !visited)
-        then begin
-          visited := (Id.to_string uid) :: !visited;
-          named_structs := (Id.to_string uid,
-            (Tint 32 :: List.map (fun (_, t) -> loop t) (M.find rname env.renv))) :: !named_structs
-        end;
-        Tpointer (Tnamedstruct (Id.to_string uid))
-    | PLACE _ ->
-        assert false
-  in loop t *)
-
 let declare_type env (x, t) =
   let find_type y env =
     try M.find y.s env.tenv
@@ -320,14 +296,28 @@ and exp env e =
       Tbinop (x, op, y), INT
   | Pbinop _ ->
       failwith "binop not implemented"
-  (* | Passign (p, PVsimple x, Pnil _) ->
-      let x, t, immut = find_var x venv in
-      begin match t with
+  | Passign (p, PVsimple x, Pnil _) ->
+      let vi = find_var x env in
+      begin match vi.vtype with
       | RECORD _ ->
-          Tassign (TVsimple (x, ref Local), Tnil t), VOID
+          let dlvl = env.lvl - vi.vlevel in
+          let v = begin match !(vi.vaccess) with
+          | Local ->
+              if dlvl > 0 then
+                let fpr = List.nth env.fp dlvl in
+                let fp = !fpr in
+                incr fpr;
+                vi.vaccess := NonLocal fp;
+                TVnonLocal (dlvl, fp)
+              else
+                TVlocal (x.s, vi.vimm)
+          | NonLocal (fp) ->
+              TVnonLocal (dlvl, fp)
+          end in
+          Tassign (v, TCnil vi.vtype), VOID
       | _ ->
           error p "trying to assign 'nil' to a variable of non-record type"
-      end *)
+      end
   | Passign (p, PVsimple x, e) ->
       let vi = find_var x env in
       if vi.vimm then error p "variable '%s' should not be assigned to" x.s;
