@@ -168,8 +168,8 @@ let alloca is_ptr ty =
 let mul v1 v2 =
   VAL (build_mul (llvm_value v1) (llvm_value v2) "" g_builder) *)
 
-let load v nxt =
-  nxt (VAL (build_load (llvm_value v) "" g_builder))
+let load v =
+  VAL (build_load (llvm_value v) "" g_builder)
 
 let nil =
   const_int 32 0
@@ -178,29 +178,28 @@ let dump_llvm_value = function
   | VAL v
   | LOADVAL v -> dump_value v
 
-let store v p nxt =
-  ignore (build_store (llvm_value v) (llvm_value p) g_builder);
-  nxt (const_int 32 0)
+let store v p =
+  ignore (build_store (llvm_value v) (llvm_value p) g_builder)
 
-let gep v vs nxt =
-  nxt (VAL (build_gep (llvm_value v)
-    (Array.of_list (List.map llvm_value vs)) "" g_builder))
+let gep v vs =
+  VAL (build_gep (llvm_value v)
+    (Array.of_list (List.map llvm_value vs)) "" g_builder)
 
-let binop op v1 v2 nxt =
-  nxt (VAL (op (llvm_value v1) (llvm_value v2) "" g_builder))
+let binop op v1 v2 =
+  VAL (op (llvm_value v1) (llvm_value v2) "" g_builder)
 
 let call v0 vs =
   VAL (build_call v0 (Array.of_list (List.map llvm_value vs)) "" g_builder)
 
-let phi incoming nxt =
-  nxt (VAL (build_phi
-    (List.map (fun (v, bb) -> llvm_value v, bb) incoming) "" g_builder))
+let phi incoming =
+  VAL (build_phi
+    (List.map (fun (v, bb) -> llvm_value v, bb) incoming) "" g_builder)
 
 let cond_br c yaybb naybb =
   ignore (build_cond_br (llvm_value c) yaybb naybb g_builder)
 
-let array_length v (nxt : llvm_value -> unit) =
-  gep v [ const_int 32 0; const_int 32 1 ] (fun l -> load l nxt)
+let array_length v =
+  load (gep v [ const_int 32 0; const_int 32 1 ])
 
 let printf msg =
   ignore (build_call (declare_function "printf"
@@ -212,21 +211,22 @@ let die msg =
   ignore (build_call (declare_function "exit"
     (function_type void_t [| int_t 32 |]) g_module) [| const_int0 32 2 |] ""
     g_builder);
-  build_unreachable g_builder
+  ignore (build_unreachable g_builder)
 
-let array_index lnum v x nxt =
+let array_index lnum v x =
   let yesbb = new_block () in
   let diebb = new_block () in
-  array_length v (fun l ->
-  binop (build_icmp Icmp.Sle) x l (fun c1 ->
-  binop (build_icmp Icmp.Sge) x (const_int 32 0) (fun c2 ->
-  binop build_and c1 c2 (fun c -> cond_br c yesbb diebb)));
+  let l = array_length v in
+  let c1 = binop (build_icmp Icmp.Sle) x l in
+  let c2 = binop (build_icmp Icmp.Sge) x (const_int 32 0) in
+  let c = binop build_and c1 c2 in
+  cond_br c yesbb diebb;
   position_at_end diebb g_builder;
   die (Printf.sprintf "Runtime error: index out of bounds in line %d\n" lnum);
   position_at_end yesbb g_builder;
-  gep v [ const_int 32 0; const_int 32 2; x ] nxt)
+  gep v [ const_int 32 0; const_int 32 2; x ]
 
-let record_index lnum v i nxt =
+let record_index lnum v i =
   assert false
   (* insert_let (PTRTOINT v) (Tint 64) (fun ptr ->
   insert_let (BINOP (ptr, Op_cmp Cne, VINT (64, 0))) (Tint 1) (fun c ->
@@ -236,16 +236,16 @@ let record_index lnum v i nxt =
 
 (* Main typechecking/compiling functions *)
 
-let save triggers v (nxt : llvm_value -> unit) =
+let save triggers v =
   if triggers then
     match v with
-    | LOADVAL _ -> nxt v
+    | LOADVAL _ -> v
     | VAL v ->
         let a = alloca true (type_of v) in
         ignore (build_store v a g_builder);
-        nxt (LOADVAL a)
+        LOADVAL a
   else
-    nxt v
+    v
 
 let rec var env breakbb v (nxt : llvm_value -> unit) =
   match v with
@@ -255,14 +255,14 @@ let rec var env breakbb v (nxt : llvm_value -> unit) =
       nxt (LOADVAL (M.find x env))
   | TVsubscript (lnum, v, x) ->
       var env breakbb v (fun v ->
-      save (triggers x) v (fun v ->
-      exp env breakbb x (fun x ->
-      array_index lnum v x (fun v ->
-      load v nxt))))
+        let v = save (triggers x) v in
+        exp env breakbb x (fun x ->
+          let v = array_index lnum v x in
+          nxt (load v)))
   | TVfield (lnum, v, i) ->
       var env breakbb v (fun v ->
-      record_index lnum v i (fun v ->
-      load v nxt))
+        let v = record_index lnum v i in
+        nxt (load v))
 
 and exp env breakbb e (nxt : llvm_value -> unit) =
   match e with
@@ -277,41 +277,42 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
   | Tbinop (x, Op_add, y) ->
       exp env breakbb x (fun x ->
       exp env breakbb y (fun y ->
-      binop build_add x y nxt))
+      nxt (binop build_add x y)))
   | Tbinop (x, Op_sub, y) ->
       exp env breakbb x (fun x ->
       exp env breakbb y (fun y ->
-      binop build_sub x y nxt))
+      nxt (binop build_sub x y)))
   | Tbinop (x, Op_mul, y) ->
       exp env breakbb x (fun x ->
       exp env breakbb y (fun y ->
-      binop build_mul x y nxt))
+      nxt (binop build_mul x y)))
   | Tbinop (x, Op_div, y) ->
       exp env breakbb x (fun x ->
       exp env breakbb y (fun y ->
-      binop build_sdiv x y nxt))
+      nxt (binop build_sdiv x y)))
   | Tbinop (x, Op_cmp Ceq, y) ->
       exp env breakbb x (fun x ->
       exp env breakbb y (fun y ->
-      binop (build_icmp Icmp.Eq) x y nxt))
+      nxt (binop (build_icmp Icmp.Eq) x y)))
   | Tbinop _ ->
       failwith "binop not implemented"
   | Tassign (TVsimple (_, IsImm true), _) ->
       assert false
   | Tassign (TVsimple (x, IsImm false), e) ->
       exp env breakbb e (fun e ->
-      store e (VAL (M.find x env)) nxt)
+        store e (VAL (M.find x env));
+        nxt nil)
   | Tassign (TVsubscript (lnum, v, e1), e2) ->
       var env breakbb v (fun v ->
-      save (triggers e1 || triggers e2) v (fun v ->
-      exp env breakbb e1 (fun e1 ->
-      array_index lnum v e1 (fun v ->
-      exp env breakbb e2 (fun e2 -> store e2 v nxt)))))
+        let v = save (triggers e1 || triggers e2) v in
+        exp env breakbb e1 (fun e1 ->
+        let v = array_index lnum v e1 in
+        exp env breakbb e2 (fun e2 -> store e2 v; nxt nil)))
   | Tassign (TVfield (lnum, v, i), e) ->
       var env breakbb v (fun v ->
-      save (triggers e) v (fun v ->
-      record_index lnum v i (fun v ->
-      exp env breakbb e (fun e -> store e v nxt))))
+        let v = save (triggers e) v in
+        let v = record_index lnum v i in
+        exp env breakbb e (fun e -> store e v; nxt nil))
   | Tcall (x, xs) ->
       let rec bind ys = function
         | [] ->
@@ -319,8 +320,8 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
         | (ArgExp (x, IsPtr is_ptr)) :: xs ->
             exp env breakbb x (fun x ->
               let triggers = function ArgExp (x, _) -> triggers x | _ -> false in
-              save (is_ptr && List.exists triggers xs) x (fun x ->
-              bind (x :: ys) xs))
+              let x = save (is_ptr && List.exists triggers xs) x in
+              bind (x :: ys) xs)
         | (ArgNonLocal x) :: xs ->
             bind (VAL (M.find x env) :: ys) xs
       in bind [] xs
@@ -347,13 +348,14 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
             let rec bind i = function
               | [] -> nxt r
               | v :: vs ->
-                  gep r [ const_int 32 0; const_int 32 i]
-                    (fun f -> store v f (fun _ -> bind (i+1) vs))
+                  let f = gep r [ const_int 32 0; const_int 32 i] in
+                  store v f;
+                  bind (i+1) vs
             in bind 1 (List.rev vs)
         | (x, IsPtr is_ptr) :: xts ->
             exp env breakbb x (fun x ->
-              save is_ptr x (fun x ->
-                bind (x :: vs) xts))
+              let x = save is_ptr x in
+              bind (x :: vs) xts)
       in bind [] xts
   (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
       int_exp tenv venv looping x (fun x ->
@@ -366,8 +368,8 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       let yesbb  = new_block () in
       let naybb  = new_block () in
       exp env breakbb x (fun x ->
-        binop (build_icmp Icmp.Ne) x (const_int 32 0) (fun c ->
-        ignore (cond_br c yesbb naybb)));
+        let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in
+        cond_br c yesbb naybb);
       position_at_end yesbb g_builder;
       exp env breakbb y (fun _ -> ignore (build_br nextbb g_builder));
       position_at_end naybb g_builder;
@@ -380,14 +382,14 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       let naybb  = new_block () in
       let tmp    = VAL (alloca false (transl_typ ty)) in
       exp env breakbb x (fun x ->
-        binop (build_icmp Icmp.Ne) x (const_int 32 0) (fun c ->
-        ignore (cond_br c yesbb naybb)));
+        let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in
+        cond_br c yesbb naybb);
       position_at_end yesbb g_builder;
-      exp env breakbb y (fun y -> store y tmp (fun _ -> ()); ignore (build_br nextbb g_builder));
+      exp env breakbb y (fun y -> store y tmp; ignore (build_br nextbb g_builder));
       position_at_end naybb g_builder;
-      exp env breakbb z (fun z -> store z tmp (fun _ -> ()); ignore (build_br nextbb g_builder));
+      exp env breakbb z (fun z -> store z tmp; ignore (build_br nextbb g_builder));
       position_at_end nextbb g_builder;
-      load tmp nxt
+      nxt (load tmp)
   | Twhile (x, y) ->
       let nextbb = new_block () in
       let testbb = new_block () in
@@ -395,8 +397,8 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       ignore (build_br testbb g_builder);
       position_at_end testbb g_builder;
       exp env breakbb x (fun x ->
-        binop (build_icmp Icmp.Ne) x (const_int 32 0) (fun c ->
-        ignore (cond_br c bodybb nextbb)));
+        let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in
+        cond_br c bodybb nextbb);
       position_at_end bodybb g_builder;
       exp env nextbb y (fun _ -> ignore (build_br testbb g_builder));
       position_at_end nextbb g_builder;
@@ -405,22 +407,20 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       let nextbb = new_block () in
       let testbb = new_block () in
       let bodybb = new_block () in
-      let ir     = ref nil in
       exp env breakbb x (fun x ->
       exp env breakbb y (fun y ->
         let curr = insertion_block g_builder in
         ignore (build_br testbb g_builder);
         position_at_end testbb g_builder;
-        phi [x, curr] (fun ii ->
-          ir := ii;
-          binop (build_icmp Icmp.Sle) ii y (fun c ->
-          cond_br c bodybb nextbb));
+        let ii = phi [x, curr] in 
+        let c = binop (build_icmp Icmp.Sle) ii y in
+        cond_br c bodybb nextbb;
         position_at_end bodybb g_builder;
-        exp (M.add i (llvm_value !ir) env) nextbb z (fun _ ->
-          binop build_add !ir (const_int 32 1) (fun plusone ->
+        exp (M.add i (llvm_value ii) env) nextbb z (fun _ ->
+          let plusone = binop build_add ii (const_int 32 1) in
           let curr = insertion_block g_builder in
-          add_incoming (llvm_value plusone, curr) (llvm_value !ir);
-          ignore (build_br testbb g_builder)))));
+          add_incoming (llvm_value plusone, curr) (llvm_value ii);
+          ignore (build_br testbb g_builder))));
       position_at_end nextbb g_builder;
       nxt nil
   | Tbreak ->
@@ -428,8 +428,8 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
   | Tletvar (x, IsPtr is_ptr, ty, y, z) ->
       let a = alloca is_ptr (transl_typ ty) in
       exp env breakbb y (fun y ->
-      store y (VAL a) (fun _ ->
-      exp (M.add x a env) breakbb z nxt))
+        store y (VAL a);
+        exp (M.add x a env) breakbb z nxt)
   (* | Tletfuns (fundefs, e) ->
       let curr = insertion_block g_builder in
       let_funs env fundefs;
@@ -483,7 +483,7 @@ let program fundefs =
       incr count;
       if not is_free then begin
         let a = alloca is_ptr (transl_typ t) in
-        store (VAL (param f !count)) (VAL a) (fun _ -> ());
+        store (VAL (param f !count)) (VAL a);
         M.add n a env
       end else
         M.add n (param f !count) env) M.empty fundef.fn_args in
