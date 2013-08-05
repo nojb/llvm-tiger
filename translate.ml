@@ -277,14 +277,15 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
         nxt nil)
   | Tassign (TVsubscript (lnum, v, e1), e2) ->
       var env breakbb v (fun v ->
-        let v = save (triggers e1 || triggers e2) v in
+        let v = save (triggers e1) v in
         exp env breakbb e1 (fun e1 ->
         let v = array_index lnum v e1 in
+        let v = save (triggers e2) v in
         exp env breakbb e2 (fun e2 -> store e2 v; nxt nil)))
   | Tassign (TVfield (lnum, v, i), e) ->
       var env breakbb v (fun v ->
-        let v = save (triggers e) v in
         let v = record_index lnum v i in
+        let v = save (triggers e) v in
         exp env breakbb e (fun e -> store e v; nxt nil))
   | Tcall (x, xs) ->
       let rec bind ys = function
