@@ -1,0 +1,3 @@
+let var a := 101 function f () : int = g () function g () : int = a in f ()
+end
+

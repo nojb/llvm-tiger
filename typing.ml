@@ -311,7 +311,11 @@ and let_funs env fundefs e =
   Solver.reset ();
   List.iter (fun f ->
     let gs' = S.elements (fc f.fn_body) in
-    let gs  = List.filter (fun fundef -> List.mem f.fn_name.s gs') fundefs in
+    let gs  = List.filter (fun fundef -> List.mem fundef.fn_name.s gs') fundefs in
+    (* debug () "eqn for %s: gs' = %s gs = %s"
+      f.fn_name.s
+      (String.concat ", " gs')
+      (String.concat ", " (List.map (fun g -> g.fn_name.s) gs)); *)
     let sf  = S.filter (fun v -> M.mem v env.vars) (fv f.fn_body) in
     let hs  = List.filter (fun h -> S.mem h env.funs) gs' in
     let sf  = union_list (sf :: List.map (fun h -> M.find h env.sols) hs) in
