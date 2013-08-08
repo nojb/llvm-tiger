@@ -1,5 +1,3 @@
-open Globals
-
 type cmp_op =
   | Ceq | Cle | Cge | Cne | Clt | Cgt
 

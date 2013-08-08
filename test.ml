@@ -1,5 +1,5 @@
 let parse ch =
-    Typing.program
+    Compile.program
       (Parser.program Lexer.token
         (Lexing.from_channel ch))
 

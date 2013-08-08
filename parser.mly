@@ -1,5 +1,4 @@
 %{
-  open Globals
   open Parsetree
 
   let pos i =
