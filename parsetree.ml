@@ -139,3 +139,27 @@ and fv_var = function
   | PVsimple x -> S.singleton x.s
   | PVsubscript (_, v, e) -> S.union (fv_var v) (fv e)
   | PVfield (_, v, _) -> fv_var v
+
+let rec triggers = function
+  | Pint _
+  | Pstring _
+  | Pnil _ -> false
+  | Pvar (_, v) -> triggers_var v
+  | Pbinop (_, e1, _, e2) -> triggers e1 || triggers e2
+  | Passign (_, v, e) -> triggers_var v || triggers e
+  | Pcall _ -> true
+  | Pseq (_, es) -> List.exists triggers es
+  | Pmakearray _
+  | Pmakerecord _ -> true
+  | Pif (_, e1, e2, None) -> triggers e1 || triggers e2
+  | Pif (_, e1, e2, Some e3) -> triggers e1 || triggers e2 || triggers e3
+  | Pwhile (_, e1, e2) -> triggers e1 || triggers e2
+  | Pfor (_, _, e1, e2, e3) -> triggers e1 || triggers e2 || triggers e3
+  | Pbreak _ -> false
+  | Pletvar (_, _, _, e1, e2) -> triggers e1 || triggers e2
+
+and triggers_var = function
+  | PVsimple _ -> false
+  | PVsubscript (_, v, e) -> triggers_var v || triggers e
+  | PVfield (_, v, _) -> triggers_var v
+

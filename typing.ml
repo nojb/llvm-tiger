@@ -1,6 +1,6 @@
 open Globals
 open Parsetree
-open Typedtree
+open Llvm
 
 exception Error of Lexing.position * string
 
@@ -10,13 +10,13 @@ let error p =
 let debug () =
   Printf.ksprintf (fun message -> Printf.fprintf stderr "DEBUG: %s\n%!" message)
 
-(* type type_spec =
+type type_spec =
   | VOID
   | INT
   | STRING
   | ARRAY   of string * type_spec
   | RECORD  of string * Id.t (* name, unique name *)
-  | PLACE   of string *)
+  | PLACE   of string
 
 let rec string_of_type = function
   | VOID -> "void"
@@ -39,7 +39,8 @@ let type_equal t1 t2 =
 
 type var_info = {
   vtype : type_spec;
-  vimm : bool
+  vimm : bool;
+  v_alloca : llvalue
 }
 
 type fun_impl =
@@ -58,16 +59,31 @@ type value_desc =
 
 module M = Map.Make (String)
 
+type loop_flag =
+  | NoLoop
+  | InLoop of llbasicblock
+
 type env = {
   venv : value_desc M.t;
   tenv : type_spec M.t;
   renv : (string * type_spec) list M.t;
-  in_loop : bool;
+
+  in_loop : loop_flag;
 
   (* used for lambda lifting *)
   vars : type_spec M.t;
   funs : S.t;
   sols : S.t M.t
+}
+
+let empty_env = {
+  venv = M.empty;
+  tenv = M.empty;
+  renv = M.empty;
+  in_loop = NoLoop;
+  vars = M.empty;
+  funs = S.empty;
+  sols = M.empty
 }
 
 let find_var id env =
@@ -79,8 +95,8 @@ let find_var id env =
     Not_found ->
       error id.p "unbound variable '%s'" id.s
 
-let add_var (x : pos_string) ?immutable:(immut=false) t env =
-  let vi = { vtype = t; vimm = immut } in
+let add_var (x : pos_string) ?immutable:(immut=false) t llv env =
+  let vi = { vtype = t; vimm = immut; v_alloca = llv } in
   { env with
       venv = M.add x.s (Variable vi) env.venv;
       vars = M.add x.s t env.vars }
@@ -135,6 +151,170 @@ let find_record_field env t (x : pos_string) =
     | (x', t') :: xs when x' = x.s -> i, t'
     | _ :: xs -> loop (i+1) xs
   in loop 0 ts
+
+(* * LLVM Utils *)
+
+type llvm_value =
+  | VAL of llvalue
+  | LOADVAL of llvalue
+
+let g_context = global_context ()
+let g_module  = create_module g_context ""
+let g_builder = builder g_context
+
+let getfun n =
+  match lookup_function n g_module with
+  | Some f -> f
+  | None -> assert false
+
+let new_block () =
+  (* this assumes that the builder is already set up
+   * inside a function *)
+  let f = block_parent (insertion_block g_builder) in
+  append_block g_context "" f
+
+let llvm_value = function
+  | VAL v -> v
+  | LOADVAL v -> build_load v "" g_builder
+
+let int_t w =
+  integer_type g_context w
+
+let void_t =
+  void_type g_context
+
+let ptr_t t =
+  pointer_type t
+
+  (* order matters *)
+let const_int0 w n =
+  const_int (int_t w) n
+
+  (* This one shadows Llvm.const_int *)
+let const_int w n =
+  VAL (const_int (int_t w) n)
+
+let const_null0 =
+  const_null
+
+let const_null t =
+  VAL (const_null t)
+
+let size_of t = (* as a i32 *)
+  const_ptrtoint (const_gep (const_null0 (ptr_t t))
+    [| const_int0 32 1 |]) (int_t 32)
+
+let malloc v =
+  build_call (declare_function "malloc"
+    (function_type (ptr_t (int_t 8)) [| int_t 32 |]) g_module)
+    [| v |] "" g_builder
+
+let alloca is_ptr ty =
+  let b = builder_at_end g_context
+    (entry_block (block_parent (insertion_block g_builder))) in
+  let a = build_alloca ty "" b in
+  if is_ptr then begin
+    let v = build_pointercast a (ptr_t (ptr_t (int_t 8))) "" b in
+    ignore (build_call (declare_function "llvm.gcroot"
+      (function_type void_t [| ptr_t (ptr_t (int_t 8)); ptr_t (int_t 8) |])
+      g_module) [| v; const_null0 (ptr_t (int_t 8)) |] "" b)
+  end;
+  a
+
+(* let add v1 v2 =
+  VAL (build_add (llvm_value v1) (llvm_value v2) "" g_builder)
+
+let mul v1 v2 =
+  VAL (build_mul (llvm_value v1) (llvm_value v2) "" g_builder) *)
+
+let load v =
+  VAL (build_load (llvm_value v) "" g_builder)
+
+let nil =
+  const_int 32 0
+
+let dump_llvm_value = function
+  | VAL v
+  | LOADVAL v -> dump_value v
+
+let store v p =
+  ignore (build_store (llvm_value v) (llvm_value p) g_builder)
+
+let gep v vs =
+  dump_llvm_value v;
+  prerr_endline (string_of_lltype (element_type (type_of (llvm_value v))));
+  List.iter dump_llvm_value vs;
+  VAL (build_gep (llvm_value v)
+    (Array.of_list (List.map llvm_value vs)) "" g_builder)
+
+let binop op v1 v2 =
+  VAL (op (llvm_value v1) (llvm_value v2) "" g_builder)
+
+let unop op v =
+  VAL (op (llvm_value v) "" g_builder)
+
+let call v0 vs =
+  VAL (build_call v0 (Array.of_list (List.map llvm_value vs)) "" g_builder)
+
+let phi incoming =
+  VAL (build_phi
+    (List.map (fun (v, bb) -> llvm_value v, bb) incoming) "" g_builder)
+
+let cond_br c yaybb naybb =
+  ignore (build_cond_br (llvm_value c) yaybb naybb g_builder)
+
+let array_length v =
+  load (gep v [ const_int 32 0; const_int 32 1 ])
+
+let printf msg =
+  ignore (build_call (declare_function "printf"
+    (var_arg_function_type (int_t 32) [| ptr_t (int_t 8) |])
+    g_module) [| build_global_stringptr msg "" g_builder |] "" g_builder)
+
+let die msg =
+  printf msg;
+  ignore (build_call (declare_function "exit"
+    (function_type void_t [| int_t 32 |]) g_module) [| const_int0 32 2 |] ""
+    g_builder);
+  ignore (build_unreachable g_builder)
+
+let array_index lnum v x =
+  let yesbb = new_block () in
+  let diebb = new_block () in
+  let l = array_length v in
+  let c1 = binop (build_icmp Icmp.Sle) x l in
+  let c2 = binop (build_icmp Icmp.Sge) x (const_int 32 0) in
+  let c = binop build_and c1 c2 in
+  cond_br c yesbb diebb;
+  position_at_end diebb g_builder;
+  die (Printf.sprintf "Runtime error: index out of bounds in line %d\n" lnum);
+  position_at_end yesbb g_builder;
+  gep v [ const_int 32 0; const_int 32 2; x ]
+
+let record_index lnum v i =
+  let ptrtoint v s b =
+    build_ptrtoint v (int_t Sys.word_size) s b in
+  let yesbb = new_block () in
+  let diebb = new_block () in
+  let ptr = unop ptrtoint v in
+  let c = binop (build_icmp Icmp.Ne) ptr (const_int Sys.word_size 0) in
+  cond_br c yesbb diebb;
+  position_at_end diebb g_builder;
+  die (Printf.sprintf
+    "Runtime error: field access to nil record in line %d\n" lnum);
+  position_at_end yesbb g_builder;
+  gep v [ const_int 32 0; const_int 32 (i+1) ]
+
+let save triggers v =
+  if triggers then
+    match v with
+    | LOADVAL _ -> v
+    | VAL v ->
+        let a = alloca true (type_of v) in
+        ignore (build_store v a g_builder);
+        LOADVAL a
+  else
+    v
 
 let named_structs : (string * Llvm.lltype) list ref = ref []
 
@@ -248,16 +428,6 @@ let array_exists p a =
 
 (* These utility functions are used in the processing of function definitions *)
 
-let tr_return_type env fn =
-  match fn.fn_rtyp with
-  | None -> VOID
-  | Some t -> find_type t env
-
-let tr_function_header env fn =
-  add_fun fn.fn_name
-    (List.map (fun (_, t) -> find_type t env) fn.fn_args)
-    (tr_return_type env fn) env
-
 let check_unique_fundef_names fundefs =
   let rec bind = function
     | [] -> ()
@@ -274,10 +444,22 @@ let check_unique_fundef_names fundefs =
           bind fundefs
   in bind fundefs
 
-let toplevel : (string, Llvm.lltype, Llvm.lltype * ptr_flag * free_flag, exp) fundef list ref =
-  ref []
+(* let toplevel : (string, Llvm.lltype, Llvm.lltype * ptr_flag * free_flag, exp) fundef list ref =
+  ref [] *)
+
+let tr_return_type env fn =
+  match fn.fn_rtyp with
+  | None -> VOID
+  | Some t -> find_type t env
+
+let tr_function_header env fn =
+  add_fun fn.fn_name
+    (List.map (fun (_, t) -> find_type t env) fn.fn_args)
+    (tr_return_type env fn) env
 
 let rec tr_function_body env fundef =
+  assert false
+  (*
   let fi = find_fun fundef.fn_name env in
   let ts, t = fi.fsign in
 
@@ -302,8 +484,9 @@ let rec tr_function_body env fundef =
 
   toplevel := { fn_name = fi.fname; fn_rtyp = tr_rtyp t; fn_args = formals; fn_body =
     body } :: !toplevel
+    *)
 
-and let_funs env fundefs e =
+and let_funs env fundefs e nxt =
   let join m1 m2 = M.fold M.add m1 m2 in
 
   check_unique_fundef_names fundefs;
@@ -328,123 +511,151 @@ and let_funs env fundefs e =
   let env' = { env with funs = funs'; sols = sols' } in
   let env' = List.fold_left tr_function_header env' fundefs in
   List.iter (tr_function_body env') fundefs;
-  exp env' e
+  exp env' e nxt
 
-and array_var env v =
-  let v', t = var env v in
+and array_var env v nxt =
+  var env v (fun v' t ->
     match t with
-    | ARRAY (_, t') -> v', t'
+    | ARRAY (_, t') -> nxt v' t'
     | _ ->
         error (var_p v) "expected variable of array type, but type is '%s'"
-          (describe_type t)
+          (describe_type t))
 
-and record_var env v =
-  let v', t = var env v in
+and record_var env v nxt =
+  var env v (fun v' t ->
     match t with
-    | RECORD (t', _) -> v', t
+    | RECORD (t', _) -> nxt v' t
     | _ ->
         error (var_p v) "expected variable of record type, but type is '%s'"
-          (describe_type t)
+          (describe_type t))
 
-and typ_exp env e t' =
-  let e', t = exp env e in
-    if type_equal t t' then e'
+and typ_exp env e t' nxt =
+  exp env e (fun e' t ->
+    if type_equal t t' then nxt e'
     else error (exp_p e)
       "type mismatch: expected type '%s', instead found '%s'"
-        (string_of_type t') (string_of_type t)
+        (string_of_type t') (string_of_type t))
 
-and int_exp env e =
-  typ_exp env e INT
+and int_exp env e nxt =
+  typ_exp env e INT nxt
 
-and void_exp env e =
-  typ_exp env e VOID
+and void_exp env e nxt =
+  typ_exp env e VOID (fun _ -> nxt ())
 
 (* Main typechecking/compiling functions *)
 
-and var env v : Typedtree.var * type_spec =
+and var env v nxt =
   match v with
   | PVsimple x ->
       let vi = find_var x env in
-      TVsimple (x.s, IsImm vi.vimm), vi.vtype
+      if vi.vimm then
+        nxt (VAL vi.v_alloca) vi.vtype
+      else
+        nxt (LOADVAL vi.v_alloca) vi.vtype
   | PVsubscript (p, v, x) ->
-      let v, t' = array_var env v in
-      let x = int_exp env x in
-      TVsubscript (p.Lexing.pos_lnum, v, x), t'
-  | PVfield (p, v, x) -> (* should check for nil XXX *)
-      let v, t' = record_var env v in
+      array_var env v (fun v t' ->
+      let v = save (triggers x) v in
+      int_exp env x (fun x ->
+      let v = array_index p.Lexing.pos_lnum v x in
+      nxt (load v) t'))
+  | PVfield (p, v, x) ->
+      record_var env v (fun v t' ->
       let i, tx = find_record_field env t' x in
-      TVfield (p.Lexing.pos_lnum, v, i), tx
+      let v = record_index p.Lexing.pos_lnum v i in
+      nxt (load v) tx)
 
-and exp env e =
+and exp env e (nxt : llvm_value -> type_spec -> unit) =
   match e with
   | Pint (_, n) ->
-      TCint n, INT
+      nxt (const_int 32 n) INT
   | Pstring (_, s) ->
-      TCstring s, STRING
+      assert false
+      (* TCstring s, STRING *)
   | Pnil p ->
       error p
         "'nil' should be used in a context where \
         its type can be determined"
   | Pvar (_, v) ->
-      let v, t = var env v in
-      Tvar v, t
-  | Pbinop (_, x, (Op_add as op), y)
-  | Pbinop (_, x, (Op_sub as op), y)
-  | Pbinop (_, x, (Op_mul as op), y)
-  | Pbinop (_, x, (Op_div as op), y)
-  | Pbinop (_, x, (Op_and as op), y)
-  | Pbinop (_, x, (Op_cmp Ceq as op), y) ->
-      let x = int_exp env x in
-      let y = int_exp env y in
-      Tbinop (x, op, y), INT
+      var env v nxt
+  | Pbinop (_, x, Op_add, y) ->
+      int_exp env x (fun x ->
+      int_exp env y (fun y ->
+      nxt (binop build_add x y) INT))
+  | Pbinop (_, x, Op_sub, y) ->
+      int_exp env x (fun x ->
+      int_exp env y (fun y ->
+      nxt (binop build_sub x y) INT))
+  | Pbinop (_, x, Op_mul, y) ->
+      int_exp env x (fun x ->
+      int_exp env y (fun y ->
+      nxt (binop build_mul x y) INT))
+  | Pbinop (_, x, Op_div, y) ->
+      int_exp env x (fun x ->
+      int_exp env y (fun y ->
+      nxt (binop build_sdiv x y) INT))
+  | Pbinop (_, x, Op_cmp Ceq, y) ->
+      assert false
+      (* int_exp env breakbb x (fun x ->
+      int_exp env breakbb y (fun y ->
+      nxt (binop (build_icmp Icmp.Eq) x y) INT)) *)
   | Pbinop _ ->
       failwith "binop not implemented"
   | Passign (p, PVsimple x, Pnil _) ->
       let vi = find_var x env in
       begin match vi.vtype with
       | RECORD _ ->
-          Tassign (TVsimple (x.s, IsImm false),
-            TCnil (transl_typ env vi.vtype)), VOID
+          store (const_null (transl_typ env vi.vtype)) (VAL vi.v_alloca);
+          nxt nil VOID
       | _ ->
           error p "trying to assign 'nil' to a variable of non-record type"
       end
   | Passign (p, PVsimple x, e) ->
       let vi = find_var x env in
       if vi.vimm then error p "variable '%s' should not be assigned to" x.s;
-      let e = typ_exp env e vi.vtype in
-      Tassign (TVsimple (x.s, IsImm vi.vimm), e), VOID
+      typ_exp env e vi.vtype (fun e ->
+      store e (VAL vi.v_alloca);
+      nxt nil VOID)
   | Passign (p, PVsubscript (p', v, e1), Pnil _) ->
-      let v, t' = array_var env v in
-      begin match t' with
+      array_var env v (fun v t' ->
+      match t' with
       | RECORD _ ->
-          let e1 = int_exp env e1 in
-          Tassign (TVsubscript (p'.Lexing.pos_lnum, v, e1),
-            TCnil (transl_typ env t')), VOID
+          let v = save (triggers e1) v in
+          int_exp env e1 (fun e1 ->
+          let v = array_index p'.Lexing.pos_lnum v e1 in
+          store (const_null (transl_typ env t')) v;
+          nxt nil VOID)
       | _ ->
-          error p "trying to assign 'nil' to a field of non-record type"
-      end
+          error p "trying to assign 'nil' to a field of non-record type")
   | Passign (_, PVsubscript (p, v, e1), e2) ->
-      let v, t' = array_var env v in
-      let e1 = int_exp env e1 in
-      let e2 = typ_exp env e2 t' in
-      Tassign (TVsubscript (p.Lexing.pos_lnum, v, e1), e2), VOID
+      array_var env v (fun v t' ->
+      let v = save (triggers e1) v in
+      int_exp env e1 (fun e1 ->
+      let v = array_index p.Lexing.pos_lnum v e1 in
+      let v = save (triggers e2) v in
+      typ_exp env e2 t' (fun e2 ->
+      store e2 v;
+      nxt nil VOID)))
   | Passign (p, PVfield (p', v, x), Pnil _) ->
-      let v, (t' : type_spec) = record_var env v in
+      record_var env v (fun v t' ->
       let i, tx = find_record_field env t' x in
-      begin match tx with
+      match tx with
       | RECORD _ ->
-          Tassign (TVfield (p'.Lexing.pos_lnum, v, i),
-            TCnil (transl_typ env t')), VOID
+          let v = record_index p'.Lexing.pos_lnum v i in
+          store (const_null (transl_typ env t')) v;
+          nxt nil VOID
       | _ ->
-          error p "trying to assign 'nil' to a field of non-record type"
-      end
+          error p "trying to assign 'nil' to a field of non-record type")
   | Passign (_, PVfield (p, v, x), e) ->
-      let v, t' = record_var env v in
+      record_var env v (fun v t' ->
       let i, tx = find_record_field env t' x in
-      let e = typ_exp env e tx in
-      Tassign (TVfield (p.Lexing.pos_lnum, v, i), e), VOID
+      let v = record_index p.Lexing.pos_lnum v i in
+      let v = save (triggers e) v in
+      typ_exp env e tx (fun e ->
+      store e v;
+      nxt nil VOID))
   | Pcall (p, x, xs) ->
-      let fi = find_fun x env in
+      assert false
+      (* let fi = find_fun x env in
       let ts, t = fi.fsign in
       if List.length xs <> List.length ts then
         error p "bad arity: is %d, should be %d"
@@ -452,44 +663,49 @@ and exp env e =
       let rec bind ys = function
         | [], [] ->
             let actuals =
-              List.fold_right (fun x ys -> ArgNonLocal x :: ys)
+              List.fold_right (fun x ys ->
+                let vi = find_var x env in
+                VAL vi.v_alloca :: ys)
                 (S.elements (M.find x.s env.sols)) (List.rev ys) in
-            Tcall (fi.fname, actuals), t
+            nxt (call (getfun x) actuals) t
+            (* Tcall (fi.fname, actuals), t *)
         | x :: xs, t :: ts ->
-            let x = typ_exp env x t in
-            bind (ArgExp (x, IsPtr (structured_type t)) :: ys) (xs, ts)
+            typ_exp env x t (fun x ->
+            let x = save (structured_type t && List.exists triggers xs) x in
+            bind (x :: ys) (xs, ts))
+            (* bind (ArgExp (x, IsPtr (structured_type t)) :: ys) (xs, ts) *)
         | _ ->
             assert false
-      in bind [] (xs, ts)
+      in bind [] (xs, ts) *)
   | Pseq (_, xs) ->
       let rec bind = function
         | []      ->
-            [], VOID
+            nxt nil VOID
         | [x]     ->
-            let x, t = exp env x in
-            [x], t
-        | x :: x' ->
-            let x, _ = exp env x in
-            let xs, t = bind x' in
-            x :: xs, t
-      in
-      let xs, t = bind xs in
-      Tseq xs, t
+            exp env x nxt
+        | x :: xs ->
+            exp env x (fun _ _ -> bind xs)
+      in bind xs
   | Pmakearray (p, x, y, Pnil _) ->
-      let t, t' = find_array_type x env in
+      assert false
+      (* let t, t' = find_array_type x env in
       begin match t' with
       | RECORD _ ->
           Tmakearray (transl_typ env t', int_exp env y,
             TCnil (transl_typ env t')), t
       | _ ->
           error p "array base type must be record type"
-      end
+      end *)
   | Pmakearray (_, x, y, z) ->
+      assert false
+      (*
       let t, t' = find_array_type x env in
       let y = int_exp env y in
       let z = typ_exp env z t' in
-      Tmakearray (transl_typ env t', y, z), t
+      Tmakearray (transl_typ env t', y, z), t*)
   | Pmakerecord (p, x, xts) ->
+      assert false
+      (*
       let t, ts = find_record_type env x in
       let rec bind vs = function
         | [], [] ->
@@ -527,6 +743,7 @@ and exp env e =
         | _, [] ->
             error p "all fields have already been initialised"
       in bind [] (xts, ts)
+      *)
   (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
       int_exp tenv venv looping x (fun x ->
         int_exp tenv venv looping y (fun y ->
@@ -534,13 +751,37 @@ and exp env e =
             void_exp tenv venv looping z Sskip, Sskip),
             nxt Eundef E.Tvoid))) *)
   | Pif (_, x, y, None) ->
-      let x = int_exp env x in
-      Tif (x, void_exp env y, Tseq [], IsVoid true, transl_typ env VOID), VOID
+      let nextbb = new_block () in
+      let yesbb  = new_block () in
+      int_exp env x (fun x ->
+        let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in
+        cond_br c yesbb nextbb);
+      position_at_end yesbb g_builder;
+      void_exp env y (fun () -> ignore (build_br nextbb g_builder));
+      position_at_end nextbb g_builder;
+      nxt nil VOID
   | Pif (_, x, y, Some z) ->
-      let x = int_exp env x in
+      let nextbb = new_block () in
+      let yesbb  = new_block () in
+      let naybb  = new_block () in
+      let tmp    = ref nil in (* VAL (alloca false ty) in *)
+      let typ    = ref VOID in
+      int_exp env x (fun x ->
+        let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in
+        cond_br c yesbb naybb);
+      position_at_end yesbb g_builder;
+      exp env y (fun y ty ->
+        typ := ty; tmp := VAL (alloca false (transl_typ env ty));
+        store y !tmp; ignore (build_br nextbb g_builder));
+      position_at_end naybb g_builder;
+      typ_exp env z !typ (fun z -> store z !tmp; ignore (build_br nextbb g_builder));
+      position_at_end nextbb g_builder;
+      nxt (load !tmp) !typ
+
+      (* let x = int_exp env x in
       let y, ty = exp env y in
       let z = typ_exp env z ty in
-      Tif (x, y, z, IsVoid (ty = VOID), transl_typ env ty), ty
+      Tif (x, y, z, IsVoid (ty = VOID), transl_typ env ty), ty *)
       (* let bl = Id.genid () in
       let w = Id.genid () in
       let tt = ref VOID in
@@ -557,23 +798,44 @@ and exp env e =
       LET_BLOCK (bl, (if !tt = VOID then [] else [w, transl_typ renv !tt]), nxt
       (VVAR w) !tt, body) *)
   | Pwhile (_, x, y) ->
-      Twhile (int_exp env x, void_exp { env with in_loop = true } y), VOID
+      let nextbb = new_block () in
+      let testbb = new_block () in
+      let bodybb = new_block () in
+      ignore (build_br testbb g_builder);
+      position_at_end testbb g_builder;
+      int_exp env x (fun x ->
+        let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in
+        cond_br c bodybb nextbb);
+      position_at_end bodybb g_builder;
+      void_exp { env with in_loop = InLoop nextbb } y
+        (fun () -> ignore (build_br testbb g_builder));
+      position_at_end nextbb g_builder;
+      nxt nil VOID
+      (* Twhile (int_exp env x, void_exp { env with in_loop = true } y), VOID *)
   | Pfor (_, i, x, y, z) ->
-      let x = int_exp env x in
+      assert false
+      (* let x = int_exp env x in
       let y = int_exp env y in
       let env' = add_var i ~immutable:true INT env in
-      Tfor (i.s, x, y, void_exp { env' with in_loop = true } z), VOID
-  | Pbreak _ when env.in_loop ->
-      Tbreak, VOID
+      Tfor (i.s, x, y, void_exp { env' with in_loop = true } z), VOID *)
   | Pbreak p ->
-      error p "illegal use of 'break'"
+      begin match env.in_loop with
+      | InLoop bb -> ignore (build_br bb g_builder);
+      | NoLoop    -> error p "illegal use of 'break'"
+      end
+      (* nxt nil
+      Tbreak, VOID *)
   | Pletvar (_, x, None, y, z) ->
-      let y, yt = exp env y in
-      let env = add_var x yt env in
-      let z, zt = exp env z in
-      Tletvar (x.s, IsPtr (structured_type yt), transl_typ env yt, y, z), zt
+      exp env y (fun y ty ->
+      let a = alloca (structured_type ty) (transl_typ env ty) in
+      let env = add_var x ty a env in
+      store y (VAL a);
+      exp env z nxt)
+      (* (fun z zt ->
+      Tletvar (x.s, IsPtr (structured_type yt), transl_typ env yt, y, z), zt *)
   | Pletvar (p, x, Some t, Pnil _, z) ->
-      let t = find_type t env in
+      assert false
+      (* let t = find_type t env in
       begin match t with
       | RECORD _ ->
           let env = add_var x t env in
@@ -581,18 +843,19 @@ and exp env e =
           Tletvar (x.s, IsPtr true, transl_typ env t, TCnil (transl_typ env t), z), zt
       | _ ->
           error p "expected record type, found '%s'" (describe_type t)
-      end
+      end *)
   | Pletvar (_, x, Some t, y, z) ->
-      let t = find_type t env in
+      assert false
+      (* let t = find_type t env in
       let y = typ_exp env y t in
       let env = add_var x t env in
       let z, zt = exp env z in
-      Tletvar (x.s, IsPtr (structured_type t), transl_typ env t, y, z), zt
+      Tletvar (x.s, IsPtr (structured_type t), transl_typ env t, y, z), zt *)
   | Plettype (_, tys, e) ->
       let env = let_type env tys in
-      exp env e
+      exp env e nxt
   | Pletfuns (_, funs, e) ->
-      let_funs env funs e
+      let_funs env funs e nxt
 
 let base_tenv =
   M.add "int" INT (M.add "string" STRING M.empty)
@@ -615,7 +878,7 @@ let base_venv =
     M.add x (Function (Id.make x, (ts, t))) venv) M.empty stdlib *)
 
 let program e =
-  toplevel := [];
+  (* toplevel := [];
   let base_env = {
     tenv = base_tenv;
     renv = M.empty;
@@ -626,10 +889,51 @@ let program e =
     sols = M.empty
   } in
   let e, _ = exp base_env e in
-  { fn_name = "main"; fn_rtyp = transl_typ base_env INT; fn_args = []; fn_body = Tseq [e; TCint 0] } :: !toplevel
+  { fn_name = "main"; fn_rtyp = transl_typ base_env INT; fn_args = []; fn_body =
+    Tseq [e; TCint 0] } :: !toplevel *)
   (*
   { prog_body = s;
     prog_strings = [];
     prog_funs = [];
     prog_named = !named_structs }
     *)
+  (* let declare_fundef fundef =
+    ignore (define_function fundef.fn_name
+      (function_type fundef.fn_rtyp
+        (Array.of_list (List.map (fun (_, (t, _, IsFree is_free)) ->
+          if is_free then pointer_type t else t)
+        fundef.fn_args)))
+    g_module) in
+
+  let define_fundef fundef =
+    let f = getfun fundef.fn_name in
+    position_at_end (entry_block f) g_builder;
+    let startbb = new_block () in
+    position_at_end startbb g_builder;
+    let count = ref (-1) in
+    let env = List.fold_left (fun env (n, (t, IsPtr is_ptr, IsFree is_free)) ->
+      incr count;
+      if not is_free then begin
+        let a = alloca is_ptr t in
+        store (VAL (param f !count)) (VAL a);
+        M.add n a env
+      end else
+        M.add n (param f !count) env) M.empty fundef.fn_args in
+    exp env (entry_block f) fundef.fn_body
+      (fun x -> if classify_type fundef.fn_rtyp = TypeKind.Void then ignore
+      (build_ret_void g_builder) else ignore (build_ret (llvm_value x) g_builder));
+    position_at_end (entry_block f) g_builder;
+    ignore (build_br startbb g_builder) in
+
+  List.iter declare_fundef fundefs;
+  List.iter define_fundef fundefs; *)
+
+  let main_fun = define_function "main"
+    (function_type (int_t 32) [| |]) g_module in
+  position_at_end (entry_block main_fun) g_builder;
+  let startbb = new_block () in
+  position_at_end startbb g_builder;
+  exp empty_env e (fun _ _ -> ignore (build_ret (const_int0 32 0) g_builder));
+  position_at_end (entry_block main_fun) g_builder;
+  ignore (build_br startbb g_builder);
+  dump_module g_module

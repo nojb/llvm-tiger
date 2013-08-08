@@ -1,8 +1,7 @@
 let parse ch =
-  Translate.program
-    (Typing.program
+    Typing.program
       (Parser.program Lexer.token
-        (Lexing.from_channel ch)))
+        (Lexing.from_channel ch))
 
 let _ =
   parse stdin
