@@ -1,4 +1,3 @@
-open Globals
 open Parsetree
 open Llvm
 
@@ -9,6 +8,12 @@ let error p =
 
 let debug () =
   Printf.ksprintf (fun message -> Printf.fprintf stderr "DEBUG: %s\n%!" message)
+
+let tmp_counter = ref (-1)
+
+let gentmp s =
+  incr tmp_counter;
+  s ^ "__" ^ (string_of_int !tmp_counter)
 
 type type_spec =
   | VOID
@@ -50,7 +55,8 @@ type fun_impl =
 type fun_info = {
   fname : string;
   fsign : type_spec list * type_spec;
-  fimpl : fun_impl
+  fimpl : fun_impl;
+  f_llvalue : llvalue
 }
 
 type value_desc =
@@ -101,11 +107,12 @@ let add_var (x : pos_string) ?immutable:(immut=false) t llv env =
       venv = M.add x.s (Variable vi) env.venv;
       vars = M.add x.s t env.vars }
 
-let add_fun x atyps rtyp env =
+let add_fun x uid atyps rtyp llv env =
   let fi = {
-    fname = Id.to_string (Id.make x.s);
+    fname = uid;
     fsign = atyps, rtyp;
-    fimpl = Internal
+    fimpl = Internal;
+    f_llvalue = llv
   } in
   { env with venv = M.add x.s (Function fi) env.venv }
 
@@ -296,11 +303,10 @@ let array_index lnum v x =
   gep v [ const_int 32 0; const_int 32 2; x ]
 
 let record_index lnum v i =
-  let ptrtoint v s b = build_ptrtoint v (int_t Sys.word_size) s b in
   let v = VAL (llvm_value v) in
   let yesbb = new_block () in
   let diebb = new_block () in
-  let ptr = unop ptrtoint v in
+  let ptr = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in
   let c = binop (build_icmp Icmp.Ne) ptr (const_int Sys.word_size 0) in
   cond_br c yesbb diebb;
   position_at_end diebb g_builder;
@@ -456,22 +462,56 @@ let tr_return_type env fn =
   | None -> VOID
   | Some t -> find_type t env
 
+let llvm_return_type env = function
+  | VOID -> void_t
+  | t -> transl_typ env t
+
 let tr_function_header env fn =
-  add_fun fn.fn_name
-    (List.map (fun (_, t) -> find_type t env) fn.fn_args)
-    (tr_return_type env fn) env
+  let free_vars = S.elements (M.find fn.fn_name.s env.sols) in
+  let free_vars = List.map (fun x ->
+    (x, pointer_type (transl_typ env (M.find x env.vars)))) free_vars in
+  let rtyp = tr_return_type env fn in
+  let argst = List.map (fun (_, t) -> find_type t env) fn.fn_args in
+  let uid = gentmp fn.fn_name.s in
+  let llv = define_function uid
+    (function_type (llvm_return_type env rtyp)
+      (Array.of_list (List.map snd free_vars @
+      (List.map (transl_typ env) argst)))) g_module in
+  let env' = add_fun fn.fn_name uid argst
+    (* (List.map (fun (_, t) -> find_type t env) fn.fn_args) *)
+    rtyp llv env in
+  env'
 
 let rec tr_function_body env fundef =
-  assert false
-  (*
   let fi = find_fun fundef.fn_name env in
   let ts, t = fi.fsign in
 
-  let env = List.fold_left2 (fun env (x, _) t -> add_var x t env) env fundef.fn_args ts in
+  position_at_end (entry_block fi.f_llvalue) g_builder;
+  let startbb = new_block () in
+  position_at_end startbb g_builder;
+  let count = ref (-1) in
+
+  (* Process arguments *)
+  let env = List.fold_left (fun env x ->
+    incr count;
+    add_var { s = x; p = Lexing.dummy_pos } (M.find x env.vars) (param fi.f_llvalue !count) env)
+    env (S.elements (M.find fundef.fn_name.s env.sols)) in
+  let env = List.fold_left2 (fun env (x, _) t ->
+    incr count;
+    let a = alloca (structured_type t) (transl_typ env t) in
+    store (VAL (param fi.f_llvalue !count)) (VAL a);
+    add_var x t a env) env fundef.fn_args ts in
 
   (* Process the body *)
-  let body = typ_exp env fundef.fn_body t in
+  typ_exp { env with in_loop = NoLoop } fundef.fn_body t (fun body ->
+    if fundef.fn_rtyp = None then
+      ignore (build_ret_void g_builder)
+    else
+      ignore (build_ret (llvm_value body) g_builder));
 
+  position_at_end (entry_block fi.f_llvalue) g_builder;
+  ignore (build_br startbb g_builder)
+(*
   let formals =
     let getfree x =
       let t = M.find x env.vars in
@@ -513,8 +553,12 @@ and let_funs env fundefs e nxt =
   let funs' = List.fold_right S.add (List.map (fun f -> f.fn_name.s) fundefs)
     env.funs in
   let env' = { env with funs = funs'; sols = sols' } in
+
+  let curr = insertion_block g_builder in
   let env' = List.fold_left tr_function_header env' fundefs in
   List.iter (tr_function_body env') fundefs;
+  position_at_end curr g_builder;
+
   exp env' e nxt
 
 and array_var env v nxt =
@@ -658,8 +702,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       store e v;
       nxt nil VOID))
   | Pcall (p, x, xs) ->
-      assert false
-      (* let fi = find_fun x env in
+      let fi = find_fun x env in
       let ts, t = fi.fsign in
       if List.length xs <> List.length ts then
         error p "bad arity: is %d, should be %d"
@@ -668,10 +711,10 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         | [], [] ->
             let actuals =
               List.fold_right (fun x ys ->
-                let vi = find_var x env in
+                let vi = find_var { s = x; p = Lexing.dummy_pos } env in
                 VAL vi.v_alloca :: ys)
                 (S.elements (M.find x.s env.sols)) (List.rev ys) in
-            nxt (call (getfun x) actuals) t
+            nxt (call (getfun fi.fname) actuals) t
             (* Tcall (fi.fname, actuals), t *)
         | x :: xs, t :: ts ->
             typ_exp env x t (fun x ->
@@ -680,7 +723,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
             (* bind (ArgExp (x, IsPtr (structured_type t)) :: ys) (xs, ts) *)
         | _ ->
             assert false
-      in bind [] (xs, ts) *)
+      in bind [] (xs, ts)
   | Pseq (_, xs) ->
       let rec bind = function
         | []      ->

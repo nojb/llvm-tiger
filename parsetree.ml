@@ -42,8 +42,15 @@ and exp =
   | Pfor of pos * pos_string * exp * exp * exp
   | Pbreak of pos
   | Pletvar of pos * pos_string * pos_string option * exp * exp
-  | Pletfuns of pos * (pos_string, pos_string option, pos_string, exp) fundef list * exp
+  | Pletfuns of pos * fundef list * exp
   | Plettype of pos * (pos_string * typ) list * exp
+
+and fundef = {
+  fn_name : pos_string;
+  fn_rtyp : pos_string option;
+  fn_args : (pos_string * pos_string) list;
+  fn_body : exp
+}
 
 let exp_p = function
   | Pint (p, _)
@@ -157,6 +164,8 @@ let rec triggers = function
   | Pfor (_, _, e1, e2, e3) -> triggers e1 || triggers e2 || triggers e3
   | Pbreak _ -> false
   | Pletvar (_, _, _, e1, e2) -> triggers e1 || triggers e2
+  | Pletfuns (_, _, e)
+  | Plettype (_, _, e) -> triggers e
 
 and triggers_var = function
   | PVsimple _ -> false
