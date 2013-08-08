@@ -20,7 +20,7 @@ type type_spec =
   | INT
   | STRING
   | ARRAY   of string * type_spec
-  | RECORD  of string * Id.t (* name, unique name *)
+  | RECORD  of string * string (* name, unique name *)
   | PLACE   of string
 
 let rec string_of_type = function
@@ -341,12 +341,12 @@ let rec transl_typ env t =
         pointer_type (struct_type (global_context ())
           [| int_t 32; int_t 32; array_type (loop t) 0 |])
     | RECORD (rname, uid) ->
-        if not (List.exists (fun (x, _) -> x = Id.to_string uid) !named_structs)
-        && not (List.mem (Id.to_string uid) !visited)
+        if not (List.exists (fun (x, _) -> x = uid) !named_structs)
+        && not (List.mem uid !visited)
         then begin
-          visited := (Id.to_string uid) :: !visited;
-          let ty = named_struct_type (global_context ()) (Id.to_string uid) in
-          named_structs := (Id.to_string uid, ty) :: !named_structs;
+          visited := uid :: !visited;
+          let ty = named_struct_type (global_context ()) uid in
+          named_structs := (uid, ty) :: !named_structs;
           struct_set_body ty
             (Array.of_list (int_t 32 :: List.map (fun (_, t) -> loop t) (M.find rname
             env.renv))) false;
@@ -354,7 +354,7 @@ let rec transl_typ env t =
             (Tint 32 :: List.map (fun (_, t) -> loop t) (M.find rname
             env.renv))) :: !named_structs *)
         end;
-        pointer_type (List.assoc (Id.to_string uid) !named_structs)
+        pointer_type (List.assoc uid !named_structs)
         (* pointer_type (named_struct_type 
         Tpointer (Tnamedstruct (Id.to_string uid)) *)
     | PLACE _ ->
@@ -371,7 +371,7 @@ let declare_type env (x, t) =
   | PTarray y ->
       add_type x (ARRAY (x.s, find_type y env)) env
   | PTrecord xs ->
-      add_type x (RECORD (x.s, Id.make x.s)) env
+      add_type x (RECORD (x.s, gentmp x.s)) env
 
 let check_unique_type_names xts =
   let rec bind = function
