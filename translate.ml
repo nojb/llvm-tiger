@@ -383,17 +383,17 @@ and exp env breakbb e (nxt : llvm_value -> unit) =
       let bodybb = new_block () in
       exp env breakbb x (fun x ->
       exp env breakbb y (fun y ->
-        let curr = insertion_block g_builder in
+        let ii = VAL (alloca false (int_t 32)) in
+        store x ii;
         ignore (build_br testbb g_builder);
         position_at_end testbb g_builder;
-        let ii = phi [x, curr] in 
-        let c = binop (build_icmp Icmp.Sle) ii y in
+        let iii = load ii in
+        let c = binop (build_icmp Icmp.Sle) iii y in
         cond_br c bodybb nextbb;
         position_at_end bodybb g_builder;
-        exp (M.add i (llvm_value ii) env) nextbb z (fun _ ->
-          let plusone = binop build_add ii (const_int 32 1) in
-          let curr = insertion_block g_builder in
-          add_incoming (llvm_value plusone, curr) (llvm_value ii);
+        exp (M.add i (llvm_value iii) env) nextbb z (fun _ ->
+          let plusone = binop build_add iii (const_int 32 1) in
+          store plusone ii;
           ignore (build_br testbb g_builder))));
       position_at_end nextbb g_builder;
       nxt nil
