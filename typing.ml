@@ -511,24 +511,6 @@ let rec tr_function_body env fundef =
 
   position_at_end (entry_block fi.f_llvalue) g_builder;
   ignore (build_br startbb g_builder)
-(*
-  let formals =
-    let getfree x =
-      let t = M.find x env.vars in
-      (transl_typ env t, IsPtr (structured_type t), IsFree true)
-    in
-    List.fold_right (fun x args -> (x, getfree x) :: args)
-      (S.elements (M.find fundef.fn_name.s env.sols))
-      (List.map2 (fun (x, _) t -> (x.s, (transl_typ env t, IsPtr (structured_type t), IsFree false)))
-      fundef.fn_args ts) in
-
-  let tr_rtyp = function
-    | VOID -> Llvm.void_type (Llvm.global_context ())
-    | t -> transl_typ env t in
-
-  toplevel := { fn_name = fi.fname; fn_rtyp = tr_rtyp t; fn_args = formals; fn_body =
-    body } :: !toplevel
-    *)
 
 and let_funs env fundefs e nxt =
   let join m1 m2 = M.fold M.add m1 m2 in
@@ -743,40 +725,17 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           (* FIXME initialisation *)
           nxt (VAL (build_pointercast a (ptr_t (struct_t [| int_t 32; int_t 32;
             array_type (transl_typ env t') 0 |])) "" g_builder)) t)
-          (* Tmakearray (transl_typ env t', int_exp env y,
-            TCnil (transl_typ env t')), t *)
       | _ ->
           error p "array base type must be record type"
       end
-
-      (*
-      exp env breakbb y (fun y ->
-      exp env breakbb z (fun z ->
-      let a = malloc (build_add (const_int0 32 8)
-        (build_mul (llvm_value y) (size_of t) "" g_builder)
-        "" g_builder) in
-      nxt (VAL (build_pointercast a (ptr_t (struct_type g_context
-        [| int_t 32; int_t 32; array_type t 0 |])) "" g_builder))))
-      assert false
-
-      begin match t' with
-      | RECORD _ ->
-          Tmakearray (transl_typ env t', int_exp env y,
-            TCnil (transl_typ env t')), t
-      | _ ->
-          error p "array base type must be record type"
-      end *)
   | Pmakearray (_, x, y, z) ->
       let t, t' = find_array_type x env in
       int_exp env y (fun y ->
       typ_exp env z t' (fun z ->
       let a = malloc (add (const_int 32 8) (mul y (size_of (transl_typ env t)))) in
+      (* FIXME initialisation *)
       nxt (VAL (build_pointercast a (ptr_t (struct_t
         [| int_t 32; int_t 32; array_type (transl_typ env t') 0 |])) "" g_builder)) t))
-      (*
-      let y = int_exp env y in
-      let z = typ_exp env z t' in
-      Tmakearray (transl_typ env t', y, z), t*)
   | Pmakerecord (p, x, xts) ->
       let t, ts = find_record_type env x in
       let rec bind vs = function
@@ -790,23 +749,9 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
                   store v f;
                   bind (i+1) vs
             in bind 1 (List.rev vs)
-            (* Tmakerecord (transl_typ env t, List.rev vs), t *)
-            (* let t' = (match transl_typ renv t with Tpointer t' -> t' | _ ->
-              assert false) in
-            insert_let (MALLOC t') (transl_typ renv t) (fun r ->
-            let rec bind i = function
-              | [], [] -> nxt r t
-              | v :: vs, t :: ts ->
-                  insert_let (GEP (r, [ VINT (32, 0); VINT (32, i) ]))
-                    (Tpointer (transl_typ renv t)) (fun f ->
-                      LET (Id.genid (), Tint 32, STORE (f, v), bind (i+1) (vs, ts)))
-              | _ -> assert false
-            in bind 1 (List.rev vs, List.map snd ts)) *)
         | (x, Pnil _) :: xts, (x', t) :: ts ->
             if x.s = x' then
               bind (const_null (transl_typ env t) :: vs) (xts, ts)
-              (* bind ((TCnil (transl_typ env t), IsPtr false) :: vs) (xts, ts)
-               * *)
             else
               if List.exists (fun (x', _) -> x.s = x') ts then
                 error x.p "field '%s' is in the wrong other" x.s
@@ -860,26 +805,6 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       typ_exp env z !typ (fun z -> store z !tmp; ignore (build_br nextbb g_builder));
       position_at_end nextbb g_builder;
       nxt (load !tmp) !typ
-
-      (* let x = int_exp env x in
-      let y, ty = exp env y in
-      let z = typ_exp env z ty in
-      Tif (x, y, z, IsVoid (ty = VOID), transl_typ env ty), ty *)
-      (* let bl = Id.genid () in
-      let w = Id.genid () in
-      let tt = ref VOID in
-      let body = int_exp tenv renv venv loop x (fun x ->
-      insert_let (BINOP (x, Op_cmp Cne, VINT (32, 0))) (Tint 1)
-        (fun c ->
-          let yy = exp tenv renv venv loop y (fun y yt ->
-            tt := yt;
-            if yt = VOID then GOTO (bl, []) else GOTO (bl, [y])) in
-        IF (c, yy,
-          typ_exp tenv renv venv loop z !tt
-            (fun z -> if !tt = VOID then GOTO (bl, []) else GOTO (bl, [z])))))
-      in
-      LET_BLOCK (bl, (if !tt = VOID then [] else [w, transl_typ renv !tt]), nxt
-      (VVAR w) !tt, body) *)
   | Pwhile (_, x, y) ->
       let nextbb = new_block () in
       let testbb = new_block () in
@@ -894,7 +819,6 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         (fun () -> ignore (build_br testbb g_builder));
       position_at_end nextbb g_builder;
       nxt nil VOID
-      (* Twhile (int_exp env x, void_exp { env with in_loop = true } y), VOID *)
   | Pfor (_, i, x, y, z) ->
       let nextbb = new_block () in
       let testbb = new_block () in
@@ -918,26 +842,17 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           ignore (build_br testbb g_builder))));
       position_at_end nextbb g_builder;
       nxt nil VOID
-      (* assert false *)
-      (* let x = int_exp env x in
-      let y = int_exp env y in
-      let env' = add_var i ~immutable:true INT env in
-      Tfor (i.s, x, y, void_exp { env' with in_loop = true } z), VOID *)
   | Pbreak p ->
       begin match env.in_loop with
       | InLoop bb -> ignore (build_br bb g_builder);
       | NoLoop    -> error p "illegal use of 'break'"
       end
-      (* nxt nil
-      Tbreak, VOID *)
   | Pletvar (_, x, None, y, z) ->
       exp env y (fun y ty ->
       let a = alloca (structured_type ty) (transl_typ env ty) in
       let env = add_var x ty a env in
       store y (VAL a);
       exp env z nxt)
-      (* (fun z zt ->
-      Tletvar (x.s, IsPtr (structured_type yt), transl_typ env yt, y, z), zt *)
   | Pletvar (p, x, Some t, Pnil _, z) ->
       let t = find_type t env in
       begin match t with
@@ -946,9 +861,6 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           let env = add_var x t a env in
           store (const_null (transl_typ env t)) (VAL a);
           exp env z nxt
-          (* let z, zt = exp env z in
-          Tletvar (x.s, IsPtr true, transl_typ env t, TCnil (transl_typ env t),
-          z), zt *)
       | _ ->
           error p "expected record type, found '%s'" (describe_type t)
       end
@@ -959,11 +871,6 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       let env = add_var x ty a env in
       store y (VAL a);
       exp env z nxt)
-      (* let t = find_type t env in
-      let y = typ_exp env y t in
-      let env = add_var x t env in
-      let z, zt = exp env z in
-      Tletvar (x.s, IsPtr (structured_type t), transl_typ env t, y, z), zt *)
   | Plettype (_, tys, e) ->
       let env = let_type env tys in
       exp env e nxt
@@ -991,57 +898,7 @@ let base_venv =
     M.add x (Function (Id.make x, (ts, t))) venv) M.empty stdlib *)
 
 let program e =
-  (* toplevel := [];
-  let base_env = {
-    tenv = base_tenv;
-    renv = M.empty;
-    venv = base_venv;
-    in_loop = false;
-    vars = M.empty;
-    funs = S.empty;
-    sols = M.empty
-  } in
-  let e, _ = exp base_env e in
-  { fn_name = "main"; fn_rtyp = transl_typ base_env INT; fn_args = []; fn_body =
-    Tseq [e; TCint 0] } :: !toplevel *)
-  (*
-  { prog_body = s;
-    prog_strings = [];
-    prog_funs = [];
-    prog_named = !named_structs }
-    *)
-  (* let declare_fundef fundef =
-    ignore (define_function fundef.fn_name
-      (function_type fundef.fn_rtyp
-        (Array.of_list (List.map (fun (_, (t, _, IsFree is_free)) ->
-          if is_free then pointer_type t else t)
-        fundef.fn_args)))
-    g_module) in
-
-  let define_fundef fundef =
-    let f = getfun fundef.fn_name in
-    position_at_end (entry_block f) g_builder;
-    let startbb = new_block () in
-    position_at_end startbb g_builder;
-    let count = ref (-1) in
-    let env = List.fold_left (fun env (n, (t, IsPtr is_ptr, IsFree is_free)) ->
-      incr count;
-      if not is_free then begin
-        let a = alloca is_ptr t in
-        store (VAL (param f !count)) (VAL a);
-        M.add n a env
-      end else
-        M.add n (param f !count) env) M.empty fundef.fn_args in
-    exp env (entry_block f) fundef.fn_body
-      (fun x -> if classify_type fundef.fn_rtyp = TypeKind.Void then ignore
-      (build_ret_void g_builder) else ignore (build_ret (llvm_value x) g_builder));
-    position_at_end (entry_block f) g_builder;
-    ignore (build_br startbb g_builder) in
-
-  List.iter declare_fundef fundefs;
-  List.iter define_fundef fundefs; *)
-let empty_env = { empty_env with tenv = base_tenv } in
-
+  let empty_env = { empty_env with tenv = base_tenv } in
   let main_fun = define_function "main"
     (function_type (int_t 32) [| |]) g_module in
   position_at_end (entry_block main_fun) g_builder;
