@@ -107,6 +107,12 @@ let add_var (x : pos_string) ?immutable:(immut=false) t llv env =
       venv = M.add x.s (Variable vi) env.venv;
       vars = M.add x.s t env.vars }
 
+let mem_var x env =
+  try match M.find x env.venv with
+  | Variable _ -> true
+  | Function _ -> false
+  with Not_found -> false
+
 let add_fun x uid atyps rtyp llv env =
   let fi = {
     fname = uid;
@@ -115,6 +121,12 @@ let add_fun x uid atyps rtyp llv env =
     f_llvalue = llv
   } in
   { env with venv = M.add x.s (Function fi) env.venv }
+
+let mem_fun x env =
+  try match M.find x env.venv with
+  | Function _ -> true
+  | Variable _ -> false
+  with Not_found -> false
 
 let find_fun x env =
   try
