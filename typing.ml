@@ -186,6 +186,9 @@ let void_t =
 let ptr_t t =
   pointer_type t
 
+let struct_t fields =
+  struct_type g_context fields
+
   (* order matters *)
 let const_int0 w n =
   const_int (int_t w) n
@@ -200,14 +203,14 @@ let const_null0 =
 let const_null t =
   VAL (const_null t)
 
-let size_of t = (* as a i32 *)
-  const_ptrtoint (const_gep (const_null0 (ptr_t t))
-    [| const_int0 32 1 |]) (int_t 32)
+let size_of t = (* as a i32, should be FIXME *)
+  VAL (const_ptrtoint (const_gep (const_null0 (ptr_t t))
+    [| const_int0 32 1 |]) (int_t 32))
 
 let malloc v =
   build_call (declare_function "malloc"
     (function_type (ptr_t (int_t 8)) [| int_t 32 |]) g_module)
-    [| v |] "" g_builder
+    [| llvm_value v |] "" g_builder
 
 let alloca is_ptr ty =
   let b = builder_at_end g_context
@@ -221,11 +224,11 @@ let alloca is_ptr ty =
   end;
   a
 
-(* let add v1 v2 =
+let add v1 v2 =
   VAL (build_add (llvm_value v1) (llvm_value v2) "" g_builder)
 
 let mul v1 v2 =
-  VAL (build_mul (llvm_value v1) (llvm_value v2) "" g_builder) *)
+  VAL (build_mul (llvm_value v1) (llvm_value v2) "" g_builder)
 
 let load v =
   VAL (build_load (llvm_value v) "" g_builder)
@@ -279,6 +282,7 @@ let die msg =
   ignore (build_unreachable g_builder)
 
 let array_index lnum v x =
+  let v = VAL (llvm_value v) in
   let yesbb = new_block () in
   let diebb = new_block () in
   let l = array_length v in
@@ -292,8 +296,8 @@ let array_index lnum v x =
   gep v [ const_int 32 0; const_int 32 2; x ]
 
 let record_index lnum v i =
-  let ptrtoint v s b =
-    build_ptrtoint v (int_t Sys.word_size) s b in
+  let ptrtoint v s b = build_ptrtoint v (int_t Sys.word_size) s b in
+  let v = VAL (llvm_value v) in
   let yesbb = new_block () in
   let diebb = new_block () in
   let ptr = unop ptrtoint v in
@@ -687,8 +691,31 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
             exp env x (fun _ _ -> bind xs)
       in bind xs
   | Pmakearray (p, x, y, Pnil _) ->
+      let t, t' = find_array_type x env in
+      begin match t' with
+      | RECORD _ ->
+          int_exp env y (fun y ->
+          let a = malloc (add (const_int 32 8)
+            (mul y (size_of (transl_typ env t')))) in
+          (* FIXME initialisation *)
+          nxt (VAL (build_pointercast a (ptr_t (struct_t [| int_t 32; int_t 32;
+            array_type (transl_typ env t') 0 |])) "" g_builder)) t)
+          (* Tmakearray (transl_typ env t', int_exp env y,
+            TCnil (transl_typ env t')), t *)
+      | _ ->
+          error p "array base type must be record type"
+      end
+
+      (*
+      exp env breakbb y (fun y ->
+      exp env breakbb z (fun z ->
+      let a = malloc (build_add (const_int0 32 8)
+        (build_mul (llvm_value y) (size_of t) "" g_builder)
+        "" g_builder) in
+      nxt (VAL (build_pointercast a (ptr_t (struct_type g_context
+        [| int_t 32; int_t 32; array_type t 0 |])) "" g_builder))))
       assert false
-      (* let t, t' = find_array_type x env in
+
       begin match t' with
       | RECORD _ ->
           Tmakearray (transl_typ env t', int_exp env y,
@@ -697,19 +724,30 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           error p "array base type must be record type"
       end *)
   | Pmakearray (_, x, y, z) ->
-      assert false
-      (*
       let t, t' = find_array_type x env in
+      int_exp env y (fun y ->
+      typ_exp env z t' (fun z ->
+      let a = malloc (add (const_int 32 8) (mul y (size_of (transl_typ env t)))) in
+      nxt (VAL (build_pointercast a (ptr_t (struct_t
+        [| int_t 32; int_t 32; array_type (transl_typ env t') 0 |])) "" g_builder)) t))
+      (*
       let y = int_exp env y in
       let z = typ_exp env z t' in
       Tmakearray (transl_typ env t', y, z), t*)
   | Pmakerecord (p, x, xts) ->
-      assert false
-      (*
       let t, ts = find_record_type env x in
       let rec bind vs = function
         | [], [] ->
-            Tmakerecord (transl_typ env t, List.rev vs), t
+            let t' = element_type (transl_typ env t) in
+            let r = VAL (build_malloc t' "" g_builder) in
+            let rec bind i = function
+              | [] -> nxt r t
+              | v :: vs ->
+                  let f = gep r [ const_int 32 0; const_int 32 i ] in
+                  store v f;
+                  bind (i+1) vs
+            in bind 1 (List.rev vs)
+            (* Tmakerecord (transl_typ env t, List.rev vs), t *)
             (* let t' = (match transl_typ renv t with Tpointer t' -> t' | _ ->
               assert false) in
             insert_let (MALLOC t') (transl_typ renv t) (fun r ->
@@ -723,7 +761,9 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
             in bind 1 (List.rev vs, List.map snd ts)) *)
         | (x, Pnil _) :: xts, (x', t) :: ts ->
             if x.s = x' then
-              bind ((TCnil (transl_typ env t), IsPtr false) :: vs) (xts, ts)
+              bind (const_null (transl_typ env t) :: vs) (xts, ts)
+              (* bind ((TCnil (transl_typ env t), IsPtr false) :: vs) (xts, ts)
+               * *)
             else
               if List.exists (fun (x', _) -> x.s = x') ts then
                 error x.p "field '%s' is in the wrong other" x.s
@@ -731,8 +771,9 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
                 error x.p "field '%s' is unknown" x.s
         | (x, e) :: xts, (x', t) :: ts ->
             if x.s = x' then
-              let e = typ_exp env e t in
-              bind ((e, IsPtr (structured_type t)) :: vs) (xts, ts)
+              typ_exp env e t (fun e ->
+              let e = save (structured_type t) e in
+              bind (e :: vs) (xts, ts))
             else
               if List.exists (fun (x', _) -> x.s = x') ts then
                 error x.p "field '%s' is in the wrong other" x.s
@@ -743,7 +784,6 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         | _, [] ->
             error p "all fields have already been initialised"
       in bind [] (xts, ts)
-      *)
   (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
       int_exp tenv venv looping x (fun x ->
         int_exp tenv venv looping y (fun y ->
@@ -813,7 +853,29 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       nxt nil VOID
       (* Twhile (int_exp env x, void_exp { env with in_loop = true } y), VOID *)
   | Pfor (_, i, x, y, z) ->
-      assert false
+      let nextbb = new_block () in
+      let testbb = new_block () in
+      let bodybb = new_block () in
+      int_exp env x (fun x ->
+      int_exp env y (fun y ->
+        let a = alloca false (int_t 32) in
+        let ii = VAL (a) in
+        store x ii;
+        ignore (build_br testbb g_builder);
+        position_at_end testbb g_builder;
+        let iii = load ii in
+        let c = binop (build_icmp Icmp.Sle) iii y in
+        cond_br c bodybb nextbb;
+        position_at_end bodybb g_builder;
+        void_exp (add_var i ~immutable:true INT (llvm_value iii) env) z (* M.add i (llvm_value iii)
+      env) nextbb z (fun _ -> *)
+        (fun () ->
+          let plusone = binop build_add iii (const_int 32 1) in
+          store plusone ii;
+          ignore (build_br testbb g_builder))));
+      position_at_end nextbb g_builder;
+      nxt nil VOID
+      (* assert false *)
       (* let x = int_exp env x in
       let y = int_exp env y in
       let env' = add_var i ~immutable:true INT env in
@@ -834,18 +896,26 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       (* (fun z zt ->
       Tletvar (x.s, IsPtr (structured_type yt), transl_typ env yt, y, z), zt *)
   | Pletvar (p, x, Some t, Pnil _, z) ->
-      assert false
-      (* let t = find_type t env in
+      let t = find_type t env in
       begin match t with
       | RECORD _ ->
-          let env = add_var x t env in
-          let z, zt = exp env z in
-          Tletvar (x.s, IsPtr true, transl_typ env t, TCnil (transl_typ env t), z), zt
+          let a = alloca true (transl_typ env t) in
+          let env = add_var x t a env in
+          store (const_null (transl_typ env t)) (VAL a);
+          exp env z nxt
+          (* let z, zt = exp env z in
+          Tletvar (x.s, IsPtr true, transl_typ env t, TCnil (transl_typ env t),
+          z), zt *)
       | _ ->
           error p "expected record type, found '%s'" (describe_type t)
-      end *)
+      end
   | Pletvar (_, x, Some t, y, z) ->
-      assert false
+      let ty = find_type t env in
+      typ_exp env y ty (fun y ->
+      let a = alloca (structured_type ty) (transl_typ env ty) in
+      let env = add_var x ty a env in
+      store y (VAL a);
+      exp env z nxt)
       (* let t = find_type t env in
       let y = typ_exp env y t in
       let env = add_var x t env in
@@ -927,6 +997,7 @@ let program e =
 
   List.iter declare_fundef fundefs;
   List.iter define_fundef fundefs; *)
+let empty_env = { empty_env with tenv = base_tenv } in
 
   let main_fun = define_function "main"
     (function_type (int_t 32) [| |]) g_module in
