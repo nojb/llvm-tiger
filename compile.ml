@@ -974,4 +974,4 @@ let program e =
   exp env e (fun _ _ -> ignore (build_ret (const_int0 32 0) g_builder));
   position_at_end (entry_block main_fun) g_builder;
   ignore (build_br startbb g_builder);
-  dump_module g_module
+  g_module
