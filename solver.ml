@@ -1,3 +1,5 @@
+open Error
+
 module S = Set.Make (String)
 module M = Map.Make (String)
 
@@ -6,9 +8,6 @@ let add_list xts env =
 
 let union_list l =
   List.fold_left S.union S.empty l
-
-let debug () =
-  Printf.ksprintf (fun message -> Printf.fprintf stderr "Debug: %s\n%!" message)
 
 let eqns : (string * S.t * string list) list ref = ref []
 let reset () = eqns := []

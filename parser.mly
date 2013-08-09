@@ -1,4 +1,5 @@
 %{
+  open Error
   open Parsetree
 
   let pos i =
@@ -45,6 +46,8 @@
 program:
   exp EOF
   { $1 }
+  | error
+  { raise (Error (Parsing.symbol_start_pos (), "parse error")) }
   ;
 
 expseq:

@@ -1,13 +1,6 @@
+open Error
 open Parsetree
 open Llvm
-
-exception Error of Lexing.position * string
-
-let error p =
-  Printf.ksprintf (fun message -> raise (Error (p, message)))
-
-let debug () =
-  Printf.ksprintf (fun message -> Printf.fprintf stderr "DEBUG: %s\n%!" message)
 
 let tmp_counter = ref (-1)
 

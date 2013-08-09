@@ -87,7 +87,7 @@ rule token = parse
   | eof
   { EOF }
   | _
-  { failwith "lexer error" }
+  { raise (Error.Error (lexbuf.Lexing.lex_curr_p, "lexer error")) }
 
 and string = parse
   | '"'
