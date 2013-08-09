@@ -73,8 +73,6 @@ type env = {
   in_loop : loop_flag;
 
   (* used for lambda lifting *)
-(*  vars : type_spec M.t;
-  funs : S.t; *)
   sols : S.t M.t
 }
 
@@ -83,8 +81,6 @@ let empty_env = {
   tenv = M.empty;
   renv = M.empty;
   in_loop = NoLoop;
-(*  vars = M.empty;
-  funs = S.empty; *)
   sols = M.empty
 }
 
@@ -100,7 +96,6 @@ let find_var id env =
 let add_var (x : pos_string) ?immutable:(immut=false) t llv env =
   let vi = { vtype = t; vimm = immut; v_alloca = llv } in
   { env with venv = M.add x.s (Variable vi) env.venv }
-      (* vars = M.add x.s t env.vars } *)
 
 let mem_var x env =
   try match M.find x env.venv with
@@ -454,9 +449,6 @@ let check_unique_fundef_names fundefs =
           bind fundefs
   in bind fundefs
 
-(* let toplevel : (string, Llvm.lltype, Llvm.lltype * ptr_flag * free_flag, exp) fundef list ref =
-  ref [] *)
-
 let tr_return_type env fn =
   match fn.fn_rtyp with
   | None -> VOID
@@ -476,7 +468,6 @@ let tr_function_header env fn =
   let free_vars = S.elements (M.find fn.fn_name.s env.sols) in
   let free_vars = List.map (fun x -> (x, type_of_free_var env x))
     free_vars in
-    (* (x, pointer_type (transl_typ env (M.find x env.vars)))) free_vars in *)
   let rtyp = tr_return_type env fn in
   let argst = List.map (fun (_, t) -> find_type t env) fn.fn_args in
   let uid = gentmp fn.fn_name.s in
@@ -485,7 +476,6 @@ let tr_function_header env fn =
       (Array.of_list (List.map snd free_vars @
       (List.map (transl_typ env) argst)))) g_module in
   let env' = add_fun fn.fn_name uid argst
-    (* (List.map (fun (_, t) -> find_type t env) fn.fn_args) *)
     rtyp llv env in
   env'
 
@@ -495,7 +485,6 @@ let rec tr_function_body env fundef =
     | Variable vi ->
         { env with venv =
           M.add x (Variable {vi with v_alloca = llv}) env.venv }
-        (* add_var { s = x; p = Lexing.dummy_pos vi.vtype *)
     | Function _ -> assert false in
 
   let fi = find_fun fundef.fn_name env in
@@ -511,8 +500,6 @@ let rec tr_function_body env fundef =
     incr count;
     set_value_name x (param fi.f_llvalue !count);
     add_free_var env x (param fi.f_llvalue !count))
-    (* add_var { s = x; p = Lexing.dummy_pos } ~immutable:(type_of_var env x)
-     * (param fi.f_llvalue !count) env) *)
     env (S.elements (M.find fundef.fn_name.s env.sols)) in
   let env = List.fold_left2 (fun env (x, _) t ->
     incr count;
@@ -551,9 +538,6 @@ and let_funs env fundefs e nxt =
     fundefs;
   let sols' = Solver.solve () in
   let sols' = join env.sols sols' in
-  (* let funs' = List.fold_right S.add (List.map (fun f -> f.fn_name.s) fundefs)
-    env.funs in *)
-  (* let env' = { env with funs = funs'; sols = sols' } in *)
   let env' = { env with sols = sols' } in
 
   let curr = insertion_block g_builder in
@@ -860,7 +844,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       let nextbb = new_block () in
       let yesbb  = new_block () in
       let naybb  = new_block () in
-      let tmp    = ref nil in (* VAL (alloca false ty) in *)
+      let tmp    = ref nil in
       let typ    = ref VOID in
       int_exp env x (fun x ->
         let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in
