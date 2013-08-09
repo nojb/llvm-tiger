@@ -48,14 +48,10 @@ type var_info = {
   v_alloca : llvalue
 }
 
-type fun_impl =
-  | Internal
-  | External
-
 type fun_info = {
   fname : string;
   fsign : type_spec list * type_spec;
-  fimpl : fun_impl;
+  f_user : bool;
   f_llvalue : llvalue
 }
 
@@ -116,14 +112,14 @@ let add_fun x uid atyps rtyp llv env =
   let fi = {
     fname = uid;
     fsign = atyps, rtyp;
-    fimpl = Internal;
+    f_user = true;
     f_llvalue = llv
   } in
   { env with venv = M.add x.s (Function fi) env.venv }
 
 let mem_user_fun x env =
   try match M.find x env.venv with
-  | Function fi -> fi.fimpl = Internal
+  | Function fi -> fi.f_user
   | Variable _ -> false
   with Not_found -> false
 
@@ -760,11 +756,12 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           (List.length xs) (List.length ts);
       let rec bind ys = function
         | [], [] ->
-            let actuals =
+            let actuals = if fi.f_user then
               List.fold_right (fun x ys ->
                 let vi = find_var { s = x; p = Lexing.dummy_pos } env in
                 VAL vi.v_alloca :: ys)
-                (S.elements (M.find x.s env.sols)) (List.rev ys) in
+                (S.elements (M.find x.s env.sols)) (List.rev ys)
+                else List.rev ys in
             nxt (call (getfun fi.fname) actuals) t
             (* Tcall (fi.fname, actuals), t *)
         | x :: xs, t :: ts ->
@@ -950,9 +947,8 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
 let base_tenv =
   M.add "int" INT (M.add "string" STRING M.empty)
 
-let base_venv =
-  M.empty
-  (* let stdlib =
+let base_venv env =
+  let stdlib =
     [ "print" , [STRING], VOID;
       "printi", [INT], VOID;
       "flush", [], VOID;
@@ -964,17 +960,26 @@ let base_venv =
       "concat", [STRING; STRING], STRING;
       "not", [INT], INT;
       "exit", [INT], VOID ] in
-  List.fold_left (fun venv (x, ts, t) ->
-    M.add x (Function (Id.make x, (ts, t))) venv) M.empty stdlib *)
+  let decl_fun env (x, ts, t) =
+    let fname = "__tiger__" ^ x in
+    let fllval = declare_function fname
+      (function_type (llvm_return_type env t)
+        (Array.of_list (List.map (transl_typ env) ts)))
+      g_module in
+    { env with venv = M.add x
+      (Function {fname = fname; f_user = false; fsign = (ts, t); f_llvalue =
+        fllval }) env.venv } in
+  List.fold_left decl_fun env stdlib
 
 let program e =
-  let empty_env = { empty_env with tenv = base_tenv } in
+  let env = { empty_env with tenv = base_tenv } in
+  let env = base_venv env in
   let main_fun = define_function "main"
     (function_type (int_t 32) [| |]) g_module in
   position_at_end (entry_block main_fun) g_builder;
   let startbb = new_block () in
   position_at_end startbb g_builder;
-  exp empty_env e (fun _ _ -> ignore (build_ret (const_int0 32 0) g_builder));
+  exp env e (fun _ _ -> ignore (build_ret (const_int0 32 0) g_builder));
   position_at_end (entry_block main_fun) g_builder;
   ignore (build_br startbb g_builder);
   dump_module g_module
