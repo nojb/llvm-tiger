@@ -1,0 +1,2 @@
+let type rec = {a:int} var r := rec{a=13} in if r = nil then r := rec{a=0} end
+

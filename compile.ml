@@ -635,11 +635,62 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       int_exp env x (fun x ->
       int_exp env y (fun y ->
       nxt (binop build_sdiv x y) INT))
-  | Pbinop (_, x, Op_cmp Ceq, y) ->
-      assert false
-      (* int_exp env breakbb x (fun x ->
-      int_exp env breakbb y (fun y ->
-      nxt (binop (build_icmp Icmp.Eq) x y) INT)) *)
+  | Pbinop (_, x, Op_cmp Ceq, Pnil _)
+  | Pbinop (_, Pnil _, Op_cmp Ceq, x) ->
+      exp env x (fun v tx ->
+        match tx with
+        | RECORD _ ->
+            let v = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in
+            let c = binop (build_icmp Icmp.Eq) v
+              (const_null (int_t Sys.word_size)) in
+            let c = unop (fun v s b -> build_zext v (int_t 32) s b) c in
+            nxt c INT
+        | _ ->
+            error (exp_p x) "expected expression of record type, found %s"
+              (describe_type tx))
+  | Pbinop (_, x, Op_cmp Cne, Pnil _)
+  | Pbinop (_, Pnil _, Op_cmp Cne, x) ->
+      exp env x (fun v tx ->
+        match tx with
+        | RECORD _ ->
+            let v = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in
+            let c = binop (build_icmp Icmp.Ne) v
+              (const_null (int_t Sys.word_size)) in
+            let c = unop (fun v s b -> build_zext v (int_t 32) s b) c in
+            nxt c INT
+        | _ ->
+            error (exp_p x) "expected expression of record type, found %s"
+              (describe_type tx))
+  | Pbinop (_, x, Op_cmp cmp, y) ->
+      let zext v s b = build_zext v (int_t 32) s b in
+      let p2i v s b = build_ptrtoint v (int_t Sys.word_size) s b in
+      exp env x (fun x tx ->
+      typ_exp env y tx (fun y ->
+      match tx, cmp with
+      | INT, _ ->
+          let op = match cmp with
+          | Ceq -> Icmp.Eq | Cle -> Icmp.Sle | Cge -> Icmp.Sge
+          | Cne -> Icmp.Ne | Clt -> Icmp.Slt | Cgt -> Icmp.Sgt
+          in
+          let c = binop (build_icmp op) x y in
+          let c = unop zext c in
+          nxt c INT
+      | STRING, _ ->
+          assert false
+      | RECORD _, Ceq
+      | ARRAY _, Ceq ->
+          let v1 = unop p2i x in
+          let v2 = unop p2i y in
+          let c = binop (build_icmp Icmp.Eq) v1 v2 in
+          let c = unop zext c in
+          nxt c INT
+      | RECORD _, Cne
+      | ARRAY _, Cne ->
+          let v1 = unop p2i x in
+          let v2 = unop p2i y in
+          let c = binop (build_icmp Icmp.Ne) v1 v2 in
+          let c = unop zext c in
+          nxt c INT))
   | Pbinop _ ->
       failwith "binop not implemented"
   | Passign (p, PVsimple x, Pnil _) ->
