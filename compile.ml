@@ -134,14 +134,14 @@ let add_type x t env =
   { env with tenv = M.add x.s t env.tenv }
 
 let find_array_type x env =
-  match find_type x env with
+  match base_type env (find_type x env) with
   | ARRAY (_, t') as t -> t, t'
   | _ as t ->
       error x.p "expected '%s' to be of array type, but is '%s'" x.s
         (describe_type t)
 
 let find_record_type env x =
-  match find_type x env with
+  match base_type env (find_type x env) with
   | RECORD (_, xts) as t -> t, xts
   | _ as t ->
       error x.p "expected '%s' to be of record type, but is '%s'" x.s

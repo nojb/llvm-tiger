@@ -1,0 +1,8 @@
+let type arr = arr1
+type arr1 = arr2
+type arr2 = array of rec
+type rec = {a:int, b : arr}
+var x := rec { a=1, b = arr[10] of nil} in
+x
+end
+
