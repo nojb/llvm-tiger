@@ -13,27 +13,24 @@ type type_spec =
   | INT
   | STRING
   | ARRAY   of string * type_spec
-  | RECORD  of string * string (* name, unique name *)
-  | PLACE   of string
+  | RECORD  of string * (string * type_spec) list
+  | NAME    of string
 
 let rec string_of_type = function
-  | VOID -> "void"
-  | INT -> "int"
-  | STRING -> "string"
-  | ARRAY (id, t) -> id ^ " = array of " ^ string_of_type t
-  | RECORD (id, _) -> id ^ " = record"
-  | PLACE _ -> assert false
+  | VOID          -> "void"
+  | INT           -> "int"
+  | STRING        -> "string"
+  | ARRAY (x, _)
+  | RECORD (x, _)
+  | NAME x        -> x
 
 let describe_type = function
-  | VOID -> "void"
-  | INT -> "int"
-  | STRING -> "string"
-  | ARRAY _ -> "array"
-  | RECORD _ -> "record"
-  | PLACE _ -> assert false
-
-let type_equal t1 t2 =
-  t1 == t2
+  | VOID      -> "void"
+  | INT       -> "int"
+  | STRING    -> "string"
+  | ARRAY _   -> "array"
+  | RECORD _  -> "record"
+  | NAME x    -> "named type " ^ x
 
 type var_info = {
   vtype : type_spec;
@@ -61,7 +58,7 @@ type loop_flag =
 type env = {
   venv : value_desc M.t;
   tenv : type_spec M.t;
-  renv : (string * type_spec) list M.t;
+  (* renv : (string * type_spec) list M.t; *)
 
   in_loop : loop_flag;
 
@@ -69,10 +66,17 @@ type env = {
   sols : S.t M.t
 }
 
+let rec base_type env = function
+  | NAME x -> base_type env (M.find x env.tenv)
+  | _ as t -> t
+
+let type_equal env t1 t2 =
+  base_type env t1 == base_type env t2
+
 let empty_env = {
   venv = M.empty;
   tenv = M.empty;
-  renv = M.empty;
+  (* renv = M.empty; *)
   in_loop = NoLoop;
   sols = M.empty
 }
@@ -140,19 +144,19 @@ let find_array_type x env =
 
 let find_record_type env x =
   match find_type x env with
-  | RECORD (ts, _) as t -> t, M.find ts env.renv
+  | RECORD (_, xts) as t -> t, xts
   | _ as t ->
       error x.p "expected '%s' to be of record type, but is '%s'" x.s
         (describe_type t)
 
 let find_record_field env t (x : pos_string) =
-  let t = match t with RECORD (t, _) -> t | _ -> assert false in
-  let ts = M.find t env.renv in
+  let t, xts = match t with RECORD (t, xts) -> t, xts | _ -> assert false in
+  (* let ts = M.find t env.renv in *)
   let rec loop i = function
     | [] -> error x.p "record type '%s' does not contain field '%s'" t x.s
     | (x', t') :: xs when x' = x.s -> i, t'
     | _ :: xs -> loop (i+1) xs
-  in loop 0 ts
+  in loop 0 xts
 
 (* * LLVM Utils *)
 
@@ -316,19 +320,27 @@ let save triggers v =
   else
     v
 
-let named_structs : (string * Llvm.lltype) list ref = ref []
+let named_structs : (type_spec * Llvm.lltype) list ref = ref []
 
 let rec transl_typ env t =
-  let visited : string list ref = ref [] in
   let rec loop t =
     match t with
-    | INT   -> int_t 32
-    | VOID  -> int_t 32
-    | STRING -> pointer_type (int_t 8)
+    | VOID    -> int_t 32
+    | INT     -> int_t 32
+    | STRING  -> pointer_type (int_t 8)
     | ARRAY (_, t) -> (* { i32, i32, [0 x t] }* *)
-        pointer_type (struct_type (global_context ())
-          [| int_t 32; int_t 32; array_type (loop t) 0 |])
-    | RECORD (rname, uid) ->
+        ptr_t (struct_t [| int_t 32; int_t 32; array_type (loop t) 0 |])
+    | RECORD (x, xts) ->
+        if not (List.mem_assq t !named_structs) then begin
+          let ty = named_struct_type g_context x in
+          named_structs := (t, ty) :: !named_structs;
+          struct_set_body ty
+            (Array.of_list (int_t 32 :: List.map (fun (_, t) -> loop t) xts))
+            false
+        end;
+        pointer_type (List.assq t !named_structs)
+
+        (*
         if not (List.exists (fun (x, _) -> x = uid) !named_structs)
         && not (List.mem uid !visited)
         then begin
@@ -345,21 +357,22 @@ let rec transl_typ env t =
         pointer_type (List.assoc uid !named_structs)
         (* pointer_type (named_struct_type 
         Tpointer (Tnamedstruct (Id.to_string uid)) *)
-    | PLACE _ ->
-        assert false
+        *)
+    | NAME y ->
+        loop (M.find y env.tenv)
   in loop t
 
 let declare_type env (x, t) =
   let find_type y env =
     try M.find y.s env.tenv
-    with Not_found -> PLACE y.s in
+    with Not_found -> NAME y.s in
   match t with
   | PTname y ->
       add_type x (find_type y env) env
   | PTarray y ->
       add_type x (ARRAY (x.s, find_type y env)) env
   | PTrecord xs ->
-      add_type x (RECORD (x.s, gentmp x.s)) env
+      add_type x (RECORD (x.s, List.map (fun (x, t) -> x.s, find_type t env) xs)) env
 
 let check_unique_type_names xts =
   let rec bind = function
@@ -375,43 +388,55 @@ let check_unique_type_names xts =
           bind xts
   in bind xts
 
-let define_type env (x, _) =
+let check_type env (x, _) =
   let visited = ref [] in
-  let rec loop y =
-    if List.mem y !visited then
-      error x.p "type declaration cycle does not pass through record type"
-    visited := y :: !visited;
-    try
-      let t = M.find y env.tenv in
+  let rec loop thru_record t =
+    if List.memq t !visited then
+      if thru_record then ()
+      else error x.p "type declaration cycle does not pass through record type"
+    else begin
+      visited := t :: !visited;
       match t with
-      | PLACE y -> loop y
-      | ARRAY (x, PLACE y') -> ARRAY (x, loop y')
-      | _ -> t
-    with Not_found ->
-      error x.p "unbound type '%s'" y
-        (* FIXME x.p != position of y in general *)
-  in add_type x (loop x.s) env
+      | VOID
+      | INT
+      | STRING -> ()
+      | ARRAY (_, t) ->
+          loop thru_record t
+      | RECORD (_, xts) ->
+          List.iter (fun (_, t) -> loop true t) xts
+      | NAME y ->
+          begin try
+            loop thru_record (M.find y env.tenv)
+          with
+            Not_found -> error x.p "unbound type '%s'" y
+            (* FIXME x.p != position of y in general *)
+          end
+      (*
+      with Not_found ->
+        error x.p "unbound type '%s'" y
+          (* FIXME x.p != position of y in general *) *)
+    end
+  in loop false (M.find x.s env.tenv)
 
-let extract_record_type env (x, t) =
+(* let extract_record_type env (x, t) =
   match t with
   | PTrecord (xts) ->
       { env with renv =
           M.add x.s (List.map (fun (x, t) -> (x.s, find_type t env)) xts) env.renv }
   | _ ->
-      env
+      env *)
 
 let let_type env tys =
   check_unique_type_names tys;
   let env = List.fold_left declare_type env tys in
-  let env = List.fold_left define_type env tys in
-  let env = List.fold_left extract_record_type env tys in
+  List.iter (check_type env) tys;
   env
 
 (** ----------------------------------------- *)
 
-let rec structured_type t =
+let rec structured_type env t =
   match t with
-  | PLACE _ -> assert false
+  | NAME y -> structured_type env (M.find y env.tenv)
   | STRING
   | ARRAY _
   | RECORD _ -> true
@@ -496,7 +521,7 @@ let rec tr_function_body env fundef =
     env (S.elements (M.find fundef.fn_name.s env.sols)) in
   let env = List.fold_left2 (fun env (x, _) t ->
     incr count;
-    let a = alloca (structured_type t) (transl_typ env t) in
+    let a = alloca (structured_type env t) (transl_typ env t) in
     set_value_name x.s a;
     store (VAL (param fi.f_llvalue !count)) (VAL a);
     add_var x t a env) env fundef.fn_args ts in
@@ -542,7 +567,7 @@ and let_funs env fundefs e nxt =
 
 and array_var env v nxt =
   var env v (fun v' t ->
-    match t with
+    match base_type env t with
     | ARRAY (_, t') -> nxt v' t'
     | _ ->
         error (var_p v) "expected variable of array type, but type is '%s'"
@@ -550,15 +575,15 @@ and array_var env v nxt =
 
 and record_var env v nxt =
   var env v (fun v' t ->
-    match t with
-    | RECORD (t', _) -> nxt v' t
+    match base_type env t with
+    | RECORD _ -> nxt v' t
     | _ ->
         error (var_p v) "expected variable of record type, but type is '%s'"
           (describe_type t))
 
 and typ_exp env e t' nxt =
   exp env e (fun e' t ->
-    if type_equal t t' then nxt e'
+    if type_equal env t t' then nxt e'
     else error (exp_p e)
       "type mismatch: expected type '%s', instead found '%s'"
         (string_of_type t') (string_of_type t))
@@ -622,7 +647,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
   | Pbinop (_, x, Op_cmp Ceq, Pnil _)
   | Pbinop (_, Pnil _, Op_cmp Ceq, x) ->
       exp env x (fun v tx ->
-        match tx with
+        match base_type env tx with
         | RECORD _ ->
             let v = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in
             let c = binop (build_icmp Icmp.Eq) v
@@ -635,7 +660,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
   | Pbinop (_, x, Op_cmp Cne, Pnil _)
   | Pbinop (_, Pnil _, Op_cmp Cne, x) ->
       exp env x (fun v tx ->
-        match tx with
+        match base_type env tx with
         | RECORD _ ->
             let v = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in
             let c = binop (build_icmp Icmp.Ne) v
@@ -650,7 +675,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       let p2i v s b = build_ptrtoint v (int_t Sys.word_size) s b in
       exp env x (fun x tx ->
       typ_exp env y tx (fun y ->
-      match tx, cmp with
+      match base_type env tx, cmp with
       | INT, _ ->
           let op = match cmp with
           | Ceq -> Icmp.Eq | Cle -> Icmp.Sle | Cge -> Icmp.Sge
@@ -677,7 +702,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           nxt c INT))
   | Passign (p, PVsimple x, Pnil _) ->
       let vi = find_var x env in
-      begin match vi.vtype with
+      begin match base_type env vi.vtype with
       | RECORD _ ->
           store (const_null (transl_typ env vi.vtype)) (VAL vi.v_alloca);
           nxt nil VOID
@@ -692,7 +717,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       nxt nil VOID)
   | Passign (p, PVsubscript (p', v, e1), Pnil _) ->
       array_var env v (fun v t' ->
-      match t' with
+      match base_type env t' with
       | RECORD _ ->
           let v = save (triggers e1) v in
           int_exp env e1 (fun e1 ->
@@ -713,7 +738,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
   | Passign (p, PVfield (p', v, x), Pnil _) ->
       record_var env v (fun v t' ->
       let i, tx = find_record_field env t' x in
-      match tx with
+      match base_type env tx with
       | RECORD _ ->
           let v = record_index p'.Lexing.pos_lnum v i in
           store (const_null (transl_typ env t')) v;
@@ -745,7 +770,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
             nxt (call (getfun fi.fname) actuals) t
         | x :: xs, t :: ts ->
             typ_exp env x t (fun x ->
-            let x = save (structured_type t && List.exists triggers xs) x in
+            let x = save (structured_type env t && List.exists triggers xs) x in
             bind (x :: ys) (xs, ts))
         | _ ->
             assert false
@@ -761,7 +786,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       in bind xs
   | Pmakearray (p, x, y, Pnil _) ->
       let t, t' = find_array_type x env in
-      begin match t' with
+      begin match base_type env t' with
       | RECORD _ ->
           int_exp env y (fun y ->
           let a = malloc (add (const_int Sys.word_size 8)
@@ -805,7 +830,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         | (x, e) :: xts, (x', t) :: ts ->
             if x.s = x' then
               typ_exp env e t (fun e ->
-              let e = save (structured_type t) e in
+              let e = save (structured_type env t) e in
               bind (e :: vs) (xts, ts))
             else
               if List.exists (fun (x', _) -> x.s = x') ts then
@@ -898,14 +923,14 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       end
   | Pletvar (_, x, None, y, z) ->
       exp env y (fun y ty ->
-      let a = alloca (structured_type ty) (transl_typ env ty) in
+      let a = alloca (structured_type env ty) (transl_typ env ty) in
       set_value_name x.s a;
       let env = add_var x ty a env in
       store y (VAL a);
       exp env z nxt)
   | Pletvar (p, x, Some t, Pnil _, z) ->
       let t = find_type t env in
-      begin match t with
+      begin match base_type env t with
       | RECORD _ ->
           let a = alloca true (transl_typ env t) in
           set_value_name x.s a;
@@ -918,7 +943,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
   | Pletvar (_, x, Some t, y, z) ->
       let ty = find_type t env in
       typ_exp env y ty (fun y ->
-      let a = alloca (structured_type ty) (transl_typ env ty) in
+      let a = alloca (structured_type env ty) (transl_typ env ty) in
       set_value_name x.s a;
       let env = add_var x ty a env in
       store y (VAL a);

@@ -1,0 +1,2 @@
+let type arr = array of arr1 type arr1 = array of arr var a := 101 in a end
+
