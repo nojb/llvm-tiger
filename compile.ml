@@ -208,7 +208,6 @@ let ptr_t t =
 let struct_t fields =
   struct_type g_context fields
 
-  (* order matters *)
 let const_int0 w n =
   const_int (int_t w) n
 
@@ -222,13 +221,12 @@ let const_null0 =
 let const_null t =
   VAL (const_null t)
 
-let size_of t = (* as a i32, should be FIXME *)
-  VAL (const_ptrtoint (const_gep (const_null0 (ptr_t t))
-    [| const_int0 32 1 |]) (int_t 32))
+let size_of t = (* shadows Llvm.size_of *)
+  VAL (size_of t)
 
 let malloc v =
   build_call (declare_function "malloc"
-    (function_type (ptr_t (int_t 8)) [| int_t 32 |]) g_module)
+    (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module)
     [| llvm_value v |] "" g_builder
 
 let alloca is_ptr ty =
@@ -341,8 +339,6 @@ let save triggers v =
 let named_structs : (string * Llvm.lltype) list ref = ref []
 
 let rec transl_typ env t =
-  let open Llvm in
-  let int_t w = integer_type (global_context ()) w in
   let visited : string list ref = ref [] in
   let rec loop t =
     match t with
@@ -783,8 +779,8 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       begin match t' with
       | RECORD _ ->
           int_exp env y (fun y ->
-          let a = malloc (add (const_int 32 8)
-            (mul y (size_of (transl_typ env t')))) in
+          let a = malloc (add (const_int Sys.word_size 8)
+            (mul (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of (transl_typ env t')))) in
           (* FIXME initialisation *)
           nxt (VAL (build_pointercast a (ptr_t (struct_t [| int_t 32; int_t 32;
             array_type (transl_typ env t') 0 |])) "" g_builder)) t)
@@ -795,7 +791,8 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       let t, t' = find_array_type x env in
       int_exp env y (fun y ->
       typ_exp env z t' (fun z ->
-      let a = malloc (add (const_int 32 8) (mul y (size_of (transl_typ env t)))) in
+      let a = malloc (add (const_int Sys.word_size 8) (mul
+        (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of (transl_typ env t)))) in
       (* FIXME initialisation *)
       nxt (VAL (build_pointercast a (ptr_t (struct_t
         [| int_t 32; int_t 32; array_type (transl_typ env t') 0 |])) "" g_builder)) t))
