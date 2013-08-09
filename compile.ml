@@ -631,7 +631,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         | _ ->
             error (exp_p x) "expected expression of record type, found %s"
               (describe_type tx))
-  | Pbinop (_, x, Op_cmp cmp, y) ->
+  | Pbinop (p, x, Op_cmp cmp, y) ->
       let zext v s b = build_zext v (int_t 32) s b in
       let p2i v s b = build_ptrtoint v (int_t Sys.word_size) s b in
       exp env x (fun x tx ->
@@ -660,7 +660,13 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           let v2 = unop p2i y in
           let c = binop (build_icmp Icmp.Ne) v1 v2 in
           let c = unop zext c in
-          nxt c INT))
+          nxt c INT
+      | VOID, Ceq -> nxt (const_int 32 1) INT (* FIXME ? *)
+      | VOID, Cne -> nxt (const_int 32 0) INT (* FIXME ? *)
+      | NAME _, _ -> assert false
+      | _, _ ->
+          error p "comparison operator cannot be applied to type '%s'"
+            (describe_type tx)))
   | Passign (p, PVsimple x, Pnil _) ->
       let vi = find_var x env in
       begin match base_type env vi.vtype with
