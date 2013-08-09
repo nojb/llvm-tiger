@@ -256,9 +256,6 @@ let store v p =
   ignore (build_store (llvm_value v) (llvm_value p) g_builder)
 
 let gep v vs =
-  dump_llvm_value v;
-  prerr_endline (string_of_lltype (element_type (type_of (llvm_value v))));
-  List.iter dump_llvm_value vs;
   VAL (build_gep (llvm_value v)
     (Array.of_list (List.map llvm_value vs)) "" g_builder)
 
@@ -470,12 +467,14 @@ let llvm_return_type env = function
   | t -> transl_typ env t
 
 let tr_function_header env fn =
-  let type_of_var env x =
+  let type_of_free_var env x =
     match M.find x env.venv with
-    | Variable vi -> transl_typ env vi.vtype
+    | Variable vi ->
+        if vi.vimm then transl_typ env vi.vtype
+        else pointer_type (transl_typ env vi.vtype)
     | Function _ -> assert false in
   let free_vars = S.elements (M.find fn.fn_name.s env.sols) in
-  let free_vars = List.map (fun x -> (x, pointer_type (type_of_var env x)))
+  let free_vars = List.map (fun x -> (x, type_of_free_var env x))
     free_vars in
     (* (x, pointer_type (transl_typ env (M.find x env.vars)))) free_vars in *)
   let rtyp = tr_return_type env fn in
@@ -491,9 +490,12 @@ let tr_function_header env fn =
   env'
 
 let rec tr_function_body env fundef =
-  let type_of_var env x =
+  let add_free_var env x llv =
     match M.find x env.venv with
-    | Variable vi -> vi.vtype
+    | Variable vi ->
+        { env with venv =
+          M.add x (Variable {vi with v_alloca = llv}) env.venv }
+        (* add_var { s = x; p = Lexing.dummy_pos vi.vtype *)
     | Function _ -> assert false in
 
   let fi = find_fun fundef.fn_name env in
@@ -507,11 +509,15 @@ let rec tr_function_body env fundef =
   (* Process arguments *)
   let env = List.fold_left (fun env x ->
     incr count;
-    add_var { s = x; p = Lexing.dummy_pos } (type_of_var env x) (param fi.f_llvalue !count) env)
+    set_value_name x (param fi.f_llvalue !count);
+    add_free_var env x (param fi.f_llvalue !count))
+    (* add_var { s = x; p = Lexing.dummy_pos } ~immutable:(type_of_var env x)
+     * (param fi.f_llvalue !count) env) *)
     env (S.elements (M.find fundef.fn_name.s env.sols)) in
   let env = List.fold_left2 (fun env (x, _) t ->
     incr count;
     let a = alloca (structured_type t) (transl_typ env t) in
+    set_value_name x.s a;
     store (VAL (param fi.f_llvalue !count)) (VAL a);
     add_var x t a env) env fundef.fn_args ts in
 
@@ -613,8 +619,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
   | Pint (_, n) ->
       nxt (const_int 32 n) INT
   | Pstring (_, s) ->
-      assert false
-      (* TCstring s, STRING *)
+      nxt (VAL (build_global_stringptr s "" g_builder)) STRING
   | Pnil p ->
       error p
         "'nil' should be used in a context where \
@@ -693,8 +698,6 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           let c = binop (build_icmp Icmp.Ne) v1 v2 in
           let c = unop zext c in
           nxt c INT))
-  | Pbinop _ ->
-      failwith "binop not implemented"
   | Passign (p, PVsimple x, Pnil _) ->
       let vi = find_var x env in
       begin match vi.vtype with
@@ -763,12 +766,10 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
                 (S.elements (M.find x.s env.sols)) (List.rev ys)
                 else List.rev ys in
             nxt (call (getfun fi.fname) actuals) t
-            (* Tcall (fi.fname, actuals), t *)
         | x :: xs, t :: ts ->
             typ_exp env x t (fun x ->
             let x = save (structured_type t && List.exists triggers xs) x in
             bind (x :: ys) (xs, ts))
-            (* bind (ArgExp (x, IsPtr (structured_type t)) :: ys) (xs, ts) *)
         | _ ->
             assert false
       in bind [] (xs, ts)
@@ -866,12 +867,15 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         cond_br c yesbb naybb);
       position_at_end yesbb g_builder;
       exp env y (fun y ty ->
-        typ := ty; tmp := VAL (alloca false (transl_typ env ty));
-        store y !tmp; ignore (build_br nextbb g_builder));
+        typ := ty;
+        if ty <> VOID then begin
+          tmp := VAL (alloca false (transl_typ env ty));
+          store y !tmp
+        end; ignore (build_br nextbb g_builder));
       position_at_end naybb g_builder;
-      typ_exp env z !typ (fun z -> store z !tmp; ignore (build_br nextbb g_builder));
+      typ_exp env z !typ (fun z -> if !typ <> VOID then store z !tmp; ignore (build_br nextbb g_builder));
       position_at_end nextbb g_builder;
-      nxt (load !tmp) !typ
+      nxt (if !typ = VOID then nil else load !tmp) !typ
   | Pwhile (_, x, y) ->
       let nextbb = new_block () in
       let testbb = new_block () in
@@ -894,6 +898,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       int_exp env y (fun y ->
         let a = alloca false (int_t 32) in
         let ii = VAL (a) in
+        set_value_name i.s a;
         store x ii;
         ignore (build_br testbb g_builder);
         position_at_end testbb g_builder;
@@ -917,6 +922,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
   | Pletvar (_, x, None, y, z) ->
       exp env y (fun y ty ->
       let a = alloca (structured_type ty) (transl_typ env ty) in
+      set_value_name x.s a;
       let env = add_var x ty a env in
       store y (VAL a);
       exp env z nxt)
@@ -925,6 +931,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       begin match t with
       | RECORD _ ->
           let a = alloca true (transl_typ env t) in
+          set_value_name x.s a;
           let env = add_var x t a env in
           store (const_null (transl_typ env t)) (VAL a);
           exp env z nxt
@@ -935,6 +942,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       let ty = find_type t env in
       typ_exp env y ty (fun y ->
       let a = alloca (structured_type ty) (transl_typ env ty) in
+      set_value_name x.s a;
       let env = add_var x ty a env in
       store y (VAL a);
       exp env z nxt)

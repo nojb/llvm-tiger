@@ -1,0 +1,2 @@
+for i := 1 to 100 do let function f () : int = i in printi (f()) end
+

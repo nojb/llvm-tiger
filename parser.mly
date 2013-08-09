@@ -49,6 +49,7 @@ program:
 
 expseq:
   /* empty */
+  { [] }
   | expseq_tail
   { $1 }
   ;

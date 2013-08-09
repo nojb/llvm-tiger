@@ -3,7 +3,7 @@ type cmp_op =
 
 type bin =
   | Op_add | Op_sub | Op_mul | Op_div
-  | Op_and | Op_or | Op_cmp of cmp_op
+  | Op_cmp of cmp_op
 
 
 type pos =
