@@ -453,6 +453,7 @@ let tr_function_header env fn =
     (function_type (llvm_return_type env rtyp)
       (Array.of_list (List.map snd free_vars @
       (List.map (transl_typ env) argst)))) g_module in
+  set_linkage Linkage.Internal llv;
   let env' = add_fun fn.fn_name uid argst
     rtyp llv env in
   env'
