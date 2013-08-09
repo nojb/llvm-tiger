@@ -58,7 +58,6 @@ type loop_flag =
 type env = {
   venv : value_desc M.t;
   tenv : type_spec M.t;
-  (* renv : (string * type_spec) list M.t; *)
 
   in_loop : loop_flag;
 
@@ -76,7 +75,6 @@ let type_equal env t1 t2 =
 let empty_env = {
   venv = M.empty;
   tenv = M.empty;
-  (* renv = M.empty; *)
   in_loop = NoLoop;
   sols = M.empty
 }
@@ -339,25 +337,6 @@ let rec transl_typ env t =
             false
         end;
         pointer_type (List.assq t !named_structs)
-
-        (*
-        if not (List.exists (fun (x, _) -> x = uid) !named_structs)
-        && not (List.mem uid !visited)
-        then begin
-          visited := uid :: !visited;
-          let ty = named_struct_type (global_context ()) uid in
-          named_structs := (uid, ty) :: !named_structs;
-          struct_set_body ty
-            (Array.of_list (int_t 32 :: List.map (fun (_, t) -> loop t) (M.find rname
-            env.renv))) false;
-          (* ()) (Id.to_string uid)) :: !named_structs
-            (Tint 32 :: List.map (fun (_, t) -> loop t) (M.find rname
-            env.renv))) :: !named_structs *)
-        end;
-        pointer_type (List.assoc uid !named_structs)
-        (* pointer_type (named_struct_type 
-        Tpointer (Tnamedstruct (Id.to_string uid)) *)
-        *)
     | NAME y ->
         loop (M.find y env.tenv)
   in loop t
@@ -411,20 +390,8 @@ let check_type env (x, _) =
             Not_found -> error x.p "unbound type '%s'" y
             (* FIXME x.p != position of y in general *)
           end
-      (*
-      with Not_found ->
-        error x.p "unbound type '%s'" y
-          (* FIXME x.p != position of y in general *) *)
     end
   in loop false (M.find x.s env.tenv)
-
-(* let extract_record_type env (x, t) =
-  match t with
-  | PTrecord (xts) ->
-      { env with renv =
-          M.add x.s (List.map (fun (x, t) -> (x.s, find_type t env)) xts) env.renv }
-  | _ ->
-      env *)
 
 let let_type env tys =
   check_unique_type_names tys;
@@ -441,13 +408,6 @@ let rec structured_type env t =
   | ARRAY _
   | RECORD _ -> true
   | _ -> false
-
-let array_exists p a =
-  let rec loop i =
-    if i >= Array.length a then false
-    else if p a.(i) then true
-    else loop (i+1)
-  in loop 0
 
 (* These utility functions are used in the processing of function definitions *)
 
