@@ -792,7 +792,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           let y = VAL (llvm_value y) in
           let a = gc_alloc (add (const_int Sys.word_size 8)
             (mul (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of (transl_typ env t')))) in
-          let a = build_pointercast a (ptr_t (struct_t [| int_t 32; int_t 32;
+          let a = build_pointercast a (ptr_t (struct_t [| int_t 32;
             array_type (transl_typ env t') 0 |])) "" g_builder in
           store y (array_length_addr (VAL a));
           (* FIXME initialisation *)
@@ -809,7 +809,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of
         (transl_typ env t')))) in
       let a = build_pointercast a (ptr_t (struct_t
-        [| int_t 32; int_t 32; array_type (transl_typ env t') 0 |])) "" g_builder in
+        [| int_t 32; array_type (transl_typ env t') 0 |])) "" g_builder in
       store y (array_length_addr (VAL a));
       (* FIXME initialisation *)
       nxt (VAL a) t))
