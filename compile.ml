@@ -214,6 +214,11 @@ let malloc v =
     (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module)
     [| llvm_value v |] "" g_builder
 
+let gc_alloc v =
+  build_call (declare_function "llvm_gc_allocate"
+    (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module)
+    [| llvm_value v |] "" g_builder
+
 let alloca is_ptr ty =
   let b = builder_at_end g_context
     (entry_block (block_parent (insertion_block g_builder))) in
@@ -265,8 +270,8 @@ let phi incoming =
 let cond_br c yaybb naybb =
   ignore (build_cond_br (llvm_value c) yaybb naybb g_builder)
 
-let array_length v =
-  load (gep v [ const_int 32 0; const_int 32 1 ])
+let array_length_addr v =
+  gep v [ const_int 32 0; const_int 32 1 ]
 
 let printf msg =
   ignore (build_call (declare_function "printf"
@@ -284,7 +289,7 @@ let array_index lnum v x =
   let v = VAL (llvm_value v) in
   let yesbb = new_block () in
   let diebb = new_block () in
-  let l = array_length v in
+  let l = load (array_length_addr v) in
   let c1 = binop (build_icmp Icmp.Sle) x l in
   let c2 = binop (build_icmp Icmp.Sge) x (const_int 32 0) in
   let c = binop build_and c1 c2 in
@@ -454,6 +459,7 @@ let tr_function_header env fn =
       (Array.of_list (List.map snd free_vars @
       (List.map (transl_typ env) argst)))) g_module in
   set_linkage Linkage.Internal llv;
+  set_gc (Some "shadow-stack") llv;
   let env' = add_fun fn.fn_name uid argst
     rtyp llv env in
   env'
@@ -756,11 +762,14 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       begin match base_type env t' with
       | RECORD _ ->
           int_exp env y (fun y ->
-          let a = malloc (add (const_int Sys.word_size 8)
+          let y = VAL (llvm_value y) in
+          let a = gc_alloc (add (const_int Sys.word_size 8)
             (mul (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of (transl_typ env t')))) in
+          let a = build_pointercast a (ptr_t (struct_t [| int_t 32; int_t 32;
+            array_type (transl_typ env t') 0 |])) "" g_builder in
+          store y (array_length_addr (VAL a));
           (* FIXME initialisation *)
-          nxt (VAL (build_pointercast a (ptr_t (struct_t [| int_t 32; int_t 32;
-            array_type (transl_typ env t') 0 |])) "" g_builder)) t)
+          nxt (VAL a) t)
       | _ ->
           error p "array base type must be record type"
       end
@@ -768,11 +777,15 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       let t, t' = find_array_type x env in
       int_exp env y (fun y ->
       typ_exp env z t' (fun z ->
-      let a = malloc (add (const_int Sys.word_size 8) (mul
-        (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of (transl_typ env t)))) in
+      let y = VAL (llvm_value y) in
+      let a = gc_alloc (add (const_int Sys.word_size 8) (mul
+        (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of
+        (transl_typ env t')))) in
+      let a = build_pointercast a (ptr_t (struct_t
+        [| int_t 32; int_t 32; array_type (transl_typ env t') 0 |])) "" g_builder in
+      store y (array_length_addr (VAL a));
       (* FIXME initialisation *)
-      nxt (VAL (build_pointercast a (ptr_t (struct_t
-        [| int_t 32; int_t 32; array_type (transl_typ env t') 0 |])) "" g_builder)) t))
+      nxt (VAL a) t))
   | Pmakerecord (p, x, xts) ->
       let t, ts = find_record_type env x in
       let rec bind vs = function
@@ -951,12 +964,14 @@ let base_venv env =
 let program e =
   let env = { empty_env with tenv = base_tenv } in
   let env = base_venv env in
-  let main_fun = define_function "main"
-    (function_type (int_t 32) [| |]) g_module in
+  let main_fun = define_function "__tiger__main"
+    (function_type void_t [| |]) g_module in
+  set_gc (Some "shadow-stack") main_fun;
   position_at_end (entry_block main_fun) g_builder;
   let startbb = new_block () in
   position_at_end startbb g_builder;
-  exp env e (fun _ _ -> ignore (build_ret (const_int0 32 0) g_builder));
+  (* exp env e (fun _ _ -> ignore (build_ret (const_int0 32 0) g_builder)); *)
+  exp env e (fun _ _ -> ignore (build_ret_void g_builder));
   position_at_end (entry_block main_fun) g_builder;
   ignore (build_br startbb g_builder);
   g_module

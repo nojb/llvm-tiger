@@ -4,7 +4,7 @@
 
 void __tiger__print (char* s) 
 {
-  puts (s);
+  printf ("%s", s);
 }
 
 void __tiger__printi (int i)

@@ -122,3 +122,20 @@ static void* llvm_gc_alloc_slow(unsigned Size) {
   return llvm_gc_allocate(Size);
 }
 
+#define INITIAL_HEAP_SIZE 10000
+
+void __tiger__main (void);
+
+int main (void)
+{
+  char* initial_heap_size = getenv ("TIGERHEAPSIZE");
+  if (initial_heap_size != NULL) {
+    llvm_gc_initialize (atoi (initial_heap_size));
+  } else {
+    llvm_gc_initialize (INITIAL_HEAP_SIZE);
+  };
+
+  __tiger__main ();
+
+  return 0;
+}

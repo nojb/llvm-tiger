@@ -52,7 +52,9 @@ let compile_file name =
       let out = open_out dest in
       ignore (Llvm_bitwriter.output_bitcode out m);
       close_out out;
-      Llvm.dispose_module m
+      Llvm.dispose_module m;
+      ignore (Sys.command ("llc " ^ dest));
+      ignore (Sys.command ("clang " ^ base ^ ".s " ^ "tiger_stdlib.c tiger_gc.c"))
     with e -> (close_in f; raise e)
   with Error.Error (p, msg) -> Error.report_error p msg
 
