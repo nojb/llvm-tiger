@@ -915,7 +915,9 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       set_value_name x.s a;
       let env = add_var x ty a env in
       store y (VAL a);
-      exp env z nxt)
+      exp env z (fun z tz ->
+      if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a);
+      nxt z tz))
   | Pletvar (p, x, Some t, Pnil _, z) ->
       let t = find_type t env in
       begin match base_type env t with
@@ -924,7 +926,9 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           set_value_name x.s a;
           let env = add_var x t a env in
           store (const_null (transl_typ env t)) (VAL a);
-          exp env z nxt
+          exp env z (fun z tz ->
+          store (const_null (transl_typ env t)) (VAL a);
+          nxt z tz)
       | _ ->
           error p "expected record type, found '%s'" (describe_type t)
       end
@@ -935,7 +939,9 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       set_value_name x.s a;
       let env = add_var x ty a env in
       store y (VAL a);
-      exp env z nxt)
+      exp env z (fun z tz ->
+      if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a);
+      nxt z tz))
   | Plettype (_, tys, e) ->
       let env = let_type env tys in
       exp env e nxt
