@@ -41,12 +41,13 @@ int __tiger__ord (char* s)
 
 char* __tiger__chr (int i)
 {
-  char* s = malloc (2);
+  char* s;
 
   if (i < 0 || i >= 256) {
     fprintf (stderr, "chr: out of range\n");
     exit (2);
   }
+  s = malloc (2);
 
   s[0] = (char) i;
   s[1] = '\0';
