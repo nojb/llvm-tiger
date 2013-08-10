@@ -1,0 +1,57 @@
+let
+type node = {key:int, left:node, right: node}
+type any  = {any:int}
+
+var  buffer := getchar ()
+
+function add (n:int, tree:node) : node =
+  if tree = nil then
+    node{key=n, left=nil, right=nil}
+  else if n = tree.key then
+    tree
+  else if n < tree.key then
+    node{key=tree.key, left=add(n, tree.left), right=tree.right}
+  else
+    node{key=tree.key, left=tree.left, right=add (n, tree.right)}
+
+function print_tree (tree : node) =
+  if tree <> nil then
+    (/*
+    print("print_tree: not nil, key = "); printi (tree.key); print("\n");
+    */
+    print_tree (tree.left);
+    printi(tree.key);
+    print(" ");
+    print_tree (tree.right))
+
+function readint (any: any) : int =
+  let
+    var i := 0
+    function isdigit (s: string) : int =
+      ord(buffer) >= ord("0") & ord(buffer) <= ord("9")
+  in
+    while buffer=" " | buffer = "\n" do
+      buffer := getchar();
+    any.any := isdigit(buffer);
+    while isdigit(buffer) do
+      (i := i*10+ord(buffer)-ord("0");
+       buffer := getchar());
+    i
+  end
+
+function readlist (tree : node) : node =
+  let
+    var any   := any{any=0}
+    var i     := readint (any)
+  in
+    if any.any then
+    (/* print ("adding "); printi(i); print(" to list\n"); */
+      readlist (add (i, tree)))
+    else
+    (/* print("done reading\n"); */
+      tree)
+  end
+in
+  print_tree (readlist (nil));
+  print ("\n")
+end

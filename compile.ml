@@ -761,6 +761,13 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
                 (S.elements (M.find x.s env.sols)) (List.rev ys)
                 else List.rev ys in
             nxt (call (getfun fi.fname) actuals) t
+        | Pnil p :: xs, t :: ts ->
+            begin match base_type env t with
+            | RECORD _ ->
+                bind (const_null (transl_typ env t) :: ys) (xs, ts)
+            | _ ->
+                error p "expected record type, found '%s'" (describe_type t)
+            end
         | x :: xs, t :: ts ->
             typ_exp env x t (fun x ->
             let x = save (structured_type env t && List.exists triggers xs) x in
