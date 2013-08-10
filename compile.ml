@@ -181,6 +181,10 @@ let llvm_value = function
   | VAL v -> v
   | LOADVAL v -> build_load v "" g_builder
 
+let dump_llvm_value = function
+  | VAL v
+  | LOADVAL v -> dump_value v
+
 let int_t w =
   integer_type g_context w
 
@@ -219,6 +223,13 @@ let gc_alloc v =
     (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module)
     [| llvm_value v |] "" g_builder
 
+let gc_alloc_type t =
+  dump_llvm_value (size_of t);
+  let v = build_call (declare_function "llvm_gc_allocate"
+    (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module)
+    [| llvm_value (size_of t) |] "" g_builder in
+  build_pointercast v (ptr_t t) "" g_builder
+
 let alloca is_ptr ty =
   let b = builder_at_end g_context
     (entry_block (block_parent (insertion_block g_builder))) in
@@ -242,10 +253,6 @@ let load v =
 
 let nil =
   const_int 32 0
-
-let dump_llvm_value = function
-  | VAL v
-  | LOADVAL v -> dump_value v
 
 let store v p =
   ignore (build_store (llvm_value v) (llvm_value p) g_builder)
@@ -791,7 +798,8 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       let rec bind vs = function
         | [], [] ->
             let t' = element_type (transl_typ env t) in
-            let r = VAL (build_malloc t' "" g_builder) in
+            debug () "%s" (string_of_lltype t');
+            let r = VAL (gc_alloc_type t') in
             let rec bind i = function
               | [] -> nxt r t
               | v :: vs ->

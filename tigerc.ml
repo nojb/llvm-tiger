@@ -1,5 +1,6 @@
 (* let opt_level = ref 0 *)
 let emit_llvm = ref false
+let emit_asm = ref false
 
 (* let opt m =
   if !optimize then begin
@@ -54,8 +55,11 @@ let compile_file name =
       close_out outchan;
       Llvm.dispose_module m;
       if !emit_llvm then
-        ignore (Sys.command (Printf.sprintf "llvm-dis %s -o %s.ll" outname base))
-      else begin
+        ignore (Sys.command (Printf.sprintf "llvm-dis %s -o %s.ll" outname
+        base));
+      if !emit_asm then
+        ignore (Sys.command (Printf.sprintf "llc %s -o %s.s" outname base));
+      if not !emit_llvm && not !emit_asm then begin
         ignore (Sys.command (Printf.sprintf "llc %s" outname));
         ignore (Sys.command (Printf.sprintf "clang %s.s tiger_stdlib.c tiger_gc.c" outbase))
       end
@@ -65,6 +69,7 @@ let compile_file name =
 let _ =
   Arg.parse [
     (* "-O", Arg.Set_int opt_level, "\t\tOptimisation level used by llc"; *)
-    "-emit-llvm", Arg.Set emit_llvm, "\temit LLVM assembly in a .ll file";
+    "-S", Arg.Set emit_asm, "\t\tEmit asm assembly in .s file";
+    "-emit-llvm", Arg.Set emit_llvm, "\temit LLVM assembly in .ll file";
     "-stdin", Arg.Unit compile_stdin, "\tread input from stdin"
   ] compile_file "llvm-tigerc compiler 0.1"
