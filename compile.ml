@@ -148,7 +148,7 @@ let find_record_type env x =
         (describe_type t)
 
 let find_record_field env t (x : pos_string) =
-  let t, xts = match t with RECORD (t, xts) -> t, xts | _ -> assert false in
+  let t, xts = match base_type env t with RECORD (t, xts) -> t, xts | _ -> assert false in
   (* let ts = M.find t env.renv in *)
   let rec loop i = function
     | [] -> error x.p "record type '%s' does not contain field '%s'" t x.s
@@ -278,7 +278,7 @@ let cond_br c yaybb naybb =
   ignore (build_cond_br (llvm_value c) yaybb naybb g_builder)
 
 let array_length_addr v =
-  gep v [ const_int 32 0; const_int 32 1 ]
+  gep v [ const_int 32 0; const_int 32 0 ]
 
 let printf msg =
   ignore (build_call (declare_function "printf"
@@ -304,7 +304,7 @@ let array_index lnum v x =
   position_at_end diebb g_builder;
   die (Printf.sprintf "Runtime error: index out of bounds in line %d\n" lnum);
   position_at_end yesbb g_builder;
-  gep v [ const_int 32 0; const_int 32 2; x ]
+  gep v [ const_int 32 0; const_int 32 1; x ]
 
 let record_index lnum v i =
   let v = VAL (llvm_value v) in
@@ -317,7 +317,7 @@ let record_index lnum v i =
   die (Printf.sprintf
     "Runtime error: field access to nil record in line %d\n" lnum);
   position_at_end yesbb g_builder;
-  gep v [ const_int 32 0; const_int 32 (i+1) ]
+  gep v [ const_int 32 0; const_int 32 i ]
 
 let save triggers v =
   if triggers then
@@ -338,14 +338,14 @@ let rec transl_typ env t =
     | VOID    -> int_t 32
     | INT     -> int_t 32
     | STRING  -> pointer_type (int_t 8)
-    | ARRAY (_, t) -> (* { i32, i32, [0 x t] }* *)
-        ptr_t (struct_t [| int_t 32; int_t 32; array_type (loop t) 0 |])
+    | ARRAY (_, t) -> (* { i32, [0 x t] }* *)
+        ptr_t (struct_t [| int_t 32; array_type (loop t) 0 |])
     | RECORD (x, xts) ->
         if not (List.mem_assq t !named_structs) then begin
           let ty = named_struct_type g_context x in
           named_structs := (t, ty) :: !named_structs;
           struct_set_body ty
-            (Array.of_list (int_t 32 :: List.map (fun (_, t) -> loop t) xts))
+            (Array.of_list (List.map (fun (_, t) -> loop t) xts))
             false
         end;
         pointer_type (List.assq t !named_structs)
@@ -806,7 +806,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
                   let f = gep r [ const_int 32 0; const_int 32 i ] in
                   store v f;
                   bind (i+1) vs
-            in bind 1 (List.rev vs)
+            in bind 0 (List.rev vs)
         | (x, Pnil _) :: xts, (x', t) :: ts ->
             if x.s = x' then
               bind (const_null (transl_typ env t) :: vs) (xts, ts)

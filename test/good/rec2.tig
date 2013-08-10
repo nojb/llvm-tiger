@@ -1,6 +1,7 @@
 let type rec = { a : rec , b : int }
 var x := rec { a = rec { a = nil, b = 12 }, b = 34 } in
-x
+printi (x.a.b);
+print("\n")
 end
 /* this tests the fact that x.a should be saved on the stack
     just in case the rest of the arguments (in this case, just x.b)
