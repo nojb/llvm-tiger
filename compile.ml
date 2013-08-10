@@ -280,6 +280,12 @@ let cond_br c yaybb naybb =
 let array_length_addr v =
   gep v [ const_int 32 0; const_int 32 0 ]
 
+let strcmp v1 v2 =
+  VAL (build_call (declare_function "strcmp"
+    (function_type (int_t 32)
+      [| ptr_t (int_t 8); ptr_t (int_t 8) |]) g_module)
+    [| llvm_value v1; llvm_value v2 |] "" g_builder)
+
 let printf msg =
   ignore (build_call (declare_function "printf"
     (var_arg_function_type (int_t 32) [| ptr_t (int_t 8) |])
@@ -659,7 +665,14 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           let c = unop zext c in
           nxt c INT
       | STRING, _ ->
-          assert false
+          let op = match cmp with
+          | Ceq -> Icmp.Eq | Cle -> Icmp.Sle | Cge -> Icmp.Sge
+          | Cne -> Icmp.Ne | Clt -> Icmp.Slt | Cgt -> Icmp.Sgt
+          in
+          let c = strcmp x y in
+          let c = binop (build_icmp op) c (const_int 32 0) in
+          let c = unop zext c in
+          nxt c INT
       | RECORD _, Ceq
       | ARRAY _, Ceq ->
           let v1 = unop p2i x in
