@@ -983,7 +983,8 @@ let base_venv env =
       "substring", [STRING; INT; INT], STRING;
       "concat", [STRING; STRING], STRING;
       "not", [INT], INT;
-      "exit", [INT], VOID ] in
+      "exit", [INT], VOID;
+      "gc_collect", [], VOID ] in
   let decl_fun env (x, ts, t) =
     let fname = "__tiger__" ^ x in
     let fllval = declare_function fname

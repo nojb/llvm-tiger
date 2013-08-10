@@ -3,6 +3,7 @@
 #include <string.h>
 
 void* llvm_gc_allocate(unsigned);
+void llvm_gc_collect(void);
 
 void __tiger__print (char* s) 
 {
@@ -89,4 +90,9 @@ int __tiger__not (int i)
 void __tiger__exit (int i)
 {
   exit (i);
+}
+
+void __tiger__gc_collect (void)
+{
+  llvm_gc_collect ();
 }

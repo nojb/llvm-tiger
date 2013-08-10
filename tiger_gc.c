@@ -87,7 +87,8 @@ void visitGCRoots(void (*Visitor)(void **Root, const void *Meta)) {
 }
 
 static void process_pointer(void **Root, const void *Meta) {
-  printf("process_root[0x%p] = 0x%p meta=%c\n", (void*) Root, (void*) *Root, * (char *) Meta);
+  /* printf("process_root[0x%p] = 0x%p meta=%c\n", (void*) Root, (void*) *Root, * (char *) Meta); */
+  printf("process_root[%p] = %p\n", (void*) Root, (void*) *Root);
 }
 
 void llvm_gc_collect() {

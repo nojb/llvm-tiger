@@ -52,6 +52,11 @@ function readlist (tree : node) : node =
       tree)
   end
 in
-  print_tree (readlist (nil));
-  print ("\n")
+  let
+    var tree := readlist(nil)
+  in
+    gc_collect ();
+    print_tree (tree);
+    print ("\n")
+  end
 end
