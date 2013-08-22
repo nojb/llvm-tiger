@@ -529,7 +529,9 @@ and let_funs env fundefs e nxt =
       f.fn_name.s
       (String.concat ", " gs')
       (String.concat ", " (List.map (fun g -> g.fn_name.s) gs)); *)
-    let sf  = S.filter (fun v -> mem_var v env) (fv f.fn_body) in
+    let ffv = List.fold_left (fun s (x, _) -> S.remove x.s s)
+      (fv f.fn_body) f.fn_args in
+    let sf  = S.filter (fun v -> mem_var v env) ffv in
     let hs  = List.filter (fun h -> mem_user_fun h env) gs' in
     let sf  = union_list (sf :: List.map (fun h -> M.find h env.sols) hs) in
     Solver.add_equation f.fn_name.s sf (List.map (fun g -> g.fn_name.s) gs))

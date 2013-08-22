@@ -1,0 +1,10 @@
+let function fact (n:int): int =
+let function loop (acc:int, n:int):int =
+if n=0 then acc else loop(acc*n, n-1)
+in
+loop(1,n)
+end
+in
+printi(fact(10))
+end
+
