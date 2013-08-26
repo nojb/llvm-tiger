@@ -1,6 +1,6 @@
 %{
   open Error
-  open Parsetree
+  open Tabs
 
   let pos i =
     Parsing.rhs_start_pos i
@@ -27,7 +27,7 @@
 %token <string> STRING
 %token EOF
 
-%type <Parsetree.exp> program
+%type <Tabs.exp> program
 %start program
 
 %left THEN
@@ -85,63 +85,63 @@ record_field_list_tail:
 
 exp:
     INT
-  { Pint (pos 1, $1) }
+  { Eint (pos 1, $1) }
   | STRING
-  { Pstring (pos 1, $1) }
+  { Estring (pos 1, $1) }
   | NIL
-  { Pnil (pos 1) }
+  { Enil (pos 1) }
   | var
-  { Pvar (pos 1, $1) }
+  { Evar (pos 1, $1) }
   | MINUS exp %prec unary_op
-  { Pbinop (pos 1, Pint (pos 1, 0), Op_sub, $2) }
+  { Ebinop (pos 1, Eint (pos 1, 0), Op_sub, $2) }
   | exp LAND exp
-  { Pif (pos 2, $1, $3, Some (Pint (pos 3, 0))) }
+  { Eif (pos 2, $1, $3, Some (Eint (pos 3, 0))) }
   | exp LOR exp
-  { Pif (pos 2, $1, Pint (pos 3, 1), Some $3) }
+  { Eif (pos 2, $1, Eint (pos 3, 1), Some $3) }
   | exp PLUS exp
-  { Pbinop (pos 2, $1, Op_add, $3) }
+  { Ebinop (pos 2, $1, Op_add, $3) }
   | exp TIMES exp
-  { Pbinop (pos 2, $1, Op_mul, $3) }
+  { Ebinop (pos 2, $1, Op_mul, $3) }
   | exp MINUS exp
-  { Pbinop (pos 2, $1, Op_sub, $3) }
+  { Ebinop (pos 2, $1, Op_sub, $3) }
   | exp SLASH exp
-  { Pbinop (pos 2, $1, Op_div, $3) }
+  { Ebinop (pos 2, $1, Op_div, $3) }
   | exp EQ exp
-  { Pbinop (pos 2, $1, Op_cmp Ceq, $3) }
+  { Ebinop (pos 2, $1, Op_cmp Ceq, $3) }
   | exp NE exp
-  { Pbinop (pos 2, $1, Op_cmp Cne, $3) }
+  { Ebinop (pos 2, $1, Op_cmp Cne, $3) }
   | exp LE exp
-  { Pbinop (pos 2, $1, Op_cmp Cle, $3) }
+  { Ebinop (pos 2, $1, Op_cmp Cle, $3) }
   | exp LT exp
-  { Pbinop (pos 2, $1, Op_cmp Clt, $3) }
+  { Ebinop (pos 2, $1, Op_cmp Clt, $3) }
   | exp GE exp
-  { Pbinop (pos 2, $1, Op_cmp Cge, $3) }
+  { Ebinop (pos 2, $1, Op_cmp Cge, $3) }
   | exp GT exp
-  { Pbinop (pos 2, $1, Op_cmp Cgt, $3) }
+  { Ebinop (pos 2, $1, Op_cmp Cgt, $3) }
   | var COLONEQ exp
-  { Passign (pos 2, $1, $3) }
+  { Eassign (pos 2, $1, $3) }
   | pos_ident LPAREN exp_comma_list RPAREN
-  { Pcall (pos 1, $1, $3) }
+  { Ecall (pos 1, $1, $3) }
   | LPAREN expseq RPAREN
-  { Pseq (pos 1, $2) }
+  { Eseq (pos 1, $2) }
   | pos_ident LCURLY record_field_list RCURLY
-  { Pmakerecord (pos 1, $1, $3) }
+  { Emakerecord (pos 1, $1, $3) }
   | var LBRACK exp RBRACK OF exp
   { match $1 with
-    | PVsimple x -> Pmakearray (pos 1, x, $3, $6)
+    | Vsimple x -> Emakearray (pos 1, x, $3, $6)
     | _ -> raise Parse_error }
   | IF exp THEN exp
-  { Pif (pos 1, $2, $4, None) }
+  { Eif (pos 1, $2, $4, None) }
   | IF exp THEN exp ELSE exp
-  { Pif (pos 1, $2, $4, Some $6) }
+  { Eif (pos 1, $2, $4, Some $6) }
   | WHILE exp DO exp
-  { Pwhile (pos 1, $2, $4) }
+  { Ewhile (pos 1, $2, $4) }
   | FOR pos_ident COLONEQ exp TO exp DO exp
-  { Pfor (pos 1, $2, $4, $6, $8) }
+  { Efor (pos 1, $2, $4, $6, $8) }
   | BREAK
-  { Pbreak (pos 1) }
-  | LET letexp
-  { $2 }
+  { Ebreak (pos 1) }
+  | LET decs IN expseq END
+  { List.fold_right (fun (p, d) e -> Elet (p, d, e)) $2 (Eseq (pos 4, $4)) }
   ;
 
 exp_comma_list:
@@ -160,27 +160,49 @@ exp_comma_list_tail:
 
 var:
     pos_ident
-  { PVsimple $1 }
+  { Vsimple $1 }
   | var LBRACK exp RBRACK
-  { PVsubscript (pos 2, $1, $3) }
+  { Vsubscript (pos 2, $1, $3) }
   | var DOT pos_ident
-  { PVfield (pos 2, $1, $3) }
+  { Vfield (pos 2, $1, $3) }
   ;
 
-letexp:
-    vardec letexp2
-  { let (x, y, e) = $1 in Pletvar (pos 1, x, y, e, $2) }
-  | typdecs letexp2
-  { Plettype (pos 1, $1, $2) }
-  | fundec_list letexp2
-  { Pletfuns (pos 1, $1, $2) }
+decs:
+    vardec decs_vtf
+  { let (x, y, e) = $1 in (pos 1, Dvar (x, y, e)) :: $2 }
+  | typdecs decs_vf
+  { (pos 1, Dtypes $1) :: $2 }
+  | fundec_list decs_vt
+  { (pos 1, Dfuns $1) :: $2 }
   ;
 
-letexp2:
-    letexp
-  { $1 }
-  | IN expseq END
-  { Pseq (pos 2, $2) }
+decs_vtf:
+    /* empty */
+  { [] }
+  | vardec decs_vtf
+  { let (x, y, e) = $1 in (pos 1, Dvar (x, y, e)) :: $2 }
+  | typdecs decs_vf
+  { (pos 1, Dtypes $1) :: $2 }
+  | fundec_list decs_vt
+  { (pos 1, Dfuns $1) :: $2 }
+  ;
+
+decs_vf:
+    /* empty */
+  { [] }
+  | vardec decs_vtf
+  { let (x, y, e) = $1 in (pos 1, Dvar (x, y, e)) :: $2 }
+  | fundec_list decs_vt
+  { (pos 1, Dfuns $1) :: $2 }
+  ;
+
+decs_vt:
+    /* empty */
+  { [] }
+  | vardec decs_vtf
+  { let (x, y, e) = $1 in (pos 1, Dvar (x, y, e)) :: $2 }
+  | typdecs decs_vf
+  { (pos 1, Dtypes $1) :: $2 }
   ;
 
 vardec:
@@ -218,11 +240,11 @@ type_field_list_tail:
 
 typ:
     pos_ident
-  { PTname $1 }
+  { Tname $1 }
   | ARRAY OF pos_ident
-  { PTarray $3 }
+  { Tarray $3 }
   | LCURLY type_field_list RCURLY
-  { PTrecord ($2) } 
+  { Trecord ($2) } 
   ;
 
 fundec_list:

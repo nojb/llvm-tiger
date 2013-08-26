@@ -1,5 +1,5 @@
 open Error
-open Parsetree
+open Tabs
 open Llvm
 
 let tmp_counter = ref (-1)
@@ -364,11 +364,11 @@ let declare_type env (x, t) =
     try M.find y.s env.tenv
     with Not_found -> NAME y.s in
   match t with
-  | PTname y ->
+  | Tname y ->
       add_type x (find_type y env) env
-  | PTarray y ->
+  | Tarray y ->
       add_type x (ARRAY (x.s, find_type y env)) env
-  | PTrecord xs ->
+  | Trecord xs ->
       add_type x (RECORD (x.s, List.map (fun (x, t) -> x.s, find_type t env) xs)) env
 
 let check_unique_type_names xts =
@@ -580,19 +580,19 @@ and void_exp env e nxt =
 
 and var env v nxt =
   match v with
-  | PVsimple x ->
+  | Vsimple x ->
       let vi = find_var x env in
       if vi.vimm then
         nxt (VAL vi.v_alloca) vi.vtype
       else
         nxt (LOADVAL vi.v_alloca) vi.vtype
-  | PVsubscript (p, v, x) ->
+  | Vsubscript (p, v, x) ->
       array_var env v (fun v t' ->
       let v = save (triggers x) v in
       int_exp env x (fun x ->
       let v = array_index p.Lexing.pos_lnum v x in
       nxt (load v) t'))
-  | PVfield (p, v, x) ->
+  | Vfield (p, v, x) ->
       record_var env v (fun v t' ->
       let i, tx = find_record_field env t' x in
       let v = record_index p.Lexing.pos_lnum v i in
@@ -600,34 +600,34 @@ and var env v nxt =
 
 and exp env e (nxt : llvm_value -> type_spec -> unit) =
   match e with
-  | Pint (_, n) ->
+  | Eint (_, n) ->
       nxt (const_int 32 n) INT
-  | Pstring (_, s) ->
+  | Estring (_, s) ->
       nxt (VAL (build_global_stringptr s "" g_builder)) STRING
-  | Pnil p ->
+  | Enil p ->
       error p
         "'nil' should be used in a context where \
         its type can be determined"
-  | Pvar (_, v) ->
+  | Evar (_, v) ->
       var env v nxt
-  | Pbinop (_, x, Op_add, y) ->
+  | Ebinop (_, x, Op_add, y) ->
       int_exp env x (fun x ->
       int_exp env y (fun y ->
       nxt (binop build_add x y) INT))
-  | Pbinop (_, x, Op_sub, y) ->
+  | Ebinop (_, x, Op_sub, y) ->
       int_exp env x (fun x ->
       int_exp env y (fun y ->
       nxt (binop build_sub x y) INT))
-  | Pbinop (_, x, Op_mul, y) ->
+  | Ebinop (_, x, Op_mul, y) ->
       int_exp env x (fun x ->
       int_exp env y (fun y ->
       nxt (binop build_mul x y) INT))
-  | Pbinop (_, x, Op_div, y) ->
+  | Ebinop (_, x, Op_div, y) ->
       int_exp env x (fun x ->
       int_exp env y (fun y ->
       nxt (binop build_sdiv x y) INT))
-  | Pbinop (_, x, Op_cmp Ceq, Pnil _)
-  | Pbinop (_, Pnil _, Op_cmp Ceq, x) ->
+  | Ebinop (_, x, Op_cmp Ceq, Enil _)
+  | Ebinop (_, Enil _, Op_cmp Ceq, x) ->
       exp env x (fun v tx ->
         match base_type env tx with
         | RECORD _ ->
@@ -639,8 +639,8 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         | _ ->
             error (exp_p x) "expected expression of record type, found %s"
               (describe_type tx))
-  | Pbinop (_, x, Op_cmp Cne, Pnil _)
-  | Pbinop (_, Pnil _, Op_cmp Cne, x) ->
+  | Ebinop (_, x, Op_cmp Cne, Enil _)
+  | Ebinop (_, Enil _, Op_cmp Cne, x) ->
       exp env x (fun v tx ->
         match base_type env tx with
         | RECORD _ ->
@@ -652,7 +652,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         | _ ->
             error (exp_p x) "expected expression of record type, found %s"
               (describe_type tx))
-  | Pbinop (p, x, Op_cmp cmp, y) ->
+  | Ebinop (p, x, Op_cmp cmp, y) ->
       let zext v s b = build_zext v (int_t 32) s b in
       let p2i v s b = build_ptrtoint v (int_t Sys.word_size) s b in
       exp env x (fun x tx ->
@@ -695,7 +695,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       | _, _ ->
           error p "comparison operator cannot be applied to type '%s'"
             (describe_type tx)))
-  | Passign (p, PVsimple x, Pnil _) ->
+  | Eassign (p, Vsimple x, Enil _) ->
       let vi = find_var x env in
       begin match base_type env vi.vtype with
       | RECORD _ ->
@@ -704,13 +704,13 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       | _ ->
           error p "trying to assign 'nil' to a variable of non-record type"
       end
-  | Passign (p, PVsimple x, e) ->
+  | Eassign (p, Vsimple x, e) ->
       let vi = find_var x env in
       if vi.vimm then error p "variable '%s' should not be assigned to" x.s;
       typ_exp env e vi.vtype (fun e ->
       store e (VAL vi.v_alloca);
       nxt nil VOID)
-  | Passign (p, PVsubscript (p', v, e1), Pnil _) ->
+  | Eassign (p, Vsubscript (p', v, e1), Enil _) ->
       array_var env v (fun v t' ->
       match base_type env t' with
       | RECORD _ ->
@@ -721,7 +721,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           nxt nil VOID)
       | _ ->
           error p "trying to assign 'nil' to a field of non-record type")
-  | Passign (_, PVsubscript (p, v, e1), e2) ->
+  | Eassign (_, Vsubscript (p, v, e1), e2) ->
       array_var env v (fun v t' ->
       let v = save (triggers e1) v in
       int_exp env e1 (fun e1 ->
@@ -730,7 +730,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       typ_exp env e2 t' (fun e2 ->
       store e2 v;
       nxt nil VOID)))
-  | Passign (p, PVfield (p', v, x), Pnil _) ->
+  | Eassign (p, Vfield (p', v, x), Enil _) ->
       record_var env v (fun v t' ->
       let i, tx = find_record_field env t' x in
       match base_type env tx with
@@ -740,7 +740,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           nxt nil VOID
       | _ ->
           error p "trying to assign 'nil' to a field of non-record type")
-  | Passign (_, PVfield (p, v, x), e) ->
+  | Eassign (_, Vfield (p, v, x), e) ->
       record_var env v (fun v t' ->
       let i, tx = find_record_field env t' x in
       let v = record_index p.Lexing.pos_lnum v i in
@@ -748,7 +748,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       typ_exp env e tx (fun e ->
       store e v;
       nxt nil VOID))
-  | Pcall (p, x, xs) ->
+  | Ecall (p, x, xs) ->
       let fi = find_fun x env in
       let ts, t = fi.fsign in
       if List.length xs <> List.length ts then
@@ -763,7 +763,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
                 (S.elements (M.find x.s env.sols)) (List.rev ys)
                 else List.rev ys in
             nxt (call (getfun fi.fname) actuals) t
-        | Pnil p :: xs, t :: ts ->
+        | Enil p :: xs, t :: ts ->
             begin match base_type env t with
             | RECORD _ ->
                 bind (const_null (transl_typ env t) :: ys) (xs, ts)
@@ -777,7 +777,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         | _ ->
             assert false
       in bind [] (xs, ts)
-  | Pseq (_, xs) ->
+  | Eseq (_, xs) ->
       let rec bind = function
         | []      ->
             nxt nil VOID
@@ -786,7 +786,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         | x :: xs ->
             exp env x (fun _ _ -> bind xs)
       in bind xs
-  | Pmakearray (p, x, y, Pnil _) ->
+  | Emakearray (p, x, y, Enil _) ->
       let t, t' = find_array_type x env in
       begin match base_type env t' with
       | RECORD _ ->
@@ -802,7 +802,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       | _ ->
           error p "array base type must be record type"
       end
-  | Pmakearray (_, x, y, z) ->
+  | Emakearray (_, x, y, z) ->
       let t, t' = find_array_type x env in
       int_exp env y (fun y ->
       typ_exp env z t' (fun z ->
@@ -815,7 +815,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       store y (array_length_addr (VAL a));
       (* FIXME initialisation *)
       nxt (VAL a) t))
-  | Pmakerecord (p, x, xts) ->
+  | Emakerecord (p, x, xts) ->
       let t, ts = find_record_type env x in
       let rec bind vs = function
         | [], [] ->
@@ -829,7 +829,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
                   store v f;
                   bind (i+1) vs
             in bind 0 (List.rev vs)
-        | (x, Pnil _) :: xts, (x', t) :: ts ->
+        | (x, Enil _) :: xts, (x', t) :: ts ->
             if x.s = x' then
               bind (const_null (transl_typ env t) :: vs) (xts, ts)
             else
@@ -858,7 +858,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           .Sseq (T.Sif (Ebinop (x, op, y),
             void_exp tenv venv looping z Sskip, Sskip),
             nxt Eundef E.Tvoid))) *)
-  | Pif (_, x, y, None) ->
+  | Eif (_, x, y, None) ->
       let nextbb = new_block () in
       let yesbb  = new_block () in
       int_exp env x (fun x ->
@@ -868,7 +868,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       void_exp env y (fun () -> ignore (build_br nextbb g_builder));
       position_at_end nextbb g_builder;
       nxt nil VOID
-  | Pif (_, x, y, Some z) ->
+  | Eif (_, x, y, Some z) ->
       let nextbb = new_block () in
       let yesbb  = new_block () in
       let naybb  = new_block () in
@@ -888,7 +888,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       typ_exp env z !typ (fun z -> if !typ <> VOID then store z !tmp; ignore (build_br nextbb g_builder));
       position_at_end nextbb g_builder;
       nxt (if !typ = VOID then nil else load !tmp) !typ
-  | Pwhile (_, x, y) ->
+  | Ewhile (_, x, y) ->
       let nextbb = new_block () in
       let testbb = new_block () in
       let bodybb = new_block () in
@@ -902,7 +902,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         (fun () -> ignore (build_br testbb g_builder));
       position_at_end nextbb g_builder;
       nxt nil VOID
-  | Pfor (_, i, x, y, z) ->
+  | Efor (_, i, x, y, z) ->
       let nextbb = new_block () in
       let testbb = new_block () in
       let bodybb = new_block () in
@@ -926,12 +926,12 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           ignore (build_br testbb g_builder))));
       position_at_end nextbb g_builder;
       nxt nil VOID
-  | Pbreak p ->
+  | Ebreak p ->
       begin match env.in_loop with
       | InLoop bb -> ignore (build_br bb g_builder);
       | NoLoop    -> error p "illegal use of 'break'"
       end
-  | Pletvar (_, x, None, y, z) ->
+  | Elet (_, Dvar (x, None, y), z) ->
       exp env y (fun y ty ->
       let a = alloca (structured_type env ty) (transl_typ env ty) in
       set_value_name x.s a;
@@ -940,7 +940,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       exp env z (fun z tz ->
       if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a);
       nxt z tz))
-  | Pletvar (p, x, Some t, Pnil _, z) ->
+  | Elet (p, Dvar (x, Some t, Enil _), z) ->
       let t = find_type t env in
       begin match base_type env t with
       | RECORD _ ->
@@ -954,7 +954,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       | _ ->
           error p "expected record type, found '%s'" (describe_type t)
       end
-  | Pletvar (_, x, Some t, y, z) ->
+  | Elet (_, Dvar (x, Some t, y), z) ->
       let ty = find_type t env in
       typ_exp env y ty (fun y ->
       let a = alloca (structured_type env ty) (transl_typ env ty) in
@@ -964,10 +964,10 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       exp env z (fun z tz ->
       if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a);
       nxt z tz))
-  | Plettype (_, tys, e) ->
+  | Elet (_, Dtypes tys, e) ->
       let env = let_type env tys in
       exp env e nxt
-  | Pletfuns (_, funs, e) ->
+  | Elet (_, Dfuns funs, e) ->
       let_funs env funs e nxt
 
 let base_tenv =
