@@ -52,16 +52,16 @@ program:
 
 expseq:
   /* empty */
-  { [] }
+  { Eunit (Parsing.symbol_start_pos ()) }
   | expseq_tail
   { $1 }
   ;
 
 expseq_tail:
   exp
-  { [$1] }
+  { $1 }
   | exp SEMI expseq_tail
-  { $1 :: $3 }
+  { Eseq (pos 1, $1, $3) }
   ;
 
 pos_ident:
@@ -95,9 +95,9 @@ exp:
   | MINUS exp %prec unary_op
   { Ebinop (pos 1, Eint (pos 1, 0), Op_sub, $2) }
   | exp LAND exp
-  { Eif (pos 2, $1, $3, Some (Eint (pos 3, 0))) }
+  { Eif (pos 2, $1, $3, Eint (pos 3, 0)) }
   | exp LOR exp
-  { Eif (pos 2, $1, Eint (pos 3, 1), Some $3) }
+  { Eif (pos 2, $1, Eint (pos 3, 1), $3) }
   | exp PLUS exp
   { Ebinop (pos 2, $1, Op_add, $3) }
   | exp TIMES exp
@@ -123,7 +123,7 @@ exp:
   | pos_ident LPAREN exp_comma_list RPAREN
   { Ecall (pos 1, $1, $3) }
   | LPAREN expseq RPAREN
-  { Eseq (pos 1, $2) }
+  { $2 }
   | pos_ident LCURLY record_field_list RCURLY
   { Emakerecord (pos 1, $1, $3) }
   | var LBRACK exp RBRACK OF exp
@@ -131,9 +131,9 @@ exp:
     | Vsimple x -> Emakearray (pos 1, x, $3, $6)
     | _ -> raise Parse_error }
   | IF exp THEN exp
-  { Eif (pos 1, $2, $4, None) }
+  { Eif (pos 1, $2, $4, Eunit (Parsing.symbol_end_pos ())) }
   | IF exp THEN exp ELSE exp
-  { Eif (pos 1, $2, $4, Some $6) }
+  { Eif (pos 1, $2, $4, $6) }
   | WHILE exp DO exp
   { Ewhile (pos 1, $2, $4) }
   | FOR pos_ident COLONEQ exp TO exp DO exp
@@ -141,7 +141,7 @@ exp:
   | BREAK
   { Ebreak (pos 1) }
   | LET decs IN expseq END
-  { List.fold_right (fun (p, d) e -> Elet (p, d, e)) $2 (Eseq (pos 4, $4)) }
+  { List.fold_right (fun (p, d) e -> Elet (p, d, e)) $2 $4 }
   ;
 
 exp_comma_list:

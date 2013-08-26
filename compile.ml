@@ -600,6 +600,8 @@ and var env v nxt =
 
 and exp env e (nxt : llvm_value -> type_spec -> unit) =
   match e with
+  | Eunit _ ->
+      nxt nil VOID
   | Eint (_, n) ->
       nxt (const_int 32 n) INT
   | Estring (_, s) ->
@@ -777,15 +779,8 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
         | _ ->
             assert false
       in bind [] (xs, ts)
-  | Eseq (_, xs) ->
-      let rec bind = function
-        | []      ->
-            nxt nil VOID
-        | [x]     ->
-            exp env x nxt
-        | x :: xs ->
-            exp env x (fun _ _ -> bind xs)
-      in bind xs
+  | Eseq (_, x1, x2) ->
+      exp env x1 (fun _ _ -> exp env x2 nxt)
   | Emakearray (p, x, y, Enil _) ->
       let t, t' = find_array_type x env in
       begin match base_type env t' with
@@ -858,7 +853,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
           .Sseq (T.Sif (Ebinop (x, op, y),
             void_exp tenv venv looping z Sskip, Sskip),
             nxt Eundef E.Tvoid))) *)
-  | Eif (_, x, y, None) ->
+  | Eif (_, x, y, Eunit _) ->
       let nextbb = new_block () in
       let yesbb  = new_block () in
       int_exp env x (fun x ->
@@ -868,7 +863,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
       void_exp env y (fun () -> ignore (build_br nextbb g_builder));
       position_at_end nextbb g_builder;
       nxt nil VOID
-  | Eif (_, x, y, Some z) ->
+  | Eif (_, x, y, z) ->
       let nextbb = new_block () in
       let yesbb  = new_block () in
       let naybb  = new_block () in
