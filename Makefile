@@ -1,5 +1,5 @@
 all:
-	ocamlbuild tigerc.native
+	ocamlbuild -use-ocamlfind src/tigerc.native
 
 clean:
 	ocamlbuild -clean

@@ -1,1 +1,1 @@
-<*.native>: g++, use_llvm, use_llvm_scalar_opts, use_unix_fix, use_llvm_bitwriter
+<src/compile.*> or <src/tigerc.*>: package(llvm), package(llvm.bitwriter)
