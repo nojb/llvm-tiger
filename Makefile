@@ -1,7 +1,11 @@
-all:
-	ocamlbuild -use-ocamlfind src/tigerc.native
+OCAMLBUILD = ocamlbuild -classic-display -use-ocamlfind
+
+all: src/tigerc.native
+
+%.native:
+	$(OCAMLBUILD) $@
 
 clean:
-	ocamlbuild -clean
+	$(OCAMLBUILD) -clean
 
-.PHONY: all clean
+.PHONY: all %.native
