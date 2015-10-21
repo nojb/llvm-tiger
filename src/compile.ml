@@ -535,29 +535,17 @@ let rec tr_function_body env fundef =
   ignore (build_br startbb g_builder)
 
 and let_funs env fundefs e nxt =
-  let join m1 m2 = M.fold M.add m1 m2 in
-
   check_unique_fundef_names fundefs;
 
-  Solver.reset ();
-  List.iter (fun f ->
-    let gs' = S.elements (fc f.fn_body) in
-    let gs  = List.filter (fun fundef -> List.mem fundef.fn_name.s gs') fundefs in
-    (* debug () "eqn for %s: gs' = %s gs = %s"
-      f.fn_name.s
-      (String.concat ", " gs')
-      (String.concat ", " (List.map (fun g -> g.fn_name.s) gs)); *)
+  let sols' =
+    List.fold_left (fun s f ->
     let ffv = List.fold_left (fun s (x, _) -> S.remove x.s s)
-      (fv f.fn_body) f.fn_args in
-    let sf  = S.filter (fun v -> mem_var v env) ffv in
-    let hs  = List.filter (fun h -> mem_user_fun h env) gs' in
-    let sf  = union_list (sf :: List.map (fun h -> M.find h env.sols) hs) in
-    Solver.add_equation f.fn_name.s sf (List.map (fun g -> g.fn_name.s) gs))
-    fundefs;
-  let sols' = Solver.solve () in
-  let sols' = join env.sols sols' in
-  let env' = { env with sols = sols' } in
-
+        (fv f.fn_body) f.fn_args in
+    S.union ffv s
+      ) S.empty fundefs
+  in
+  let sols' = List.fold_left (fun sols f -> M.add f.fn_name.s sols' sols) env.sols fundefs in
+  let env' = {env with sols = sols'} in
   let curr = insertion_block g_builder in
   let env' = List.fold_left tr_function_header env' fundefs in
   List.iter (tr_function_body env') fundefs;
