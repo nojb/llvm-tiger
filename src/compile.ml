@@ -64,7 +64,7 @@ type fun_info = {
   fname : string;
   fsign : type_spec list * type_spec;
   f_user : bool;
-  f_llvalue : llvalue
+  f_llvalue : llvalue Lazy.t
 }
 
 type value_desc =
@@ -125,7 +125,7 @@ let add_fun x uid atyps rtyp llv env =
     fname = uid;
     fsign = atyps, rtyp;
     f_user = true;
-    f_llvalue = llv
+    f_llvalue = lazy llv
   } in
   { env with venv = M.add x.s (Function fi) env.venv }
 
@@ -145,7 +145,7 @@ let find_fun x env =
       error x.p "unbound function '%s'" x.s
 
 (* type tenv = (string * E.typ) list *)
-  
+
 let find_type x env =
   try
     M.find x.s env.tenv
@@ -187,11 +187,6 @@ type llvm_value =
 let g_context = global_context ()
 let g_module  = create_module g_context ""
 let g_builder = builder g_context
-
-let getfun n =
-  match lookup_function n g_module with
-  | Some f -> f
-  | None -> assert false
 
 let new_block () =
   (* this assumes that the builder is already set up
@@ -510,7 +505,7 @@ let rec tr_function_body env fundef =
   let fi = find_fun fundef.fn_name env in
   let ts, t = fi.fsign in
 
-  position_at_end (entry_block fi.f_llvalue) g_builder;
+  position_at_end (entry_block (Lazy.force fi.f_llvalue)) g_builder;
   let startbb = new_block () in
   position_at_end startbb g_builder;
   let count = ref (-1) in
@@ -518,14 +513,15 @@ let rec tr_function_body env fundef =
   (* Process arguments *)
   let env = List.fold_left (fun env x ->
     incr count;
-    set_value_name x (param fi.f_llvalue !count);
-    add_free_var env x (param fi.f_llvalue !count))
+    let f_llvalue = Lazy.force fi.f_llvalue in
+    set_value_name x (param f_llvalue !count);
+    add_free_var env x (param f_llvalue !count))
     env (S.elements (M.find fundef.fn_name.s env.sols)) in
   let env = List.fold_left2 (fun env (x, _) t ->
     incr count;
     let a = alloca (structured_type env t) (transl_typ env t) in
     set_value_name x.s a;
-    store (VAL (param fi.f_llvalue !count)) (VAL a);
+    store (VAL (param (Lazy.force fi.f_llvalue) !count)) (VAL a);
     add_var x t a env) env fundef.fn_args ts in
 
   (* Process the body *)
@@ -535,7 +531,7 @@ let rec tr_function_body env fundef =
     else
       ignore (build_ret (llvm_value body) g_builder));
 
-  position_at_end (entry_block fi.f_llvalue) g_builder;
+  position_at_end (entry_block (Lazy.force fi.f_llvalue)) g_builder;
   ignore (build_br startbb g_builder)
 
 and let_funs env fundefs e nxt =
@@ -786,7 +782,7 @@ and exp env e (nxt : llvm_value -> type_spec -> unit) =
                 VAL vi.v_alloca :: ys)
                 (S.elements (M.find x.s env.sols)) (List.rev ys)
                 else List.rev ys in
-            nxt (call (getfun fi.fname) actuals) t
+            nxt (call (Lazy.force fi.f_llvalue) actuals) t
         | Enil p :: xs, t :: ts ->
             begin match base_type env t with
             | RECORD _ ->
@@ -1006,10 +1002,10 @@ let base_venv env =
       "gc_collect", [], VOID ] in
   let decl_fun env (x, ts, t) =
     let fname = "__tiger__" ^ x in
-    let fllval = declare_function fname
+    let fllval = lazy (declare_function fname
       (function_type (llvm_return_type env t)
         (Array.of_list (List.map (transl_typ env) ts)))
-      g_module in
+      g_module) in
     { env with venv = M.add x
       (Function {fname = fname; f_user = false; fsign = (ts, t); f_llvalue =
         fllval }) env.venv } in
