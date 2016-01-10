@@ -1,6 +1,6 @@
 (* The MIT License (MIT)
 
-   Copyright (c) 2014 Nicolas Ojeda Bar <n.oje.bar@gmail.com>
+   Copyright (c) 2013-2014 Nicolas Ojeda Bar <n.oje.bar@gmail.com>
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal
@@ -33,4 +33,3 @@ let report_error p msg =
     p.Lexing.pos_fname p.Lexing.pos_lnum
     (p.Lexing.pos_cnum - p.Lexing.pos_bol + 1)
     msg
-
