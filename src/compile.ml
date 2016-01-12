@@ -723,25 +723,16 @@ and exp env = function
       let t', v = array_var env v in
       begin match base_type env t' with
       | RECORD _ ->
-          (* let v = save (triggers e) v in *)
           let e = int_exp env e in
           VOID, Lprim (Parrayrefs Paddrarray, [v; e])
-          (* let v = array_index p'.Lexing.pos_lnum v e in *)
-          (* store (const_null (transl_typ env t')) v; *)
-          (* nxt nil VOID *)
       | _ ->
           error p "trying to assign 'nil' to a field of non-record type"
       end
   | Eassign (_, Vsubscript (p, v, e1), e2) ->
       let t', v = array_var env v in
-      (* let v = save (triggers e1) v in *)
       let e1 = int_exp env e1 in
-      (* let v = array_index p.Lexing.pos_lnum v e1 in *)
-      (* let v = save (triggers e2) v in *)
       let e2 = typ_exp env e2 t' in
       VOID, Lprim (Parraysets Paddrarray, [v; e1; e2])
-      (* store e2 v; *)
-      (* nxt nil VOID))) *)
   (* | Eassign (p, Vfield (p', v, x), Enil _) -> *)
   (*     record_var env v (fun v t' -> *)
   (*     let i, tx = find_record_field env t' x in *)
@@ -874,30 +865,11 @@ and exp env = function
       let e1 = int_exp env e1 in
       let e2 = void_exp (* { *) env (* with in_loop = InLoop nextbb } *) e2 in
       VOID, Lwhile (e1, e2)
-  (* | Efor (_, i, x, y, z) -> *)
-  (*     let nextbb = new_block () in *)
-  (*     let testbb = new_block () in *)
-  (*     let bodybb = new_block () in *)
-  (*     int_exp env x (fun x -> *)
-  (*     int_exp env y (fun y -> *)
-  (*       let a = alloca false (int_t 32) in *)
-  (*       let ii = VAL (a) in *)
-  (*       set_value_name i.s a; *)
-  (*       store x ii; *)
-  (*       ignore (build_br testbb g_builder); *)
-  (*       position_at_end testbb g_builder; *)
-  (*       let iii = load ii in *)
-  (*       let c = binop (build_icmp Icmp.Sle) iii y in *)
-  (*       cond_br c bodybb nextbb; *)
-  (*       position_at_end bodybb g_builder; *)
-  (*       void_exp (add_var i ~immutable:true INT (llvm_value iii) env) z (\* M.add i (llvm_value iii) *)
-  (*     env) nextbb z (fun _ -> *\) *)
-  (*       (fun () -> *)
-  (*         let plusone = binop build_add iii (const_int 32 1) in *)
-  (*         store plusone ii; *)
-  (*         ignore (build_br testbb g_builder)))); *)
-  (*     position_at_end nextbb g_builder; *)
-  (*     nxt nil VOID *)
+  | Efor (_, i, e1, e2, e3) ->
+      let e1 = int_exp env e1 in
+      let e2 = int_exp env e2 in
+      let e3 = void_exp (add_var i ~immutable:true INT env) e3 in
+      VOID, Lfor (i.s, e1, e2, e3)
   (* | Ebreak p -> *)
   (*     begin match env.in_loop with *)
   (*     | InLoop bb -> ignore (build_br bb g_builder); *)
@@ -905,43 +877,28 @@ and exp env = function
   (*     end *)
   | Elet (_, Dvar (x, None, e1), e2) ->
       let t1, e1 = exp env e1 in
-      (* let a = alloca (structured_type env ty) (transl_typ env ty) in *)
-      (* set_value_name x.s a; *)
       let env = add_var x t1 (* a *) env in
-      (* store y (VAL a); *)
       let t2, e2 = exp env e2 in
       t2, Llet (x.s, e1, e2)
-      (* if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a); *)
-      (* nxt z tz)) *)
   | Elet (p, Dvar (x, Some t, Enil _), e2) ->
       let t = find_type t env in
       begin match base_type env t with
       | RECORD _ ->
-          (* let a = alloca true (transl_typ env t) in *)
-          (* set_value_name x.s a; *)
           let env = add_var x t (* a *) env in
-          (* store (const_null (transl_typ env t)) (VAL a); *)
           let t2, e2 = exp env e2 in
           t2, Llet (x.s, Lconst 0n, e2)
-          (* store (const_null (transl_typ env t)) (VAL a); *)
-          (* nxt z tz) *)
       | _ ->
           error p "expected record type, found '%s'" (describe_type t)
       end
   | Elet (_, Dvar (x, Some t, e1), e2) ->
       let ty = find_type t env in
       let e1 = typ_exp env e1 ty in
-      (* let a = alloca (structured_type env ty) (transl_typ env ty) in *)
-      (* set_value_name x.s a; *)
       let env = add_var x ty (* a *) env in
-      (* store y (VAL a); *)
       let t2, e2 = exp env e2 in
       t2, Llet (x.s, e1, e2)
-      (* if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a); *)
-      (* nxt z tz)) *)
-  (* | Elet (_, Dtypes tys, e) -> *)
-  (*     let env = let_type env tys in *)
-  (*     exp env e nxt *)
+  | Elet (_, Dtypes tys, e) ->
+      let env = let_type env tys in
+      exp env e
   (* | Elet (_, Dfuns funs, e) -> *)
   (*     let_funs env funs e nxt *)
 
