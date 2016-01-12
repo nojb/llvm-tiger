@@ -565,13 +565,14 @@ let rec array_var env v =
       error (var_p v) "expected variable of array type, but type is '%s'"
         (describe_type t)
 
-(* and record_var env v nxt = *)
-(*   var env v (fun v' t -> *)
-(*     match base_type env t with *)
-(*     | RECORD _ -> nxt v' t *)
-(*     | _ -> *)
-(*         error (var_p v) "expected variable of record type, but type is '%s'" *)
-(*           (describe_type t)) *)
+and record_var env v =
+  let t, v' = var env v in
+  match base_type env t with
+  | RECORD _ ->
+      t, v'
+  | _ ->
+      error (var_p v) "expected variable of record type, but type is '%s'"
+        (describe_type t)
 
 and typ_exp env e t' =
   let t, e' = exp env e in
@@ -724,7 +725,7 @@ and exp env = function
       begin match base_type env t' with
       | RECORD _ ->
           let e = int_exp env e in
-          VOID, Lprim (Parrayrefs Paddrarray, [v; e])
+          VOID, Lprim (Parraysets Paddrarray, [v; e; Lconst 0n])
       | _ ->
           error p "trying to assign 'nil' to a field of non-record type"
       end
@@ -733,24 +734,20 @@ and exp env = function
       let e1 = int_exp env e1 in
       let e2 = typ_exp env e2 t' in
       VOID, Lprim (Parraysets Paddrarray, [v; e1; e2])
-  (* | Eassign (p, Vfield (p', v, x), Enil _) -> *)
-  (*     record_var env v (fun v t' -> *)
-  (*     let i, tx = find_record_field env t' x in *)
-  (*     match base_type env tx with *)
-  (*     | RECORD _ -> *)
-  (*         let v = record_index p'.Lexing.pos_lnum v i in *)
-  (*         store (const_null (transl_typ env t')) v; *)
-  (*         nxt nil VOID *)
-  (*     | _ -> *)
-  (*         error p "trying to assign 'nil' to a field of non-record type") *)
-  (* | Eassign (_, Vfield (p, v, x), e) -> *)
-  (*     record_var env v (fun v t' -> *)
-  (*     let i, tx = find_record_field env t' x in *)
-  (*     let v = record_index p.Lexing.pos_lnum v i in *)
-  (*     let v = save (triggers e) v in *)
-  (*     typ_exp env e tx (fun e -> *)
-  (*     store e v; *)
-  (*     nxt nil VOID)) *)
+  | Eassign (p, Vfield (p', v, x), Enil _) ->
+      let t', v = record_var env v in
+      let i, tx = find_record_field env t' x in
+      begin match base_type env tx with
+      | RECORD _ ->
+          VOID, Lprim (Psetfield i, [v; Lconst 0n])
+      | _ ->
+          error p "trying to assign 'nil' to a field of non-record type"
+      end
+  | Eassign (_, Vfield (p, v, x), e) ->
+      let t', v = record_var env v in
+      let i, tx = find_record_field env t' x in
+      let e = typ_exp env e tx in
+      VOID, Lprim (Psetfield i, [v; e])
   (* | Ecall (p, x, xs) -> *)
   (*     let fi = find_fun x env in *)
   (*     let ts, t = fi.fsign in *)
