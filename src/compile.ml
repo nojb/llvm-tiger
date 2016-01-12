@@ -111,7 +111,7 @@ let find_var id env =
     Not_found ->
       error id.p "unbound variable '%s'" id.s
 
-let add_var (x : pos_string) ?immutable:(immut=false) t llv env =
+let add_var (x : pos_string) ?immutable:(immut=false) t (* llv *) env =
   let vi = { vtype = t; vimm = immut; (* v_alloca = llv *) } in
   { env with venv = M.add x.s (Variable vi) env.venv }
 
@@ -556,13 +556,14 @@ let tr_return_type env fn =
 
 (*   exp env' e nxt *)
 
-(* and array_var env v nxt = *)
-(*   var env v (fun v' t -> *)
-(*     match base_type env t with *)
-(*     | ARRAY (_, t') -> nxt v' t' *)
-(*     | _ -> *)
-(*         error (var_p v) "expected variable of array type, but type is '%s'" *)
-(*           (describe_type t)) *)
+let rec array_var env v =
+  let t, v' = var env v in
+  match base_type env t with
+  | ARRAY (_, t') ->
+      t', v'
+  | _ ->
+      error (var_p v) "expected variable of array type, but type is '%s'"
+        (describe_type t)
 
 (* and record_var env v nxt = *)
 (*   var env v (fun v' t -> *)
@@ -572,7 +573,7 @@ let tr_return_type env fn =
 (*         error (var_p v) "expected variable of record type, but type is '%s'" *)
 (*           (describe_type t)) *)
 
-let rec typ_exp env e t' =
+and typ_exp env e t' =
   let t, e' = exp env e in
   if type_equal env t t' then
     e'
@@ -593,12 +594,13 @@ and var env = function
   | Vsimple x ->
       let vi = find_var x env in
       vi.vtype, Lvar x.s
-  (* | Vsubscript (p, v, x) -> *)
-  (*     array_var env v (fun v t' -> *)
-  (*     let v = save (triggers x) v in *)
-  (*     int_exp env x (fun x -> *)
-  (*     let v = array_index p.Lexing.pos_lnum v x in *)
-  (*     nxt (load v) t')) *)
+  | Vsubscript (p, v, e) ->
+      let t', v = array_var env v in
+      (* let v = save (triggers x) v in *)
+      let e = int_exp env e in
+      t', Lprim (Parrayrefs Paddrarray (* FIXME *), [v; e])
+      (* let v = array_index p.Lexing.pos_lnum v x in *)
+      (* nxt (load v) t')) *)
   (* | Vfield (p, v, x) -> *)
   (*     record_var env v (fun v t' -> *)
   (*     let i, tx = find_record_field env t' x in *)
@@ -717,26 +719,29 @@ and exp env = function
       if vi.vimm then error p "variable '%s' should not be assigned to" x.s;
       let e = typ_exp env e vi.vtype in
       VOID, Lassign (x.s, e)
-  (* | Eassign (p, Vsubscript (p', v, e1), Enil _) -> *)
-  (*     array_var env v (fun v t' -> *)
-  (*     match base_type env t' with *)
-  (*     | RECORD _ -> *)
-  (*         let v = save (triggers e1) v in *)
-  (*         int_exp env e1 (fun e1 -> *)
-  (*         let v = array_index p'.Lexing.pos_lnum v e1 in *)
-  (*         store (const_null (transl_typ env t')) v; *)
-  (*         nxt nil VOID) *)
-  (*     | _ -> *)
-  (*         error p "trying to assign 'nil' to a field of non-record type") *)
-  (* | Eassign (_, Vsubscript (p, v, e1), e2) -> *)
-  (*     array_var env v (fun v t' -> *)
-  (*     let v = save (triggers e1) v in *)
-  (*     int_exp env e1 (fun e1 -> *)
-  (*     let v = array_index p.Lexing.pos_lnum v e1 in *)
-  (*     let v = save (triggers e2) v in *)
-  (*     typ_exp env e2 t' (fun e2 -> *)
-  (*     store e2 v; *)
-  (*     nxt nil VOID))) *)
+  | Eassign (p, Vsubscript (p', v, e), Enil _) ->
+      let t', v = array_var env v in
+      begin match base_type env t' with
+      | RECORD _ ->
+          (* let v = save (triggers e) v in *)
+          let e = int_exp env e in
+          VOID, Lprim (Parrayrefs Paddrarray, [v; e])
+          (* let v = array_index p'.Lexing.pos_lnum v e in *)
+          (* store (const_null (transl_typ env t')) v; *)
+          (* nxt nil VOID *)
+      | _ ->
+          error p "trying to assign 'nil' to a field of non-record type"
+      end
+  | Eassign (_, Vsubscript (p, v, e1), e2) ->
+      let t', v = array_var env v in
+      (* let v = save (triggers e1) v in *)
+      let e1 = int_exp env e1 in
+      (* let v = array_index p.Lexing.pos_lnum v e1 in *)
+      (* let v = save (triggers e2) v in *)
+      let e2 = typ_exp env e2 t' in
+      VOID, Lprim (Parraysets Paddrarray, [v; e1; e2])
+      (* store e2 v; *)
+      (* nxt nil VOID))) *)
   (* | Eassign (p, Vfield (p', v, x), Enil _) -> *)
   (*     record_var env v (fun v t' -> *)
   (*     let i, tx = find_record_field env t' x in *)
@@ -898,39 +903,42 @@ and exp env = function
   (*     | InLoop bb -> ignore (build_br bb g_builder); *)
   (*     | NoLoop    -> error p "illegal use of 'break'" *)
   (*     end *)
-  (* | Elet (_, Dvar (x, None, y), z) -> *)
-  (*     exp env y (fun y ty -> *)
-  (*     let a = alloca (structured_type env ty) (transl_typ env ty) in *)
-  (*     set_value_name x.s a; *)
-  (*     let env = add_var x ty a env in *)
-  (*     store y (VAL a); *)
-  (*     exp env z (fun z tz -> *)
-  (*     if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a); *)
-  (*     nxt z tz)) *)
-  (* | Elet (p, Dvar (x, Some t, Enil _), z) -> *)
-  (*     let t = find_type t env in *)
-  (*     begin match base_type env t with *)
-  (*     | RECORD _ -> *)
-  (*         let a = alloca true (transl_typ env t) in *)
-  (*         set_value_name x.s a; *)
-  (*         let env = add_var x t a env in *)
-  (*         store (const_null (transl_typ env t)) (VAL a); *)
-  (*         exp env z (fun z tz -> *)
-  (*         store (const_null (transl_typ env t)) (VAL a); *)
-  (*         nxt z tz) *)
-  (*     | _ -> *)
-  (*         error p "expected record type, found '%s'" (describe_type t) *)
-  (*     end *)
-  (* | Elet (_, Dvar (x, Some t, y), z) -> *)
-  (*     let ty = find_type t env in *)
-  (*     typ_exp env y ty (fun y -> *)
-  (*     let a = alloca (structured_type env ty) (transl_typ env ty) in *)
-  (*     set_value_name x.s a; *)
-  (*     let env = add_var x ty a env in *)
-  (*     store y (VAL a); *)
-  (*     exp env z (fun z tz -> *)
-  (*     if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a); *)
-  (*     nxt z tz)) *)
+  | Elet (_, Dvar (x, None, e1), e2) ->
+      let t1, e1 = exp env e1 in
+      (* let a = alloca (structured_type env ty) (transl_typ env ty) in *)
+      (* set_value_name x.s a; *)
+      let env = add_var x t1 (* a *) env in
+      (* store y (VAL a); *)
+      let t2, e2 = exp env e2 in
+      t2, Llet (x.s, e1, e2)
+      (* if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a); *)
+      (* nxt z tz)) *)
+  | Elet (p, Dvar (x, Some t, Enil _), e2) ->
+      let t = find_type t env in
+      begin match base_type env t with
+      | RECORD _ ->
+          (* let a = alloca true (transl_typ env t) in *)
+          (* set_value_name x.s a; *)
+          let env = add_var x t (* a *) env in
+          (* store (const_null (transl_typ env t)) (VAL a); *)
+          let t2, e2 = exp env e2 in
+          t2, Llet (x.s, Lconst 0n, e2)
+          (* store (const_null (transl_typ env t)) (VAL a); *)
+          (* nxt z tz) *)
+      | _ ->
+          error p "expected record type, found '%s'" (describe_type t)
+      end
+  | Elet (_, Dvar (x, Some t, e1), e2) ->
+      let ty = find_type t env in
+      let e1 = typ_exp env e1 ty in
+      (* let a = alloca (structured_type env ty) (transl_typ env ty) in *)
+      (* set_value_name x.s a; *)
+      let env = add_var x ty (* a *) env in
+      (* store y (VAL a); *)
+      let t2, e2 = exp env e2 in
+      t2, Llet (x.s, e1, e2)
+      (* if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a); *)
+      (* nxt z tz)) *)
   (* | Elet (_, Dtypes tys, e) -> *)
   (*     let env = let_type env tys in *)
   (*     exp env e nxt *)
