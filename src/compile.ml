@@ -627,10 +627,10 @@ and exp env = function
       let e1 = int_exp env e1 in
       let e2 = int_exp env e2 in
       INT, Lprim (Psubint, [e1; e2])
-  (* | Ebinop (_, x, Op_mul, y) -> *)
-  (*     int_exp env x (fun x -> *)
-  (*     int_exp env y (fun y -> *)
-  (*     nxt (binop build_mul x y) INT)) *)
+  | Ebinop (_, e1, Op_mul, e2) ->
+      let e1 = int_exp env e1 in
+      let e2 = int_exp env e2 in
+      INT, Lprim (Pmulint, [e1; e2])
   (* | Ebinop (_, x, Op_div, y) -> *)
   (*     int_exp env x (fun x -> *)
   (*     int_exp env y (fun y -> *)
@@ -704,21 +704,19 @@ and exp env = function
   (*     | _, _ -> *)
   (*         error p "comparison operator cannot be applied to type '%s'" *)
   (*           (describe_type tx))) *)
-  (* | Eassign (p, Vsimple x, Enil _) -> *)
-  (*     let vi = find_var x env in *)
-  (*     begin match base_type env vi.vtype with *)
-  (*     | RECORD _ -> *)
-  (*         store (const_null (transl_typ env vi.vtype)) (VAL vi.v_alloca); *)
-  (*         nxt nil VOID *)
-  (*     | _ -> *)
-  (*         error p "trying to assign 'nil' to a variable of non-record type" *)
-  (*     end *)
-  (* | Eassign (p, Vsimple x, e) -> *)
-  (*     let vi = find_var x env in *)
-  (*     if vi.vimm then error p "variable '%s' should not be assigned to" x.s; *)
-  (*     typ_exp env e vi.vtype (fun e -> *)
-  (*     store e (VAL vi.v_alloca); *)
-  (*     nxt nil VOID) *)
+  | Eassign (p, Vsimple x, Enil _) ->
+      let vi = find_var x env in
+      begin match base_type env vi.vtype with
+      | RECORD _ ->
+          VOID, Lassign (x.s, Lconst 0n)
+      | _ ->
+          error p "trying to assign 'nil' to a variable of non-record type"
+      end
+  | Eassign (p, Vsimple x, e) ->
+      let vi = find_var x env in
+      if vi.vimm then error p "variable '%s' should not be assigned to" x.s;
+      let e = typ_exp env e vi.vtype in
+      VOID, Lassign (x.s, e)
   (* | Eassign (p, Vsubscript (p', v, e1), Enil _) -> *)
   (*     array_var env v (fun v t' -> *)
   (*     match base_type env t' with *)
@@ -786,8 +784,10 @@ and exp env = function
   (*       | _ -> *)
   (*           assert false *)
   (*     in bind [] (xs, ts) *)
-  (* | Eseq (_, x1, x2) -> *)
-  (*     exp env x1 (fun _ _ -> exp env x2 nxt) *)
+  | Eseq (_, e1, e2) ->
+      let _, e1 = exp env e1 in
+      let t, e2 = exp env e2 in
+      t, Lsequence (e1, e2)
   (* | Emakearray (p, x, y, Enil _) -> *)
   (*     let t, t' = find_array_type x env in *)
   (*     begin match base_type env t' with *)
@@ -860,50 +860,15 @@ and exp env = function
   (*         .Sseq (T.Sif (Ebinop (x, op, y), *)
   (*           void_exp tenv venv looping z Sskip, Sskip), *)
   (*           nxt Eundef E.Tvoid))) *\) *)
-  (* | Eif (_, x, y, Eunit _) -> *)
-  (*     let nextbb = new_block () in *)
-  (*     let yesbb  = new_block () in *)
-  (*     int_exp env x (fun x -> *)
-  (*       let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in *)
-  (*       cond_br c yesbb nextbb); *)
-  (*     position_at_end yesbb g_builder; *)
-  (*     void_exp env y (fun () -> ignore (build_br nextbb g_builder)); *)
-  (*     position_at_end nextbb g_builder; *)
-  (*     nxt nil VOID *)
-  (* | Eif (_, x, y, z) -> *)
-  (*     let nextbb = new_block () in *)
-  (*     let yesbb  = new_block () in *)
-  (*     let naybb  = new_block () in *)
-  (*     let tmp    = ref nil in *)
-  (*     let typ    = ref VOID in *)
-  (*     int_exp env x (fun x -> *)
-  (*       let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in *)
-  (*       cond_br c yesbb naybb); *)
-  (*     position_at_end yesbb g_builder; *)
-  (*     exp env y (fun y ty -> *)
-  (*       typ := ty; *)
-  (*       if ty <> VOID then begin *)
-  (*         tmp := VAL (alloca false (transl_typ env ty)); *)
-  (*         store y !tmp *)
-  (*       end; ignore (build_br nextbb g_builder)); *)
-  (*     position_at_end naybb g_builder; *)
-  (*     typ_exp env z !typ (fun z -> if !typ <> VOID then store z !tmp; ignore (build_br nextbb g_builder)); *)
-  (*     position_at_end nextbb g_builder; *)
-  (*     nxt (if !typ = VOID then nil else load !tmp) !typ *)
-  (* | Ewhile (_, x, y) -> *)
-  (*     let nextbb = new_block () in *)
-  (*     let testbb = new_block () in *)
-  (*     let bodybb = new_block () in *)
-  (*     ignore (build_br testbb g_builder); *)
-  (*     position_at_end testbb g_builder; *)
-  (*     int_exp env x (fun x -> *)
-  (*       let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in *)
-  (*       cond_br c bodybb nextbb); *)
-  (*     position_at_end bodybb g_builder; *)
-  (*     void_exp { env with in_loop = InLoop nextbb } y *)
-  (*       (fun () -> ignore (build_br testbb g_builder)); *)
-  (*     position_at_end nextbb g_builder; *)
-  (*     nxt nil VOID *)
+  | Eif (_, e1, e2, e3) ->
+      let e1 = int_exp env e1 in
+      let t2, e2 = exp env e2 in
+      let e3 = typ_exp env e3 t2 in
+      t2, Lifthenelse (e1, e2, e3)
+  | Ewhile (_, e1, e2) ->
+      let e1 = int_exp env e1 in
+      let e2 = void_exp (* { *) env (* with in_loop = InLoop nextbb } *) e2 in
+      VOID, Lwhile (e1, e2)
   (* | Efor (_, i, x, y, z) -> *)
   (*     let nextbb = new_block () in *)
   (*     let testbb = new_block () in *)
