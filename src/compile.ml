@@ -597,16 +597,12 @@ and var env = function
       vi.vtype, Lvar x.s
   | Vsubscript (p, v, e) ->
       let t', v = array_var env v in
-      (* let v = save (triggers x) v in *)
       let e = int_exp env e in
       t', Lprim (Parrayrefs Paddrarray (* FIXME *), [v; e])
-      (* let v = array_index p.Lexing.pos_lnum v x in *)
-      (* nxt (load v) t')) *)
-  (* | Vfield (p, v, x) -> *)
-  (*     record_var env v (fun v t' -> *)
-  (*     let i, tx = find_record_field env t' x in *)
-  (*     let v = record_index p.Lexing.pos_lnum v i in *)
-  (*     nxt (load v) tx) *)
+  | Vfield (p, v, x) ->
+      let t', v = record_var env v in
+      let i, tx = find_record_field env t' x in
+      tx, Lprim (Pfield i, [v])
 
 and exp env = function
   | Eunit _ ->
