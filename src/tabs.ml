@@ -192,3 +192,125 @@ and triggers_var = function
   | Vsimple _ -> false
   | Vsubscript (_, v, e) -> triggers_var v || triggers e
   | Vfield (_, v, _) -> triggers_var v
+
+module Ident = String
+
+type comparison =
+  | Ceq | Cneq | Clt | Cgt | Cle | Cge
+
+type array_kind =
+  | Paddrarray | Pintarray
+
+type primitive =
+    Pidentity
+  | Pignore
+  (* | Ploc of loc_kind *)
+  (* Globals *)
+  | Pgetglobal of Ident.t
+  | Psetglobal of Ident.t
+  (* Operations on heap blocks *)
+  | Pmakeblock of int
+  | Pfield of int
+  | Psetfield of int
+    (* External call *)
+  (* | Pccall of Primitive.description *)
+  (* Boolean operations *)
+  | Psequand | Psequor | Pnot
+  (* Integer operations *)
+  | Pnegint | Paddint | Psubint | Pmulint | Pdivint | Pmodint
+  | Pandint | Porint | Pxorint
+  | Plslint | Plsrint | Pasrint
+  | Pintcomp of comparison
+  | Poffsetint of int
+  | Poffsetref of int
+  (* String operations *)
+  | Pstringlength | Pstringrefu | Pstringsetu | Pstringrefs | Pstringsets
+  (* Array operations *)
+  | Pmakearray of array_kind
+  | Parraylength of array_kind
+  | Parrayrefu of array_kind
+  | Parraysetu of array_kind
+  | Parrayrefs of array_kind
+  | Parraysets of array_kind
+  (* (\* Bitvect operations *\) *)
+  (* | Pbittest *)
+  (* (\* Compile time constants *\) *)
+  (* | Pctconst of compile_time_constant *)
+
+(* type structured_constant = *)
+(*   | Const_base of constant *)
+(*   | Const_pointer of int *)
+(*   | Const_block of int * structured_constant list *)
+(*   | Const_immstring of string *)
+
+type lambda =
+  | Lvar of Ident.t
+  | Lconst of nativeint
+  (* | Lconst of structured_constant *)
+  | Lapply of Ident.t * lambda list
+  | Llet of Ident.t * lambda * lambda
+  | Lletrec of (Ident.t * Ident.t list * lambda) list * lambda
+  | Lprim of primitive * lambda list
+  | Lifthenelse of lambda * lambda * lambda
+  | Lsequence of lambda * lambda
+  | Lwhile of lambda * lambda
+  | Lfor of Ident.t * lambda * lambda * lambda
+  | Lassign of Ident.t * lambda
+  (* | Levent of lambda * lambda_event *)
+
+type label = int                        (* Symbolic code labels *)
+
+type instruction =
+  | Klabel of label
+  | Kacc of int
+  | Kenvacc of int
+  | Kpush
+  | Kpop of int
+  | Kassign of int
+  | Kpush_retaddr of label
+  | Kapply of int                       (* number of arguments *)
+  | Kappterm of int * int               (* number of arguments, slot size *)
+  | Kreturn of int                      (* slot size *)
+  | Krestart
+  | Kgrab of int                        (* number of arguments *)
+  | Kclosure of label * int
+  | Kclosurerec of label list * int
+  | Koffsetclosure of int
+  | Kgetglobal of Ident.t
+  | Ksetglobal of Ident.t
+  (* | Kconst of structured_constant *)
+  | Kconst of nativeint
+  | Kmakeblock of int * int             (* size, tag *)
+  | Kmakefloatblock of int
+  | Kgetfield of int
+  | Ksetfield of int
+  | Kgetfloatfield of int
+  | Ksetfloatfield of int
+  | Kvectlength
+  | Kgetvectitem
+  | Ksetvectitem
+  | Kgetstringchar
+  | Ksetstringchar
+  | Kbranch of label
+  | Kbranchif of label
+  | Kbranchifnot of label
+  | Kstrictbranchif of label
+  | Kstrictbranchifnot of label
+  | Kswitch of label array * label array
+  | Kboolnot
+  | Kpushtrap of label
+  | Kpoptrap
+  | Kcheck_signals
+  | Kccall of string * int
+  | Knegint | Kaddint | Ksubint | Kmulint | Kdivint | Kmodint
+  | Kandint | Korint | Kxorint | Klslint | Klsrint | Kasrint
+  | Kintcomp of comparison
+  | Koffsetint of int
+  | Koffsetref of int
+  | Kisint
+  | Kisout
+  | Kgetmethod
+  | Kgetpubmet of int
+  | Kgetdynmet
+  (* | Kevent of debug_event *)
+  | Kstop

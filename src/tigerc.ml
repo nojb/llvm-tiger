@@ -49,10 +49,11 @@ let compile_stdin () =
     lexbuf.Lexing.lex_curr_p <-
       { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>" };
     let m = Compile.program (Parser.program Lexer.token lexbuf) in
-    Llvm.dump_module m;
-    Llvm.dispose_module m
-  with
-    Error.Error (p, msg) -> Error.report_error p msg
+    failwith "Not implemented"
+    (* Llvm.dump_module m; *)
+    (* Llvm.dispose_module m *)
+  with Error.Error (p, msg) ->
+    Error.report_error p msg
 
 let basename name =
   if Filename.check_suffix name ".tig" then
@@ -73,20 +74,23 @@ let compile_file name =
       close_in f;
       let outname, outchan = Filename.open_temp_file ~mode:[Open_binary] basebase ".bc" in
       let outbase = Filename.chop_suffix outname ".bc" in
-      ignore (Llvm_bitwriter.output_bitcode outchan m);
+      (* ignore (Llvm_bitwriter.output_bitcode outchan m); *)
       close_out outchan;
-      Llvm.dispose_module m;
-      if !emit_llvm then
-        ignore (Sys.command (Printf.sprintf "llvm-dis %s -o %s.ll" outname
-        base));
-      if !emit_asm then
-        ignore (Sys.command (Printf.sprintf "llc %s -o %s.s" outname base));
-      if not !emit_llvm && not !emit_asm then begin
-        ignore (Sys.command (Printf.sprintf "llc %s" outname));
-        ignore (Sys.command (Printf.sprintf "clang %s.s tiger_stdlib.c tiger_gc.c" outbase))
-      end
-    with e -> (close_in f; raise e)
-  with Error.Error (p, msg) -> Error.report_error p msg
+      (* Llvm.dispose_module m; *)
+      (* if !emit_llvm then *)
+      (*   ignore (Sys.command (Printf.sprintf "llvm-dis %s -o %s.ll" outname *)
+      (*   base)); *)
+      (* if !emit_asm then *)
+      (*   ignore (Sys.command (Printf.sprintf "llc %s -o %s.s" outname base)); *)
+      (* if not !emit_llvm && not !emit_asm then begin *)
+      (*   ignore (Sys.command (Printf.sprintf "llc %s" outname)); *)
+      (*   ignore (Sys.command (Printf.sprintf "clang %s.s tiger_stdlib.c tiger_gc.c" outbase)) *)
+      (* end *)
+    with e ->
+      close_in f;
+      raise e
+  with Error.Error (p, msg) ->
+    Error.report_error p msg
 
 let _ =
   Arg.parse [
