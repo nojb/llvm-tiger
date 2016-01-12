@@ -193,7 +193,10 @@ and triggers_var = function
   | Vsubscript (_, v, e) -> triggers_var v || triggers e
   | Vfield (_, v, _) -> triggers_var v
 
-module Ident = String
+module Ident = struct
+  include String
+  let print ppf s = Format.pp_print_string ppf s
+end
 
 type comparison =
   | Ceq | Cneq | Clt | Cgt | Cle | Cge
@@ -257,6 +260,187 @@ type lambda =
   | Lfor of Ident.t * lambda * lambda * lambda
   | Lassign of Ident.t * lambda
   (* | Levent of lambda * lambda_event *)
+
+open Format
+
+let array_kind = function
+  | Paddrarray -> "addr"
+  | Pintarray -> "int"
+
+let primitive ppf = function
+  | Pidentity -> fprintf ppf "id"
+  | Pignore -> fprintf ppf "ignore"
+  | Pgetglobal id -> fprintf ppf "global %a" Ident.print id
+  | Psetglobal id -> fprintf ppf "setglobal %a" Ident.print id
+  | Pmakeblock(tag) -> fprintf ppf "makeblock %i" tag
+  | Pfield n -> fprintf ppf "field %i" n
+  | Psetfield(n) ->
+      fprintf ppf "setfield %i" n
+  (* | Pccall p -> fprintf ppf "%s" p.prim_name *)
+  | Psequand -> fprintf ppf "&&"
+  | Psequor -> fprintf ppf "||"
+  | Pnot -> fprintf ppf "not"
+  | Pnegint -> fprintf ppf "~"
+  | Paddint -> fprintf ppf "+"
+  | Psubint -> fprintf ppf "-"
+  | Pmulint -> fprintf ppf "*"
+  | Pdivint -> fprintf ppf "/"
+  | Pmodint -> fprintf ppf "mod"
+  | Pandint -> fprintf ppf "and"
+  | Porint -> fprintf ppf "or"
+  | Pxorint -> fprintf ppf "xor"
+  | Plslint -> fprintf ppf "lsl"
+  | Plsrint -> fprintf ppf "lsr"
+  | Pasrint -> fprintf ppf "asr"
+  | Pintcomp(Ceq) -> fprintf ppf "=="
+  | Pintcomp(Cneq) -> fprintf ppf "!="
+  | Pintcomp(Clt) -> fprintf ppf "<"
+  | Pintcomp(Cle) -> fprintf ppf "<="
+  | Pintcomp(Cgt) -> fprintf ppf ">"
+  | Pintcomp(Cge) -> fprintf ppf ">="
+  | Poffsetint n -> fprintf ppf "%i+" n
+  | Poffsetref n -> fprintf ppf "+:=%i"n
+  | Pstringlength -> fprintf ppf "string.length"
+  | Pstringrefu -> fprintf ppf "string.unsafe_get"
+  | Pstringsetu -> fprintf ppf "string.unsafe_set"
+  | Pstringrefs -> fprintf ppf "string.get"
+  | Pstringsets -> fprintf ppf "string.set"
+  | Parraylength k -> fprintf ppf "array.length[%s]" (array_kind k)
+  | Pmakearray k -> fprintf ppf "makearray[%s]" (array_kind k)
+  | Parrayrefu k -> fprintf ppf "array.unsafe_get[%s]" (array_kind k)
+  | Parraysetu k -> fprintf ppf "array.unsafe_set[%s]" (array_kind k)
+  | Parrayrefs k -> fprintf ppf "array.get[%s]" (array_kind k)
+  | Parraysets k -> fprintf ppf "array.set[%s]" (array_kind k)
+
+let name_of_primitive = function
+  | Pidentity -> "Pidentity"
+  | Pignore -> "Pignore"
+  | Pgetglobal _ -> "Pgetglobal"
+  | Psetglobal _ -> "Psetglobal"
+  | Pmakeblock _ -> "Pmakeblock"
+  | Pfield _ -> "Pfield"
+  | Psetfield _ -> "Psetfield"
+  (* | Pccall _ -> "Pccall" *)
+  | Psequand -> "Psequand"
+  | Psequor -> "Psequor"
+  | Pnot -> "Pnot"
+  | Pnegint -> "Pnegint"
+  | Paddint -> "Paddint"
+  | Psubint -> "Psubint"
+  | Pmulint -> "Pmulint"
+  | Pdivint -> "Pdivint"
+  | Pmodint -> "Pmodint"
+  | Pandint -> "Pandint"
+  | Porint -> "Porint"
+  | Pxorint -> "Pxorint"
+  | Plslint -> "Plslint"
+  | Plsrint -> "Plsrint"
+  | Pasrint -> "Pasrint"
+  | Pintcomp _ -> "Pintcomp"
+  | Poffsetint _ -> "Poffsetint"
+  | Poffsetref _ -> "Poffsetref"
+  | Pstringlength -> "Pstringlength"
+  | Pstringrefu -> "Pstringrefu"
+  | Pstringsetu -> "Pstringsetu"
+  | Pstringrefs -> "Pstringrefs"
+  | Pstringsets -> "Pstringsets"
+  | Parraylength _ -> "Parraylength"
+  | Pmakearray _ -> "Pmakearray"
+  | Parrayrefu _ -> "Parrayrefu"
+  | Parraysetu _ -> "Parraysetu"
+  | Parrayrefs _ -> "Parrayrefs"
+  | Parraysets _ -> "Parraysets"
+
+let rec lam ppf = function
+  | Lvar id ->
+      Ident.print ppf id
+  | Lconst cst ->
+      Format.pp_print_string ppf (Nativeint.to_string cst)
+      (* struct_const ppf cst *)
+  | Lapply (func, args) ->
+      let lams ppf largs =
+        List.iter (fun l -> fprintf ppf "@ %a" lam l) largs in
+      fprintf ppf "@[<2>(apply@ %a%a)@]" Ident.print func lams args
+  | Llet(id, arg, body) ->
+      let rec letbody = function
+        | Llet(id, arg, body) ->
+            fprintf ppf "@ @[<2>%a =@ %a@]" Ident.print id lam arg;
+            letbody body
+        | expr -> expr in
+      fprintf ppf "@[<2>(let@ @[<hv 1>(@[<2>%a =@ %a@]"
+        Ident.print id lam arg;
+      let expr = letbody body in
+      fprintf ppf ")@]@ %a)@]" lam expr
+  | Lletrec(id_arg_list, body) ->
+
+      (*
+  | Lfunction{kind; params; body; attr} ->
+      let pr_params ppf params =
+        match kind with
+        | Curried ->
+            List.iter (fun param -> fprintf ppf "@ %a" Ident.print param) params
+        | Tupled ->
+            fprintf ppf " (";
+            let first = ref true in
+            List.iter
+              (fun param ->
+                if !first then first := false else fprintf ppf ",@ ";
+                Ident.print ppf param)
+              params;
+            fprintf ppf ")" in
+      fprintf ppf "@[<2>(function%a@ %a%a)@]" pr_params params
+        function_attribute attr lam body
+*)
+
+      (* let bindings ppf id_arg_list = *)
+      (*   let spc = ref false in *)
+      (*   List.iter *)
+      (*     (fun (id, l, body) -> *)
+      (*       if !spc then fprintf ppf "@ " else spc := true; *)
+      (*       fprintf ppf "@[<2>%a@ %a@]" Ident.print id lam l) *)
+      (*     id_arg_list in *)
+      (* fprintf ppf *)
+      (*   "@[<2>(letrec@ (@[<hv 1>%a@])@ %a)@]" bindings id_arg_list lam body *)
+      failwith "not implemented"
+  | Lprim(prim, largs) ->
+      let lams ppf largs =
+        List.iter (fun l -> fprintf ppf "@ %a" lam l) largs in
+      fprintf ppf "@[<2>(%a%a)@]" primitive prim lams largs
+  | Lifthenelse(lcond, lif, lelse) ->
+      fprintf ppf "@[<2>(if@ %a@ %a@ %a)@]" lam lcond lam lif lam lelse
+  | Lsequence(l1, l2) ->
+      fprintf ppf "@[<2>(seq@ %a@ %a)@]" lam l1 sequence l2
+  | Lwhile(lcond, lbody) ->
+      fprintf ppf "@[<2>(while@ %a@ %a)@]" lam lcond lam lbody
+  | Lfor(param, lo, hi, body) ->
+      fprintf ppf "@[<2>(for %a@ %a@ %a@ %a)@]"
+       Ident.print param lam lo
+       lam hi lam body
+  | Lassign(id, expr) ->
+      fprintf ppf "@[<2>(assign@ %a@ %a)@]" Ident.print id lam expr
+  (* | Levent(expr, ev) -> *)
+  (*     let kind = *)
+  (*      match ev.lev_kind with *)
+  (*      | Lev_before -> "before" *)
+  (*      | Lev_after _  -> "after" *)
+  (*      | Lev_function -> "funct-body" in *)
+  (*     fprintf ppf "@[<2>(%s %s(%i)%s:%i-%i@ %a)@]" kind *)
+  (*             ev.lev_loc.Location.loc_start.Lexing.pos_fname *)
+  (*             ev.lev_loc.Location.loc_start.Lexing.pos_lnum *)
+  (*             (if ev.lev_loc.Location.loc_ghost then "<ghost>" else "") *)
+  (*             ev.lev_loc.Location.loc_start.Lexing.pos_cnum *)
+  (*             ev.lev_loc.Location.loc_end.Lexing.pos_cnum *)
+  (*             lam expr *)
+
+and sequence ppf = function
+  | Lsequence(l1, l2) ->
+      fprintf ppf "%a@ %a" sequence l1 sequence l2
+  | l ->
+      lam ppf l
+
+(* let structured_constant = struct_const *)
+
+let pp_lambda = lam
 
 type label = int                        (* Symbolic code labels *)
 

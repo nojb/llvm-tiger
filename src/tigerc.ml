@@ -49,7 +49,7 @@ let compile_stdin () =
     lexbuf.Lexing.lex_curr_p <-
       { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>" };
     let m = Compile.program (Parser.program Lexer.token lexbuf) in
-    failwith "Not implemented"
+    Format.printf "%a@." Tabs.pp_lambda m
     (* Llvm.dump_module m; *)
     (* Llvm.dispose_module m *)
   with Error.Error (p, msg) ->
