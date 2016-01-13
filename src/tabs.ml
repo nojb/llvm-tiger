@@ -288,36 +288,19 @@ let rec lam ppf = function
       let expr = letbody body in
       fprintf ppf ")@]@ %a)@]" lam expr
   | Lletrec(id_arg_list, body) ->
-
-      (*
-  | Lfunction{kind; params; body; attr} ->
       let pr_params ppf params =
-        match kind with
-        | Curried ->
-            List.iter (fun param -> fprintf ppf "@ %a" Ident.print param) params
-        | Tupled ->
-            fprintf ppf " (";
-            let first = ref true in
-            List.iter
-              (fun param ->
-                if !first then first := false else fprintf ppf ",@ ";
-                Ident.print ppf param)
-              params;
-            fprintf ppf ")" in
-      fprintf ppf "@[<2>(function%a@ %a%a)@]" pr_params params
-        function_attribute attr lam body
-*)
-
-      (* let bindings ppf id_arg_list = *)
-      (*   let spc = ref false in *)
-      (*   List.iter *)
-      (*     (fun (id, l, body) -> *)
-      (*       if !spc then fprintf ppf "@ " else spc := true; *)
-      (*       fprintf ppf "@[<2>%a@ %a@]" Ident.print id lam l) *)
-      (*     id_arg_list in *)
-      (* fprintf ppf *)
-      (*   "@[<2>(letrec@ (@[<hv 1>%a@])@ %a)@]" bindings id_arg_list lam body *)
-      failwith "not implemented"
+        List.iter (fun param -> fprintf ppf "@ %a" Ident.print param) params
+      in
+      let bindings ppf id_arg_list =
+        let spc = ref false in
+        List.iter
+          (fun (id, args, body) ->
+            if !spc then fprintf ppf "@ " else spc := true;
+            fprintf ppf "@[<2>%a%a@ %a@]" Ident.print id pr_params args lam body)
+          id_arg_list
+      in
+      fprintf ppf
+        "@[<2>(letrec@ (@[<hv 1>%a@])@ %a)@]" bindings id_arg_list lam body
   | Lprim(prim, largs) ->
       let lams ppf largs =
         List.iter (fun l -> fprintf ppf "@ %a" lam l) largs in
@@ -334,6 +317,8 @@ let rec lam ppf = function
        lam hi lam body
   | Lassign(id, expr) ->
       fprintf ppf "@[<2>(assign@ %a@ %a)@]" Ident.print id lam expr
+  | Lbreak ->
+      fprintf ppf "@[(break)@]"
   (* | Levent(expr, ev) -> *)
   (*     let kind = *)
   (*      match ev.lev_kind with *)
