@@ -107,92 +107,6 @@ let remove_list l s =
 let union_list l =
   List.fold_left S.union S.empty l
 
-let rec fc = function
-  | Eunit _
-  | Eint _
-  | Estring _
-  | Enil _ -> S.empty
-  | Evar (_, v) -> fc_var v
-  | Ebinop (_, e1, _, e2) -> S.union (fc e1) (fc e2)
-  | Eassign (_, v, e) -> S.union (fc_var v) (fc e)
-  | Ecall (_, x, es) ->
-      S.add x.s (union_list (List.map fc es))
-  | Eseq (_, e1, e2)
-  | Emakearray (_, _, e1, e2) -> S.union (fc e1) (fc e2)
-  | Emakerecord (_, _, xes) ->
-      union_list (List.map (fun (_, e) -> fc e) xes)
-  | Eif (_, e1, e2, e3) -> S.union (fc e1) (S.union (fc e2) (fc e3))
-  | Ewhile (_, e1, e2) -> S.union (fc e1) (fc e2)
-  | Efor (_, _, e1, e2, e3) -> S.union (fc e1) (S.union (fc e2) (fc e3))
-  | Ebreak _ -> S.empty
-  | Elet (_, Dvar (_, _, e1), e2) -> S.union (fc e1) (fc e2)
-  | Elet (_, Dfuns fundefs, e) ->
-      remove_list (List.map (fun fundef -> fundef.fn_name.s) fundefs)
-        (S.union (fc e) (union_list (List.map
-          (fun fundef -> fc fundef.fn_body) fundefs)))
-  | Elet (_, Dtypes _, e) -> fc e
-
-and fc_var = function
-  | Vsimple _ -> S.empty
-  | Vsubscript (_, v, e) -> S.union (fc_var v) (fc e)
-  | Vfield (_, v, _) -> fc_var v
-
-let rec fv = function
-  | Eunit _
-  | Eint _
-  | Estring _
-  | Enil _ -> S.empty
-  | Evar (_, v) -> fv_var v
-  | Ebinop (_, e1, _, e2) -> S.union (fv e1) (fv e2)
-  | Eassign (_, v, e) -> S.union (fv_var v) (fv e)
-  | Ecall (_, _, es) -> union_list (List.map fv es)
-  | Eseq (_, e1, e2)
-  | Emakearray (_, _, e1, e2) -> S.union (fv e1) (fv e2)
-  | Emakerecord (_, _, xes) ->
-      List.fold_left S.union S.empty (List.map (fun (_, e) -> fv e) xes)
-  | Eif (_, e1, e2, e3) -> S.union (fv e1) (S.union (fv e2) (fv e3))
-  | Ewhile (_, e1, e2) -> S.union (fv e1) (fv e2)
-  | Efor (_, i, e1, e2, e3) ->
-      S.union (fv e1) (S.union (fv e2) (S.remove i.s (fv e3)))
-  | Ebreak _ -> S.empty
-  | Elet (_, Dvar (x, _, e1), e2) -> S.union (fv e1) (S.remove x.s (fv e2))
-  | Elet (_, Dfuns fundefs, e) ->
-      S.union (fv e)
-        (union_list (List.map (fun fundef ->
-          remove_list (List.map (fun (x, _) -> x.s) fundef.fn_args)
-            (fv fundef.fn_body)) fundefs))
-  | Elet (_, Dtypes _, e) -> fv e
-
-and fv_var = function
-  | Vsimple x -> S.singleton x.s
-  | Vsubscript (_, v, e) -> S.union (fv_var v) (fv e)
-  | Vfield (_, v, _) -> fv_var v
-
-let rec triggers = function
-  | Eunit _
-  | Eint _
-  | Estring _
-  | Enil _ -> false
-  | Evar (_, v) -> triggers_var v
-  | Ebinop (_, e1, _, e2) -> triggers e1 || triggers e2
-  | Eassign (_, v, e) -> triggers_var v || triggers e
-  | Ecall _ -> true
-  | Eseq (_, e1, e2) -> triggers e1 || triggers e2
-  | Emakearray _
-  | Emakerecord _ -> true
-  | Eif (_, e1, e2, e3) -> triggers e1 || triggers e2 || triggers e3
-  | Ewhile (_, e1, e2) -> triggers e1 || triggers e2
-  | Efor (_, _, e1, e2, e3) -> triggers e1 || triggers e2 || triggers e3
-  | Ebreak _ -> false
-  | Elet (_, Dvar (_, _, e1), e2) -> triggers e1 || triggers e2
-  | Elet (_, Dfuns _, e)
-  | Elet (_, Dtypes _, e) -> triggers e
-
-and triggers_var = function
-  | Vsimple _ -> false
-  | Vsubscript (_, v, e) -> triggers_var v || triggers e
-  | Vfield (_, v, _) -> triggers_var v
-
 module Ident = struct
   include String
   let print ppf s = Format.pp_print_string ppf s
@@ -260,6 +174,20 @@ type lambda =
   | Lfor of Ident.t * lambda * lambda * lambda
   | Lassign of Ident.t * lambda
   (* | Levent of lambda * lambda_event *)
+
+let rec fv = function
+  | Lvar id -> S.singleton id
+  | Lconst _ -> S.empty
+  | Lprim (_, el)
+  | Lapply (_, el) -> List.fold_left (fun s e -> S.union s (fv e)) S.empty el
+  | Llet (i, e1, e2) -> S.union (fv e1) (S.remove i (fv e2))
+  | Lletrec (_, e) -> fv e (* CHECK *)
+  | Lfor (i, e1, e2, e3) ->
+      S.union (fv e1) (S.union (fv e2) (S.remove i (fv e3)))
+  | Lifthenelse (e1, e2, e3) -> S.union (fv e1) (S.union (fv e2) (fv e3))
+  | Lsequence (e1, e2)
+  | Lwhile (e1, e2) -> S.union (fv e1) (fv e2)
+  | Lassign (i, e) -> S.add i (fv e)
 
 open Format
 
