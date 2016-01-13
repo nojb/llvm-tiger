@@ -76,6 +76,103 @@ and fundef = {
   fn_body : exp
 }
 
+module Typedtree = struct
+  type type_spec =
+    | VOID
+    | INT
+    | STRING
+    | ARRAY   of string * type_spec
+    | RECORD  of string * (string * type_spec) list
+    | NAME    of string
+
+  let rec string_of_type = function
+    | VOID          -> "void"
+    | INT           -> "int"
+    | STRING        -> "string"
+    | ARRAY (x, _)
+    | RECORD (x, _)
+    | NAME x        -> x
+
+  type var_desc  =
+    | Tsimple of string
+    | Tindex of var * exp
+    | Tfield of var * int
+
+  and var =
+    {
+      vdesc: var_desc;
+      vtype: type_spec;
+    }
+
+  and exp_desc =
+    | Tunit
+    | Tint of int
+    | Tstring of string
+    | Tnil
+    | Tvar of var
+    | Tbinop of exp * bin * exp
+    | Tassign of var * exp
+    | Tcall of pos_string * exp list
+    | Tseq of exp * exp
+    | Tmakearray of pos_string * exp * exp
+    | Tmakerecord of pos_string * (pos_string * exp) list
+    | Tif of exp * exp * exp
+    | Twhile of exp * exp
+    | Tfor of pos_string * exp * exp * exp
+    | Tbreak
+    | Tlet of pos_string * exp * exp
+    | Tletrec of fundef list * exp
+
+  and exp =
+    {
+      edesc: exp_desc;
+      etype: type_spec;
+    }
+
+  let mkexp d t =
+    {
+      edesc = d;
+      etype = t;
+    }
+
+  let mkvar d t =
+    {
+      vdesc = d;
+      vtype = t;
+    }
+end
+
+module Cmm = struct
+  type ty =
+    | Tint of int
+    | Tptr of ty
+
+  type operation =
+    | Caddint
+    | Csubint
+    | Cmulint
+    | Cgep
+    | Cload
+
+  type expr =
+    | Cint of int32
+    | Cop of operation * expr list
+    | Cvar of string
+
+  type code =
+    | Calloca of string * ty * code
+    | Cstore of expr * expr * code
+    | Cgoto of block
+    | Cifthenelse of expr * block * block
+    | Capply of string * string * expr list * code
+
+  and block =
+    {
+      bid: int;
+      bcode: code;
+    }
+end
+
 let exp_p = function
   | Eunit p
   | Eint (p, _)

@@ -1,1 +1,1 @@
-<src/compile.*> or <src/tigerc.*>: package(llvm), package(llvm.bitwriter)
+# <src/compile.*> or <src/tigerc.*>: package(llvm), package(llvm.bitwriter)

@@ -49,8 +49,9 @@ let compile_stdin () =
     lexbuf.Lexing.lex_curr_p <-
       { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>" };
     let m = Compile.program (Parser.program Lexer.token lexbuf) in
-    Llvm.dump_module m;
-    Llvm.dispose_module m
+    assert false
+    (* Llvm.dump_module m; *)
+    (* Llvm.dispose_module m *)
   with
     Error.Error (p, msg) -> Error.report_error p msg
 
@@ -73,9 +74,9 @@ let compile_file name =
       close_in f;
       let outname, outchan = Filename.open_temp_file ~mode:[Open_binary] basebase ".bc" in
       let outbase = Filename.chop_suffix outname ".bc" in
-      ignore (Llvm_bitwriter.output_bitcode outchan m);
+      (* ignore (Llvm_bitwriter.output_bitcode outchan m); *)
       close_out outchan;
-      Llvm.dispose_module m;
+      (* Llvm.dispose_module m; *)
       if !emit_llvm then
         ignore (Sys.command (Printf.sprintf "llvm-dis %s -o %s.ll" outname
         base));
