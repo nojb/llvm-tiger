@@ -129,6 +129,14 @@ module Typedtree = struct
       etype: type_spec;
     }
 
+  and fundef =
+    {
+      fun_name: pos_string;
+      fun_args: (pos_string * type_spec) list;
+      fun_rety: type_spec;
+      fun_body: exp;
+    }
+
   let mkexp d t =
     {
       edesc = d;

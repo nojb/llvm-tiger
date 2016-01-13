@@ -103,14 +103,15 @@ let mem_var x env =
   | Function _ -> false
   with Not_found -> false
 
-let add_fun x uid atyps rtyp llv env =
-  let fi = {
-    fname = uid;
-    fsign = atyps, rtyp;
-    f_user = true;
-    (* f_llvalue = lazy llv *)
-  } in
-  { env with venv = M.add x.s (Function fi) env.venv }
+let add_fun x uid atyps rtyp env =
+  let fi =
+    {
+      fname = uid;
+      fsign = atyps, rtyp;
+      f_user = true;
+    }
+  in
+  {env with venv = M.add x.s (Function fi) env.venv}
 
 let mem_user_fun x env =
   try match M.find x env.venv with
@@ -249,92 +250,37 @@ let check_unique_fundef_names fundefs =
 
 let tr_return_type env fn =
   match fn.fn_rtyp with
-  | None -> VOID
-  | Some t -> find_type t env
+  | None ->
+      VOID
+  | Some t ->
+      find_type t env
 
-(* let tr_function_header env fn = *)
-(*   let type_of_free_var env x = *)
-(*     match M.find x env.venv with *)
-(*     | Variable vi -> *)
-(*         if vi.vimm then transl_typ env vi.vtype *)
-(*         else pointer_type (transl_typ env vi.vtype) *)
-(*     | Function _ -> assert false in *)
-(*   let free_vars = S.elements (M.find fn.fn_name.s env.sols) in *)
-(*   let free_vars = List.map (fun x -> (x, type_of_free_var env x)) *)
-(*     free_vars in *)
-(*   let rtyp = tr_return_type env fn in *)
-(*   let argst = List.map (fun (_, t) -> find_type t env) fn.fn_args in *)
-(*   let uid = gentmp fn.fn_name.s in *)
-(*   let llv = define_function uid *)
-(*     (function_type (llvm_return_type env rtyp) *)
-(*       (Array.of_list (List.map snd free_vars @ *)
-(*       (List.map (transl_typ env) argst)))) g_module in *)
-(*   set_linkage Linkage.Internal llv; *)
-(*   set_gc (Some "shadow-stack") llv; *)
-(*   let env' = add_fun fn.fn_name uid argst *)
-(*     rtyp llv env in *)
-(*   env' *)
+let tr_function_header env fn =
+  let rtyp = tr_return_type env fn in
+  let argst = List.map (fun (_, t) -> find_type t env) fn.fn_args in
+  let uid = gentmp fn.fn_name.s in
+  add_fun fn.fn_name uid argst rtyp env
 
-(* let rec tr_function_body env fundef = *)
-(*   let add_free_var env x llv = *)
-(*     match M.find x env.venv with *)
-(*     | Variable vi -> *)
-(*         { env with venv = *)
-(*           M.add x (Variable {vi with v_alloca = llv}) env.venv } *)
-(*     | Function _ -> assert false in *)
+let rec tr_function_body env fundef =
+  let fi = find_fun fundef.fn_name env in
+  let ts, t = fi.fsign in
+  let env =
+    List.fold_left2 (fun env (x, _) t ->
+        add_var x t env
+      ) env fundef.fn_args ts
+  in
+  let body = typ_exp {env with in_loop = false} fundef.fn_body t in
+  let args = List.combine (List.map fst fundef.fn_args) ts in
+  {fun_name = fundef.fn_name; fun_args = args; fun_rety = t; fun_body = body}
 
-(*   let fi = find_fun fundef.fn_name env in *)
-(*   let ts, t = fi.fsign in *)
+and let_funs env fundefs e =
+  check_unique_fundef_names fundefs;
+  let env' = List.fold_left tr_function_header env fundefs in
+  let fundefs = List.map (tr_function_body env') fundefs in
+  let e = exp env' e in
+  mkexp (Tletrec (fundefs, e)) e.etype
 
-(*   position_at_end (entry_block (Lazy.force fi.f_llvalue)) g_builder; *)
-(*   let startbb = new_block () in *)
-(*   position_at_end startbb g_builder; *)
-(*   let count = ref (-1) in *)
-
-(*   (\* Process arguments *\) *)
-(*   let env = List.fold_left (fun env x -> *)
-(*     incr count; *)
-(*     let f_llvalue = Lazy.force fi.f_llvalue in *)
-(*     set_value_name x (param f_llvalue !count); *)
-(*     add_free_var env x (param f_llvalue !count)) *)
-(*     env (S.elements (M.find fundef.fn_name.s env.sols)) in *)
-(*   let env = List.fold_left2 (fun env (x, _) t -> *)
-(*     incr count; *)
-(*     let a = alloca (structured_type env t) (transl_typ env t) in *)
-(*     set_value_name x.s a; *)
-(*     store (VAL (param (Lazy.force fi.f_llvalue) !count)) (VAL a); *)
-(*     add_var x t a env) env fundef.fn_args ts in *)
-
-(*   (\* Process the body *\) *)
-(*   typ_exp { env with in_loop = NoLoop } fundef.fn_body t (fun body -> *)
-(*     if fundef.fn_rtyp = None then *)
-(*       ignore (build_ret_void g_builder) *)
-(*     else *)
-(*       ignore (build_ret (llvm_value body) g_builder)); *)
-
-(*   position_at_end (entry_block (Lazy.force fi.f_llvalue)) g_builder; *)
-(*   ignore (build_br startbb g_builder) *)
-
-(* and let_funs env fundefs e nxt = *)
-(*   check_unique_fundef_names fundefs; *)
-
-(*   let sols' = *)
-(*     List.fold_left (fun s f -> *)
-(*     let ffv = List.fold_left (fun s (x, _) -> S.remove x.s s) *)
-(*         (fv f.fn_body) f.fn_args in *)
-(*     S.union ffv s *)
-(*       ) S.empty fundefs *)
-(*   in *)
-(*   let sols' = List.fold_left (fun sols f -> M.add f.fn_name.s sols' sols) env.sols fundefs in *)
-(*   let env' = {env with sols = sols'} in *)
-(*   let curr = insertion_block g_builder in *)
-(*   let env' = List.fold_left tr_function_header env' fundefs in *)
-(*   List.iter (tr_function_body env') fundefs; *)
-(*   position_at_end curr g_builder; *)
-
-(*   exp env' e nxt *)
-
-let rec array_var env v =
+and array_var env v =
   let v' = var env v in
   match base_type env v'.vtype with
   | ARRAY (_, t') ->
@@ -636,8 +582,8 @@ and exp env e : Typedtree.exp =
   | Elet (_, Dtypes tys, e) ->
       let env = let_type env tys in
       exp env e
-  (* | Elet (_, Dfuns funs, e) -> *)
-  (*     let_funs env funs e nxt *)
+  | Elet (_, Dfuns funs, e) ->
+      let_funs env funs e
 
 let base_tenv =
   M.add "int" INT (M.add "string" STRING M.empty)
