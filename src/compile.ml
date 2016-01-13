@@ -634,32 +634,26 @@ and exp env = function
   (*     int_exp env x (fun x -> *)
   (*     int_exp env y (fun y -> *)
   (*     nxt (binop build_sdiv x y) INT)) *)
-  (* | Ebinop (_, x, Op_cmp Ceq, Enil _) *)
-  (* | Ebinop (_, Enil _, Op_cmp Ceq, x) -> *)
-  (*     exp env x (fun v tx -> *)
-  (*       match base_type env tx with *)
-  (*       | RECORD _ -> *)
-  (*           let v = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in *)
-  (*           let c = binop (build_icmp Icmp.Eq) v *)
-  (*             (const_null (int_t Sys.word_size)) in *)
-  (*           let c = unop (fun v s b -> build_zext v (int_t 32) s b) c in *)
-  (*           nxt c INT *)
-  (*       | _ -> *)
-  (*           error (exp_p x) "expected expression of record type, found %s" *)
-  (*             (describe_type tx)) *)
-  (* | Ebinop (_, x, Op_cmp Cne, Enil _) *)
-  (* | Ebinop (_, Enil _, Op_cmp Cne, x) -> *)
-  (*     exp env x (fun v tx -> *)
-  (*       match base_type env tx with *)
-  (*       | RECORD _ -> *)
-  (*           let v = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in *)
-  (*           let c = binop (build_icmp Icmp.Ne) v *)
-  (*             (const_null (int_t Sys.word_size)) in *)
-  (*           let c = unop (fun v s b -> build_zext v (int_t 32) s b) c in *)
-  (*           nxt c INT *)
-  (*       | _ -> *)
-  (*           error (exp_p x) "expected expression of record type, found %s" *)
-  (*             (describe_type tx)) *)
+  | Ebinop (_, x, Op_cmp Ceq, Enil _)
+  | Ebinop (_, Enil _, Op_cmp Ceq, x) ->
+      let tx, v = exp env x in
+      begin match base_type env tx with
+        | RECORD _ ->
+            INT, Lprim (Pintcomp Ceq, [Lconst 0n; v])
+        | _ ->
+            error (exp_p x) "expected expression of record type, found %s"
+              (describe_type tx)
+      end
+  | Ebinop (_, x, Op_cmp Cne, Enil _)
+  | Ebinop (_, Enil _, Op_cmp Cne, x) ->
+      let tx, v = exp env x in
+      begin match base_type env tx with
+        | RECORD _ ->
+            INT, Lprim (Pintcomp Cne, [Lconst 0n; v])
+        | _ ->
+            error (exp_p x) "expected expression of record type, found %s"
+              (describe_type tx)
+      end
   (* | Ebinop (p, x, Op_cmp cmp, y) -> *)
   (*     let zext v s b = build_zext v (int_t 32) s b in *)
   (*     let p2i v s b = build_ptrtoint v (int_t Sys.word_size) s b in *)
@@ -777,78 +771,53 @@ and exp env = function
       let _, e1 = exp env e1 in
       let t, e2 = exp env e2 in
       t, Lsequence (e1, e2)
-  (* | Emakearray (p, x, y, Enil _) -> *)
-  (*     let t, t' = find_array_type x env in *)
-  (*     begin match base_type env t' with *)
-  (*     | RECORD _ -> *)
-  (*         int_exp env y (fun y -> *)
-  (*         let y = VAL (llvm_value y) in *)
-  (*         let a = gc_alloc (add (const_int Sys.word_size 8) *)
-  (*           (mul (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of (transl_typ env t')))) in *)
-  (*         let a = build_pointercast a (ptr_t (struct_t [| int_t 32; *)
-  (*           array_type (transl_typ env t') 0 |])) "" g_builder in *)
-  (*         store y (array_length_addr (VAL a)); *)
-  (*         (\* FIXME initialisation *\) *)
-  (*         nxt (VAL a) t) *)
-  (*     | _ -> *)
-  (*         error p "array base type must be record type" *)
-  (*     end *)
-  (* | Emakearray (_, x, y, z) -> *)
-  (*     let t, t' = find_array_type x env in *)
-  (*     int_exp env y (fun y -> *)
-  (*     typ_exp env z t' (fun z -> *)
-  (*     let y = VAL (llvm_value y) in *)
-  (*     let a = gc_alloc (add (const_int Sys.word_size 8) (mul *)
-  (*       (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of *)
-  (*       (transl_typ env t')))) in *)
-  (*     let a = build_pointercast a (ptr_t (struct_t *)
-  (*       [| int_t 32; array_type (transl_typ env t') 0 |])) "" g_builder in *)
-  (*     store y (array_length_addr (VAL a)); *)
-  (*     (\* FIXME initialisation *\) *)
-  (*     nxt (VAL a) t)) *)
-  (* | Emakerecord (p, x, xts) -> *)
-  (*     let t, ts = find_record_type env x in *)
-  (*     let rec bind vs = function *)
-  (*       | [], [] -> *)
-  (*           let t' = element_type (transl_typ env t) in *)
-  (*           debug () "%s" (string_of_lltype t'); *)
-  (*           let r = VAL (gc_alloc_type t') in *)
-  (*           let rec bind i = function *)
-  (*             | [] -> nxt r t *)
-  (*             | v :: vs -> *)
-  (*                 let f = gep r [ const_int 32 0; const_int 32 i ] in *)
-  (*                 store v f; *)
-  (*                 bind (i+1) vs *)
-  (*           in bind 0 (List.rev vs) *)
-  (*       | (x, Enil _) :: xts, (x', t) :: ts -> *)
-  (*           if x.s = x' then *)
-  (*             bind (const_null (transl_typ env t) :: vs) (xts, ts) *)
-  (*           else *)
-  (*             if List.exists (fun (x', _) -> x.s = x') ts then *)
-  (*               error x.p "field '%s' is in the wrong other" x.s *)
-  (*             else *)
-  (*               error x.p "field '%s' is unknown" x.s *)
-  (*       | (x, e) :: xts, (x', t) :: ts -> *)
-  (*           if x.s = x' then *)
-  (*             typ_exp env e t (fun e -> *)
-  (*             let e = save (structured_type env t) e in *)
-  (*             bind (e :: vs) (xts, ts)) *)
-  (*           else *)
-  (*             if List.exists (fun (x', _) -> x.s = x') ts then *)
-  (*               error x.p "field '%s' is in the wrong other" x.s *)
-  (*             else *)
-  (*               error x.p "unknown field '%s'" x.s *)
-  (*       | [], _ -> *)
-  (*           error p "some fields missing from initialisation" *)
-  (*       | _, [] -> *)
-  (*           error p "all fields have already been initialised" *)
-  (*     in bind [] (xts, ts) *)
-  (* (\* | Pif (_, P.Ecmp (x, op, y), z, None) -> *)
-  (*     int_exp tenv venv looping x (fun x -> *)
-  (*       int_exp tenv venv looping y (fun y -> *)
-  (*         .Sseq (T.Sif (Ebinop (x, op, y), *)
-  (*           void_exp tenv venv looping z Sskip, Sskip), *)
-  (*           nxt Eundef E.Tvoid))) *\) *)
+  | Emakearray (p, x, y, Enil _) ->
+      let t, t' = find_array_type x env in
+      begin match base_type env t' with
+      | RECORD _ ->
+          let y = int_exp env y in
+          t, Lprim (Pmakearray Paddrarray, [y; Lconst 0n])
+      | _ ->
+          error p "array base type must be record type"
+      end
+  | Emakearray (_, x, y, z) ->
+      let t, t' = find_array_type x env in
+      let y = int_exp env y in
+      let z = typ_exp env z t' in
+      t, Lprim (Pmakearray Paddrarray (* FIXME *), [y; z])
+  | Emakerecord (p, x, xts) ->
+      let t, ts = find_record_type env x in
+      let rec bind vs = function
+        | [], [] ->
+            t, Lprim (Pmakeblock 0 (* FIXME *), List.rev vs)
+        | (x, Enil _) :: xts, (x', t) :: ts ->
+            if x.s = x' then
+              bind (Lconst 0n :: vs) (xts, ts)
+            else
+              if List.exists (fun (x', _) -> x.s = x') ts then
+                error x.p "field '%s' is in the wrong other" x.s
+              else
+                error x.p "field '%s' is unknown" x.s
+        | (x, e) :: xts, (x', t) :: ts ->
+            if x.s = x' then
+              let e = typ_exp env e t in
+              bind (e :: vs) (xts, ts)
+            else
+              if List.exists (fun (x', _) -> x.s = x') ts then
+                error x.p "field '%s' is in the wrong other" x.s
+              else
+                error x.p "unknown field '%s'" x.s
+        | [], _ ->
+            error p "some fields missing from initialisation"
+        | _, [] ->
+            error p "all fields have already been initialised"
+      in bind [] (xts, ts)
+  (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
+      int_exp tenv venv looping x (fun x ->
+        int_exp tenv venv looping y (fun y ->
+          .Sseq (T.Sif (Ebinop (x, op, y),
+            void_exp tenv venv looping z Sskip, Sskip),
+            nxt Eundef E.Tvoid))) *)
   | Eif (_, e1, e2, e3) ->
       let e1 = int_exp env e1 in
       let t2, e2 = exp env e2 in
