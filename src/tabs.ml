@@ -114,8 +114,8 @@ module Typedtree = struct
     | Tassign of var * exp
     | Tcall of pos_string * exp list
     | Tseq of exp * exp
-    | Tmakearray of pos_string * exp * exp
-    | Tmakerecord of pos_string * (pos_string * exp) list
+    | Tmakearray of exp * exp
+    | Tmakerecord of exp list
     | Tif of exp * exp * exp
     | Twhile of exp * exp
     | Tfor of pos_string * exp * exp * exp

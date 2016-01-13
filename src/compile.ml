@@ -400,10 +400,10 @@ and exp env e : Typedtree.exp =
       mkexp (Tint n) INT
   (* | Estring (_, s) -> *)
   (*     nxt (VAL (build_global_stringptr s "" g_builder)) STRING *)
-  (* | Enil p -> *)
-  (*     error p *)
-  (*       "'nil' should be used in a context where \ *)
-  (*       its type can be determined" *)
+  | Enil p ->
+      error p
+        "'nil' should be used in a context where \
+        its type can be determined"
   | Evar (_, v) ->
       let v = var env v in
       mkexp (Tvar v) v.vtype
@@ -425,17 +425,18 @@ and exp env e : Typedtree.exp =
   (*     nxt (binop build_sdiv x y) INT)) *)
   (* | Ebinop (_, x, Op_cmp Ceq, Enil _) *)
   (* | Ebinop (_, Enil _, Op_cmp Ceq, x) -> *)
-  (*     exp env x (fun v tx -> *)
-  (*       match base_type env tx with *)
-  (*       | RECORD _ -> *)
-  (*           let v = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in *)
-  (*           let c = binop (build_icmp Icmp.Eq) v *)
+  (*     let v = exp env x in *)
+  (*     begin match base_type env tx with *)
+  (*     | RECORD _ -> *)
+  (*         let v = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in *)
+  (*         let c = binop (build_icmp Icmp.Eq) v *)
   (*             (const_null (int_t Sys.word_size)) in *)
-  (*           let c = unop (fun v s b -> build_zext v (int_t 32) s b) c in *)
-  (*           nxt c INT *)
-  (*       | _ -> *)
-  (*           error (exp_p x) "expected expression of record type, found %s" *)
-  (*             (describe_type tx)) *)
+  (*         let c = unop (fun v s b -> build_zext v (int_t 32) s b) c in *)
+  (*         nxt c INT *)
+  (*     | _ -> *)
+  (*         error (exp_p x) "expected expression of record type, found %s" *)
+  (*           (describe_type tx) *)
+  (*     end *)
   (* | Ebinop (_, x, Op_cmp Cne, Enil _) *)
   (* | Ebinop (_, Enil _, Op_cmp Cne, x) -> *)
   (*     exp env x (fun v tx -> *)
@@ -504,105 +505,84 @@ and exp env e : Typedtree.exp =
       let v = var env v in
       let e = typ_exp env e v.vtype in
       mkexp (Tassign (v, e)) VOID
-  (* | Ecall (p, x, xs) -> *)
-  (*     let fi = find_fun x env in *)
-  (*     let ts, t = fi.fsign in *)
-  (*     if List.length xs <> List.length ts then *)
-  (*       error p "bad arity: is %d, should be %d" *)
-  (*         (List.length xs) (List.length ts); *)
-  (*     let rec bind ys = function *)
-  (*       | [], [] -> *)
-  (*           let actuals = if fi.f_user then *)
-  (*             List.fold_right (fun x ys -> *)
-  (*               let vi = find_var { s = x; p = Lexing.dummy_pos } env in *)
-  (*               VAL vi.v_alloca :: ys) *)
-  (*               (S.elements (M.find x.s env.sols)) (List.rev ys) *)
-  (*               else List.rev ys in *)
-  (*           nxt (call (Lazy.force fi.f_llvalue) actuals) t *)
-  (*       | Enil p :: xs, t :: ts -> *)
-  (*           begin match base_type env t with *)
-  (*           | RECORD _ -> *)
-  (*               bind (const_null (transl_typ env t) :: ys) (xs, ts) *)
-  (*           | _ -> *)
-  (*               error p "expected record type, found '%s'" (describe_type t) *)
-  (*           end *)
-  (*       | x :: xs, t :: ts -> *)
-  (*           typ_exp env x t (fun x -> *)
-  (*           let x = save (structured_type env t && List.exists triggers xs) x in *)
-  (*           bind (x :: ys) (xs, ts)) *)
-  (*       | _ -> *)
-  (*           assert false *)
-  (*     in bind [] (xs, ts) *)
+  | Ecall (p, x, xs) ->
+      let fi = find_fun x env in
+      let ts, t = fi.fsign in
+      if List.length xs <> List.length ts then
+        error p "bad arity: is %d, should be %d"
+          (List.length xs) (List.length ts);
+      let rec bind ys = function
+        | [], [] ->
+            let actuals =
+              (* if fi.f_user then *)
+              (*   List.fold_right (fun x ys -> *)
+              (*       let vi = find_var {s = x; p = Lexing.dummy_pos} env in *)
+              (*       VAL vi.v_alloca :: ys *)
+              (*     ) (S.elements (M.find x.s env.sols)) (List.rev ys) *)
+              (* else *)
+                List.rev ys
+            in
+            mkexp (Tcall (x, actuals)) t
+        | Enil p :: xs, t :: ts ->
+            begin match base_type env t with
+            | RECORD _ ->
+                bind (mkexp Tnil t :: ys) (xs, ts)
+            | _ ->
+                error p "expected record type, found '%s'" (describe_type t)
+            end
+        | x :: xs, t :: ts ->
+            let x = typ_exp env x t in
+            bind (x :: ys) (xs, ts)
+        | _ ->
+            assert false
+      in
+      bind [] (xs, ts)
   | Eseq (_, x1, x2) ->
       let e1 = exp env x1 in
       let e2 = exp env x2 in
       mkexp (Tseq (e1, e2)) e2.etype
-  (* | Emakearray (p, x, y, Enil _) -> *)
-  (*     let t, t' = find_array_type x env in *)
-  (*     begin match base_type env t' with *)
-  (*     | RECORD _ -> *)
-  (*         int_exp env y (fun y -> *)
-  (*         let y = VAL (llvm_value y) in *)
-  (*         let a = gc_alloc (add (const_int Sys.word_size 8) *)
-  (*           (mul (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of (transl_typ env t')))) in *)
-  (*         let a = build_pointercast a (ptr_t (struct_t [| int_t 32; *)
-  (*           array_type (transl_typ env t') 0 |])) "" g_builder in *)
-  (*         store y (array_length_addr (VAL a)); *)
-  (*         (\* FIXME initialisation *\) *)
-  (*         nxt (VAL a) t) *)
-  (*     | _ -> *)
-  (*         error p "array base type must be record type" *)
-  (*     end *)
-  (* | Emakearray (_, x, y, z) -> *)
-  (*     let t, t' = find_array_type x env in *)
-  (*     int_exp env y (fun y -> *)
-  (*     typ_exp env z t' (fun z -> *)
-  (*     let y = VAL (llvm_value y) in *)
-  (*     let a = gc_alloc (add (const_int Sys.word_size 8) (mul *)
-  (*       (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of *)
-  (*       (transl_typ env t')))) in *)
-  (*     let a = build_pointercast a (ptr_t (struct_t *)
-  (*       [| int_t 32; array_type (transl_typ env t') 0 |])) "" g_builder in *)
-  (*     store y (array_length_addr (VAL a)); *)
-  (*     (\* FIXME initialisation *\) *)
-  (*     nxt (VAL a) t)) *)
-  (* | Emakerecord (p, x, xts) -> *)
-  (*     let t, ts = find_record_type env x in *)
-  (*     let rec bind vs = function *)
-  (*       | [], [] -> *)
-  (*           let t' = element_type (transl_typ env t) in *)
-  (*           debug () "%s" (string_of_lltype t'); *)
-  (*           let r = VAL (gc_alloc_type t') in *)
-  (*           let rec bind i = function *)
-  (*             | [] -> nxt r t *)
-  (*             | v :: vs -> *)
-  (*                 let f = gep r [ const_int 32 0; const_int 32 i ] in *)
-  (*                 store v f; *)
-  (*                 bind (i+1) vs *)
-  (*           in bind 0 (List.rev vs) *)
-  (*       | (x, Enil _) :: xts, (x', t) :: ts -> *)
-  (*           if x.s = x' then *)
-  (*             bind (const_null (transl_typ env t) :: vs) (xts, ts) *)
-  (*           else *)
-  (*             if List.exists (fun (x', _) -> x.s = x') ts then *)
-  (*               error x.p "field '%s' is in the wrong other" x.s *)
-  (*             else *)
-  (*               error x.p "field '%s' is unknown" x.s *)
-  (*       | (x, e) :: xts, (x', t) :: ts -> *)
-  (*           if x.s = x' then *)
-  (*             typ_exp env e t (fun e -> *)
-  (*             let e = save (structured_type env t) e in *)
-  (*             bind (e :: vs) (xts, ts)) *)
-  (*           else *)
-  (*             if List.exists (fun (x', _) -> x.s = x') ts then *)
-  (*               error x.p "field '%s' is in the wrong other" x.s *)
-  (*             else *)
-  (*               error x.p "unknown field '%s'" x.s *)
-  (*       | [], _ -> *)
-  (*           error p "some fields missing from initialisation" *)
-  (*       | _, [] -> *)
-  (*           error p "all fields have already been initialised" *)
-  (*     in bind [] (xts, ts) *)
+  | Emakearray (p, x, y, Enil _) ->
+      let t, t' = find_array_type x env in
+      begin match base_type env t' with
+      | RECORD _ ->
+          let y = int_exp env y in
+          mkexp (Tmakearray (y, mkexp Tnil t')) t
+      | _ ->
+          error p "array base type must be record type"
+      end
+  | Emakearray (_, x, y, z) ->
+      let t, t' = find_array_type x env in
+      let y = int_exp env y in
+      let z = typ_exp env z t' in
+      mkexp (Tmakearray (y, z)) t
+  | Emakerecord (p, x, xts) ->
+      let t, ts = find_record_type env x in
+      let rec bind vs = function
+        | [], [] ->
+            mkexp (Tmakerecord (List.rev vs)) t
+        | (x, Enil _) :: xts, (x', t) :: ts ->
+            if x.s = x' then
+              bind (mkexp Tnil t :: vs) (xts, ts)
+            else
+              if List.exists (fun (x', _) -> x.s = x') ts then
+                error x.p "field '%s' is in the wrong other" x.s
+              else
+                error x.p "field '%s' is unknown" x.s
+        | (x, e) :: xts, (x', t) :: ts ->
+            if x.s = x' then
+              let e = typ_exp env e t in
+              bind (e :: vs) (xts, ts)
+            else
+              if List.exists (fun (x', _) -> x.s = x') ts then
+                error x.p "field '%s' is in the wrong other" x.s
+              else
+                error x.p "unknown field '%s'" x.s
+        | [], _ ->
+            error p "some fields missing from initialisation"
+        | _, [] ->
+            error p "all fields have already been initialised"
+      in
+      bind [] (xts, ts)
   (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
       int_exp tenv venv looping x (fun x ->
         int_exp tenv venv looping y (fun y ->
