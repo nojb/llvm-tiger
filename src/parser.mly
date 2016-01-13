@@ -17,10 +17,10 @@ let mkvar d i =
     vpos = pos i;
   }
 
-let mkstr s i =
+let mkid s i =
   {
-    s;
-    p = pos i;
+    idesc = s;
+    ipos = pos i;
   }
 %}
 
@@ -84,7 +84,7 @@ expseq_tail:
 
 pos_ident:
   IDENT
-  { { s = $1; p = pos 1 } }
+  { mkid $1 1 }
   ;
 
 record_field_list:
@@ -278,8 +278,12 @@ fundec:
   FUNCTION pos_ident LPAREN type_field_list RPAREN
     optional_rtyp_name EQ exp
   {
-    { fn_name = $2; fn_args = $4;
-      fn_rtyp = $6; fn_body = $8 }
+    {
+      fname = $2;
+      fargs = $4;
+      frety = $6;
+      fbody = $8
+    }
   }
   ;
 

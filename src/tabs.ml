@@ -27,23 +27,21 @@ type bin =
   | Op_add | Op_sub | Op_mul | Op_div
   | Op_cmp of cmp_op
 
-type pos =
-  Lexing.position
-
-type pos_string = {
-  s : string;
-  p : Lexing.position
-}
+type ident =
+  {
+    idesc : string;
+    ipos : Lexing.position
+  }
 
 type typ =
-  | Tname of pos_string
-  | Tarray of pos_string
-  | Trecord of (pos_string * pos_string) list
+  | Tname of ident
+  | Tarray of ident
+  | Trecord of (ident * ident) list
 
 type var_desc =
-  | Vsimple of pos_string
+  | Vsimple of ident
   | Vsubscript of var * exp
-  | Vfield of var * pos_string
+  | Vfield of var * ident
 
 and var =
   {
@@ -59,13 +57,13 @@ and exp_desc =
   | Evar of var
   | Ebinop of exp * bin * exp
   | Eassign of var * exp
-  | Ecall of pos_string * exp list
+  | Ecall of ident * exp list
   | Eseq of exp * exp
-  | Emakearray of pos_string * exp * exp
-  | Emakerecord of pos_string * (pos_string * exp) list
+  | Emakearray of ident * exp * exp
+  | Emakerecord of ident * (ident * exp) list
   | Eif of exp * exp * exp
   | Ewhile of exp * exp
-  | Efor of pos_string * exp * exp * exp
+  | Efor of ident * exp * exp * exp
   | Ebreak
   | Elet of dec * exp
 
@@ -76,16 +74,16 @@ and exp =
   }
 
 and dec =
-  | Dtypes of (pos_string * typ) list
+  | Dtypes of (ident * typ) list
   | Dfuns of fundef list
-  | Dvar of pos_string * pos_string option * exp
+  | Dvar of ident * ident option * exp
 
 and fundef =
   {
-    fn_name : pos_string;
-    fn_rtyp : pos_string option;
-    fn_args : (pos_string * pos_string) list;
-    fn_body : exp
+    fname : ident;
+    frety : ident option;
+    fargs : (ident * ident) list;
+    fbody : exp
   }
 
 module S = Set.Make (String)

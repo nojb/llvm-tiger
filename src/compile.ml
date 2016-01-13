@@ -63,7 +63,7 @@ type fun_info =
   {
     fname : string;
     fsign : type_spec list * type_spec;
-    f_user : bool;
+    fuser : bool;
   }
 
 type value_desc =
@@ -95,16 +95,16 @@ let empty_env =
 
 let find_var id env =
   try
-    match M.find id.s env.venv with
+    match M.find id.idesc env.venv with
     | Variable vi -> vi
     | Function _ -> raise Not_found
   with
     Not_found ->
-      error id.p "unbound variable '%s'" id.s
+      error id.ipos "unbound variable '%s'" id.idesc
 
-let add_var (x : pos_string) ?immutable:(immut=false) t env =
-  let vi = {vtype = t; vimm = immut} in
-  {env with venv = M.add x.s (Variable vi) env.venv}
+let add_var (x : ident) ?(immutable = false) t env =
+  let vi = {vtype = t; vimm = immutable} in
+  {env with venv = M.add x.idesc (Variable vi) env.venv}
 
 let mem_var x env =
   try
@@ -119,94 +119,98 @@ let add_fun x uid atyps rtyp env =
     {
       fname = uid;
       fsign = atyps, rtyp;
-      f_user = true;
+      fuser = true;
     }
   in
-  {env with venv = M.add x.s (Function fi) env.venv}
+  {env with venv = M.add x.idesc (Function fi) env.venv}
 
 let mem_user_fun x env =
   try
     match M.find x env.venv with
-    | Function fi -> fi.f_user
+    | Function fi -> fi.fuser
     | Variable _ -> false
   with Not_found ->
     false
 
 let find_fun x env =
   try
-    match M.find x.s env.venv with
+    match M.find x.idesc env.venv with
     | Variable _ -> raise Not_found
     | Function fi -> fi
   with
     Not_found ->
-      error x.p "unbound function '%s'" x.s
+      error x.ipos "unbound function '%s'" x.idesc
 
 (* type tenv = (string * E.typ) list *)
 
 let find_type x env =
   try
-    M.find x.s env.tenv
+    M.find x.idesc env.tenv
   with Not_found ->
-    error x.p "unbound type '%s'" x.s
+    error x.ipos "unbound type '%s'" x.idesc
 
 let add_type x t env =
-  {env with tenv = M.add x.s t env.tenv}
+  {env with tenv = M.add x.idesc t env.tenv}
 
 let find_array_type x env =
   match base_type env (find_type x env) with
-  | ARRAY (_, t') as t -> t, t'
+  | ARRAY (_, t') as t ->
+      t, t'
   | _ as t ->
-      error x.p "expected '%s' to be of array type, but is '%s'" x.s
+      error x.ipos "expected '%s' to be of array type, but is '%s'" x.idesc
         (describe_type t)
 
 let find_record_type env x =
   match base_type env (find_type x env) with
-  | RECORD (_, xts) as t -> t, xts
+  | RECORD (_, xts) as t ->
+      t, xts
   | _ as t ->
-      error x.p "expected '%s' to be of record type, but is '%s'" x.s
+      error x.ipos "expected '%s' to be of record type, but is '%s'" x.idesc
         (describe_type t)
 
-let find_record_field env t (x : pos_string) =
+let find_record_field env t (x : ident) =
   let t, xts = match base_type env t with RECORD (t, xts) -> t, xts | _ -> assert false in
   (* let ts = M.find t env.renv in *)
   let rec loop i = function
-    | [] -> error x.p "record type '%s' does not contain field '%s'" t x.s
-    | (x', t') :: xs when x' = x.s -> i, t'
+    | [] -> error x.ipos "record type '%s' does not contain field '%s'" t x.idesc
+    | (x', t') :: xs when x' = x.idesc -> i, t'
     | _ :: xs -> loop (i+1) xs
   in loop 0 xts
 
 let declare_type env (x, t) =
   let find_type y env =
-    try M.find y.s env.tenv
-    with Not_found -> NAME y.s in
+    try M.find y.idesc env.tenv
+    with Not_found -> NAME y.idesc
+  in
   match t with
   | Tname y ->
       add_type x (find_type y env) env
   | Tarray y ->
-      add_type x (ARRAY (x.s, find_type y env)) env
+      add_type x (ARRAY (x.idesc, find_type y env)) env
   | Trecord xs ->
-      add_type x (RECORD (x.s, List.map (fun (x, t) -> x.s, find_type t env) xs)) env
+      add_type x (RECORD (x.idesc, List.map (fun (x, t) -> x.idesc, find_type t env) xs)) env
 
 let check_unique_type_names xts =
   let rec bind = function
     | [] -> ()
     | (x, _) :: xts ->
-        let matches = List.filter (fun (x', _) -> x.s = x'.s) xts in
+        let matches = List.filter (fun (x', _) -> x.idesc = x'.idesc) xts in
         if List.length matches > 0 then
           let (x', _) = List.hd matches in
-          error x'.p
+          error x'.ipos
             "type name '%s' can only be defined once in each type declaration"
-            x.s
+            x.idesc
         else
           bind xts
-  in bind xts
+  in
+  bind xts
 
 let check_type env (x, _) =
   let visited = ref [] in
   let rec loop thru_record t =
     if List.memq t !visited then
       if thru_record then ()
-      else error x.p "type declaration cycle does not pass through record type"
+      else error x.ipos "type declaration cycle does not pass through record type"
     else begin
       visited := t :: !visited;
       match t with
@@ -221,11 +225,12 @@ let check_type env (x, _) =
           begin try
             loop thru_record (M.find y env.tenv)
           with
-            Not_found -> error x.p "unbound type '%s'" y
+            Not_found -> error x.ipos "unbound type '%s'" y
             (* FIXME x.p != position of y in general *)
           end
     end
-  in loop false (M.find x.s env.tenv)
+  in
+  loop false (M.find x.idesc env.tenv)
 
 let let_type env tys =
   check_unique_type_names tys;
@@ -250,41 +255,41 @@ let check_unique_fundef_names fundefs =
     | [] -> ()
     | fundef :: fundefs ->
         let matches =
-          List.filter (fun fundef' -> fundef.fn_name.s = fundef'.fn_name.s)
+          List.filter (fun fundef' -> fundef.Tabs.fname.idesc = fundef'.Tabs.fname.idesc)
             fundefs
         in
         if List.length matches > 0 then
           let fundef' = List.hd matches in
-          error fundef'.fn_name.p
+          error fundef'.Tabs.fname.ipos
             "function name '%s' can only be defined once in each type declaration"
-            fundef'.fn_name.s
+            fundef'.Tabs.fname.idesc
         else
           bind fundefs
   in
   bind fundefs
 
 let tr_return_type env fn =
-  match fn.fn_rtyp with
+  match fn.frety with
   | None -> VOID
   | Some t -> find_type t env
 
 let tr_function_header env fn =
   let rtyp = tr_return_type env fn in
-  let argst = List.map (fun (_, t) -> find_type t env) fn.fn_args in
-  let uid = gentmp fn.fn_name.s in
-  add_fun fn.fn_name uid argst rtyp env
+  let argst = List.map (fun (_, t) -> find_type t env) fn.fargs in
+  let uid = gentmp fn.Tabs.fname.idesc in
+  add_fun fn.Tabs.fname uid argst rtyp env
 
 let rec tr_function_body env fundef =
-  let fi = find_fun fundef.fn_name env in
+  let fi = find_fun fundef.Tabs.fname env in
   let ts, t = fi.fsign in
   (* Process arguments *)
   let env =
-    List.fold_left2 (fun env (x, _) t -> add_var x t env) env fundef.fn_args ts
+    List.fold_left2 (fun env (x, _) t -> add_var x t env) env fundef.fargs ts
   in
   (* Process the body *)
-  let body = typ_exp {env with in_loop = false} fundef.fn_body t in
-  let args = List.map (fun (id, _) -> id.s) fundef.fn_args in
-  fundef.fn_name.s, args, body
+  let body = typ_exp {env with in_loop = false} fundef.fbody t in
+  let args = List.map (fun (id, _) -> id.idesc) fundef.fargs in
+  fundef.Tabs.fname.idesc, args, body
 
 and let_funs env fundefs e =
   check_unique_fundef_names fundefs;
@@ -332,7 +337,7 @@ and var env v =
   match v.vdesc with
   | Vsimple x ->
       let vi = find_var x env in
-      vi.vtype, Lvar x.s
+      vi.vtype, Lvar x.idesc
   | Vsubscript (v, e) ->
       let t', v = array_var env v in
       let e = int_exp env e in
@@ -440,15 +445,15 @@ and exp env e =
       let vi = find_var x env in
       begin match base_type env vi.vtype with
       | RECORD _ ->
-          VOID, Lassign (x.s, Lconst 0n)
+          VOID, Lassign (x.idesc, Lconst 0n)
       | _ ->
           error e.epos "trying to assign 'nil' to a variable of non-record type"
       end
   | Eassign ({vdesc = Vsimple x}, e) ->
       let vi = find_var x env in
-      if vi.vimm then error e.epos "variable '%s' should not be assigned to" x.s;
+      if vi.vimm then error e.epos "variable '%s' should not be assigned to" x.idesc;
       let e = typ_exp env e vi.vtype in
-      VOID, Lassign (x.s, e)
+      VOID, Lassign (x.idesc, e)
   | Eassign ({vdesc = Vsubscript (v, e)}, {edesc = Enil}) ->
       let t', v = array_var env v in
       begin match base_type env t' with
@@ -530,22 +535,22 @@ and exp env e =
         | [], [] ->
             t, Lprim (Pmakeblock 0 (* FIXME *), List.rev vs)
         | (x, {edesc = Enil}) :: xts, (x', t) :: ts ->
-            if x.s = x' then
+            if x.idesc = x' then
               bind (Lconst 0n :: vs) (xts, ts)
             else
-              if List.exists (fun (x', _) -> x.s = x') ts then
-                error x.p "field '%s' is in the wrong other" x.s
+              if List.exists (fun (x', _) -> x.idesc = x') ts then
+                error x.ipos "field '%s' is in the wrong other" x.idesc
               else
-                error x.p "field '%s' is unknown" x.s
+                error x.ipos "field '%s' is unknown" x.idesc
         | (x, e) :: xts, (x', t) :: ts ->
-            if x.s = x' then
+            if x.idesc = x' then
               let e = typ_exp env e t in
               bind (e :: vs) (xts, ts)
             else
-              if List.exists (fun (x', _) -> x.s = x') ts then
-                error x.p "field '%s' is in the wrong other" x.s
+              if List.exists (fun (x', _) -> x.idesc = x') ts then
+                error x.ipos "field '%s' is in the wrong other" x.idesc
               else
-                error x.p "unknown field '%s'" x.s
+                error x.ipos "unknown field '%s'" x.idesc
         | [], _ ->
             error e.epos "some fields missing from initialisation"
         | _, [] ->
@@ -564,7 +569,7 @@ and exp env e =
       let e1 = int_exp env e1 in
       let e2 = int_exp env e2 in
       let e3 = void_exp (add_var i ~immutable:true INT {env with in_loop = true}) e3 in
-      VOID, Lfor (i.s, e1, e2, e3)
+      VOID, Lfor (i.idesc, e1, e2, e3)
   | Ebreak ->
       if env.in_loop then
         VOID, Lbreak (* TODO FIX TYPE *)
@@ -574,14 +579,14 @@ and exp env e =
       let t1, e1 = exp env e1 in
       let env = add_var x t1 (* a *) env in
       let t2, e2 = exp env e2 in
-      t2, Llet (x.s, e1, e2)
+      t2, Llet (x.idesc, e1, e2)
   | Elet (Dvar (x, Some t, {edesc = Enil}), e2) ->
       let t = find_type t env in
       begin match base_type env t with
       | RECORD _ ->
           let env = add_var x t (* a *) env in
           let t2, e2 = exp env e2 in
-          t2, Llet (x.s, Lconst 0n, e2)
+          t2, Llet (x.idesc, Lconst 0n, e2)
       | _ ->
           error e.epos "expected record type, found '%s'" (describe_type t)
       end
@@ -590,7 +595,7 @@ and exp env e =
       let e1 = typ_exp env e1 ty in
       let env = add_var x ty (* a *) env in
       let t2, e2 = exp env e2 in
-      t2, Llet (x.s, e1, e2)
+      t2, Llet (x.idesc, e1, e2)
   | Elet (Dtypes tys, e) ->
       let env = let_type env tys in
       exp env e
