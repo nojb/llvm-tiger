@@ -481,35 +481,29 @@ and exp env e =
       let i, tx = find_record_field env t' x in
       let e = typ_exp env e tx in
       VOID, Lprim (Psetfield (structured_type env t', i), [v; e])
-  (* | Ecall (p, x, xs) -> *)
-  (*     let fi = find_fun x env in *)
-  (*     let ts, t = fi.fsign in *)
-  (*     if List.length xs <> List.length ts then *)
-  (*       error p "bad arity: is %d, should be %d" *)
-  (*         (List.length xs) (List.length ts); *)
-  (*     let rec bind ys = function *)
-  (*       | [], [] -> *)
-  (*           let actuals = if fi.f_user then *)
-  (*             List.fold_right (fun x ys -> *)
-  (*               let vi = find_var { s = x; p = Lexing.dummy_pos } env in *)
-  (*               VAL vi.v_alloca :: ys) *)
-  (*               (S.elements (M.find x.s env.sols)) (List.rev ys) *)
-  (*               else List.rev ys in *)
-  (*           nxt (call (Lazy.force fi.f_llvalue) actuals) t *)
-  (*       | Enil p :: xs, t :: ts -> *)
-  (*           begin match base_type env t with *)
-  (*           | RECORD _ -> *)
-  (*               bind (const_null (transl_typ env t) :: ys) (xs, ts) *)
-  (*           | _ -> *)
-  (*               error p "expected record type, found '%s'" (describe_type t) *)
-  (*           end *)
-  (*       | x :: xs, t :: ts -> *)
-  (*           typ_exp env x t (fun x -> *)
-  (*           let x = save (structured_type env t && List.exists triggers xs) x in *)
-  (*           bind (x :: ys) (xs, ts)) *)
-  (*       | _ -> *)
-  (*           assert false *)
-  (*     in bind [] (xs, ts) *)
+  | Ecall (x, xs) ->
+      let fi = find_fun x env in
+      let ts, t = fi.fsign in
+      if List.length xs <> List.length ts then
+        error e.epos "bad arity: is %d, should be %d" (List.length xs) (List.length ts);
+      let rec bind ys = function
+        | [], [] ->
+            let actuals = List.rev ys in
+            t, Lapply (fi.fname, actuals)
+        | {edesc = Enil; epos} :: xs, t :: ts ->
+            begin match base_type env t with
+            | RECORD _ ->
+                bind (Lconst 0n :: ys) (xs, ts)
+            | _ ->
+                error epos "expected record type, found '%s'" (describe_type t)
+            end
+        | x :: xs, t :: ts ->
+            let x = typ_exp env x t in
+            bind (x :: ys) (xs, ts)
+        | _ ->
+            assert false
+      in
+      bind [] (xs, ts)
   | Eseq (e1, e2) ->
       let _, e1 = exp env e1 in
       let t, e2 = exp env e2 in
