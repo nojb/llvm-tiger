@@ -57,7 +57,6 @@ type var_info =
   {
     vtype : type_spec;
     vimm : bool;
-    (* v_alloca : llvalue *)
   }
 
 type fun_info =
@@ -65,7 +64,6 @@ type fun_info =
     fname : string;
     fsign : type_spec list * type_spec;
     f_user : bool;
-    (* f_llvalue : llvalue Lazy.t *)
   }
 
 type value_desc =
@@ -83,8 +81,6 @@ type env =
     venv : value_desc M.t;
     tenv : type_spec M.t;
     (* in_loop : loop_flag; *)
-    (* used for lambda lifting *)
-    (* sols : S.t M.t *)
   }
 
 let rec base_type env = function
@@ -99,7 +95,6 @@ let empty_env =
     venv = M.empty;
     tenv = M.empty;
     (* in_loop = NoLoop; *)
-    (* sols = M.empty *)
   }
 
 let find_var id env =
@@ -111,32 +106,35 @@ let find_var id env =
     Not_found ->
       error id.p "unbound variable '%s'" id.s
 
-let add_var (x : pos_string) ?immutable:(immut=false) t (* llv *) env =
-  let vi = { vtype = t; vimm = immut; (* v_alloca = llv *) } in
-  { env with venv = M.add x.s (Variable vi) env.venv }
+let add_var (x : pos_string) ?immutable:(immut=false) t env =
+  let vi = {vtype = t; vimm = immut} in
+  {env with venv = M.add x.s (Variable vi) env.venv}
 
 let mem_var x env =
-  try match M.find x env.venv with
-  | Variable _ -> true
-  | Function _ -> false
-  with Not_found -> false
+  try
+    match M.find x env.venv with
+    | Variable _ -> true
+    | Function _ -> false
+  with Not_found ->
+    false
 
-let add_fun x uid atyps rtyp llv env =
+let add_fun x uid atyps rtyp env =
   let fi =
     {
       fname = uid;
       fsign = atyps, rtyp;
       f_user = true;
-      (* f_llvalue = lazy llv *)
     }
   in
-  { env with venv = M.add x.s (Function fi) env.venv }
+  {env with venv = M.add x.s (Function fi) env.venv}
 
 let mem_user_fun x env =
-  try match M.find x env.venv with
-  | Function fi -> fi.f_user
-  | Variable _ -> false
-  with Not_found -> false
+  try
+    match M.find x env.venv with
+    | Function fi -> fi.f_user
+    | Variable _ -> false
+  with Not_found ->
+    false
 
 let find_fun x env =
   try
@@ -156,7 +154,7 @@ let find_type x env =
     error x.p "unbound type '%s'" x.s
 
 let add_type x t env =
-  { env with tenv = M.add x.s t env.tenv }
+  {env with tenv = M.add x.s t env.tenv}
 
 let find_array_type x env =
   match base_type env (find_type x env) with
@@ -180,204 +178,6 @@ let find_record_field env t (x : pos_string) =
     | (x', t') :: xs when x' = x.s -> i, t'
     | _ :: xs -> loop (i+1) xs
   in loop 0 xts
-
-(* * LLVM Utils *)
-
-(* type llvm_value = *)
-(*   | VAL of llvalue *)
-(*   | LOADVAL of llvalue *)
-
-(* let g_context = global_context () *)
-(* let g_module  = create_module g_context "" *)
-(* let g_builder = builder g_context *)
-
-(* let new_block () = *)
-(*   (\* this assumes that the builder is already set up *)
-(*    * inside a function *\) *)
-(*   let f = block_parent (insertion_block g_builder) in *)
-(*   append_block g_context "" f *)
-
-(* let llvm_value = function *)
-(*   | VAL v -> v *)
-(*   | LOADVAL v -> build_load v "" g_builder *)
-
-(* let dump_llvm_value = function *)
-(*   | VAL v *)
-(*   | LOADVAL v -> dump_value v *)
-
-(* let int_t w = *)
-(*   integer_type g_context w *)
-
-(* let void_t = *)
-(*   void_type g_context *)
-
-(* let ptr_t t = *)
-(*   pointer_type t *)
-
-(* let struct_t fields = *)
-(*   struct_type g_context fields *)
-
-(* let const_int0 w n = *)
-(*   const_int (int_t w) n *)
-
-(*   (\* This one shadows Llvm.const_int *\) *)
-(* let const_int w n = *)
-(*   VAL (const_int (int_t w) n) *)
-
-(* let const_null0 = *)
-(*   const_null *)
-
-(* let const_null t = *)
-(*   VAL (const_null t) *)
-
-(* let size_of t = (\* shadows Llvm.size_of *\) *)
-(*   VAL (size_of t) *)
-
-(* let malloc v = *)
-(*   build_call (declare_function "malloc" *)
-(*     (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module) *)
-(*     [| llvm_value v |] "" g_builder *)
-
-(* let gc_alloc v = *)
-(*   build_call (declare_function "llvm_gc_allocate" *)
-(*     (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module) *)
-(*     [| llvm_value v |] "" g_builder *)
-
-(* let gc_alloc_type t = *)
-(*   dump_llvm_value (size_of t); *)
-(*   let v = build_call (declare_function "llvm_gc_allocate" *)
-(*     (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module) *)
-(*     [| llvm_value (size_of t) |] "" g_builder in *)
-(*   build_pointercast v (ptr_t t) "" g_builder *)
-
-(* let alloca is_ptr ty = *)
-(*   let b = builder_at_end g_context *)
-(*     (entry_block (block_parent (insertion_block g_builder))) in *)
-(*   let a = build_alloca ty "" b in *)
-(*   if is_ptr then begin *)
-(*     let v = build_pointercast a (ptr_t (ptr_t (int_t 8))) "" b in *)
-(*     ignore (build_call (declare_function "llvm.gcroot" *)
-(*       (function_type void_t [| ptr_t (ptr_t (int_t 8)); ptr_t (int_t 8) |]) *)
-(*       g_module) [| v; const_null0 (ptr_t (int_t 8)) |] "" b) *)
-(*   end; *)
-(*   a *)
-
-(* let add v1 v2 = *)
-(*   VAL (build_add (llvm_value v1) (llvm_value v2) "" g_builder) *)
-
-(* let mul v1 v2 = *)
-(*   VAL (build_mul (llvm_value v1) (llvm_value v2) "" g_builder) *)
-
-(* let load v = *)
-(*   VAL (build_load (llvm_value v) "" g_builder) *)
-
-(* let nil = *)
-(*   const_int 32 0 *)
-
-(* let store v p = *)
-(*   ignore (build_store (llvm_value v) (llvm_value p) g_builder) *)
-
-(* let gep v vs = *)
-(*   VAL (build_gep (llvm_value v) *)
-(*     (Array.of_list (List.map llvm_value vs)) "" g_builder) *)
-
-(* let binop op v1 v2 = *)
-(*   VAL (op (llvm_value v1) (llvm_value v2) "" g_builder) *)
-
-(* let unop op v = *)
-(*   VAL (op (llvm_value v) "" g_builder) *)
-
-(* let call v0 vs = *)
-(*   VAL (build_call v0 (Array.of_list (List.map llvm_value vs)) "" g_builder) *)
-
-(* let phi incoming = *)
-(*   VAL (build_phi *)
-(*     (List.map (fun (v, bb) -> llvm_value v, bb) incoming) "" g_builder) *)
-
-(* let cond_br c yaybb naybb = *)
-(*   ignore (build_cond_br (llvm_value c) yaybb naybb g_builder) *)
-
-(* let array_length_addr v = *)
-(*   gep v [ const_int 32 0; const_int 32 0 ] *)
-
-(* let strcmp v1 v2 = *)
-(*   VAL (build_call (declare_function "strcmp" *)
-(*     (function_type (int_t 32) *)
-(*       [| ptr_t (int_t 8); ptr_t (int_t 8) |]) g_module) *)
-(*     [| llvm_value v1; llvm_value v2 |] "" g_builder) *)
-
-(* let printf msg = *)
-(*   ignore (build_call (declare_function "printf" *)
-(*     (var_arg_function_type (int_t 32) [| ptr_t (int_t 8) |]) *)
-(*     g_module) [| build_global_stringptr msg "" g_builder |] "" g_builder) *)
-
-(* let die msg = *)
-(*   printf msg; *)
-(*   ignore (build_call (declare_function "exit" *)
-(*     (function_type void_t [| int_t 32 |]) g_module) [| const_int0 32 2 |] "" *)
-(*     g_builder); *)
-(*   ignore (build_unreachable g_builder) *)
-
-(* let array_index lnum v x = *)
-(*   let v = VAL (llvm_value v) in *)
-(*   let yesbb = new_block () in *)
-(*   let diebb = new_block () in *)
-(*   let l = load (array_length_addr v) in *)
-(*   let c1 = binop (build_icmp Icmp.Sle) x l in *)
-(*   let c2 = binop (build_icmp Icmp.Sge) x (const_int 32 0) in *)
-(*   let c = binop build_and c1 c2 in *)
-(*   cond_br c yesbb diebb; *)
-(*   position_at_end diebb g_builder; *)
-(*   die (Printf.sprintf "Runtime error: index out of bounds in line %d\n" lnum); *)
-(*   position_at_end yesbb g_builder; *)
-(*   gep v [ const_int 32 0; const_int 32 1; x ] *)
-
-(* let record_index lnum v i = *)
-(*   let v = VAL (llvm_value v) in *)
-(*   let yesbb = new_block () in *)
-(*   let diebb = new_block () in *)
-(*   let ptr = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in *)
-(*   let c = binop (build_icmp Icmp.Ne) ptr (const_int Sys.word_size 0) in *)
-(*   cond_br c yesbb diebb; *)
-(*   position_at_end diebb g_builder; *)
-(*   die (Printf.sprintf *)
-(*     "Runtime error: field access to nil record in line %d\n" lnum); *)
-(*   position_at_end yesbb g_builder; *)
-(*   gep v [ const_int 32 0; const_int 32 i ] *)
-
-(* let save triggers v = *)
-(*   if triggers then *)
-(*     match v with *)
-(*     | LOADVAL _ -> v *)
-(*     | VAL v -> *)
-(*         let a = alloca true (type_of v) in *)
-(*         ignore (build_store v a g_builder); *)
-(*         LOADVAL a *)
-(*   else *)
-(*     v *)
-
-(* let named_structs : (type_spec * Llvm.lltype) list ref = ref [] *)
-
-(* let rec transl_typ env t = *)
-(*   let rec loop t = *)
-(*     match t with *)
-(*     | VOID    -> int_t 32 *)
-(*     | INT     -> int_t 32 *)
-(*     | STRING  -> pointer_type (int_t 8) *)
-(*     | ARRAY (_, t) -> (\* { i32, [0 x t] }* *\) *)
-(*         ptr_t (struct_t [| int_t 32; array_type (loop t) 0 |]) *)
-(*     | RECORD (x, xts) -> *)
-(*         if not (List.mem_assq t !named_structs) then begin *)
-(*           let ty = named_struct_type g_context x in *)
-(*           named_structs := (t, ty) :: !named_structs; *)
-(*           struct_set_body ty *)
-(*             (Array.of_list (List.map (fun (_, t) -> loop t) xts)) *)
-(*             false *)
-(*         end; *)
-(*         pointer_type (List.assq t !named_structs) *)
-(*     | NAME y -> *)
-(*         loop (M.find y env.tenv) *)
-(*   in loop t *)
 
 let declare_type env (x, t) =
   let find_type y env =
@@ -439,13 +239,13 @@ let let_type env tys =
 
 (** ----------------------------------------- *)
 
-let rec structured_type env t =
-  match t with
-  | NAME y -> structured_type env (M.find y env.tenv)
-  | STRING
-  | ARRAY _
-  | RECORD _ -> true
-  | _ -> false
+(* let rec structured_type env t = *)
+(*   match t with *)
+(*   | NAME y -> structured_type env (M.find y env.tenv) *)
+(*   | STRING *)
+(*   | ARRAY _ *)
+(*   | RECORD _ -> true *)
+(*   | _ -> false *)
 
 (* These utility functions are used in the processing of function definitions *)
 
@@ -455,7 +255,8 @@ let check_unique_fundef_names fundefs =
     | fundef :: fundefs ->
         let matches =
           List.filter (fun fundef' -> fundef.fn_name.s = fundef'.fn_name.s)
-          fundefs in
+            fundefs
+        in
         if List.length matches > 0 then
           let fundef' = List.hd matches in
           error fundef'.fn_name.p
@@ -463,100 +264,41 @@ let check_unique_fundef_names fundefs =
             fundef'.fn_name.s
         else
           bind fundefs
-  in bind fundefs
+  in
+  bind fundefs
 
 let tr_return_type env fn =
   match fn.fn_rtyp with
   | None -> VOID
   | Some t -> find_type t env
 
-(* let llvm_return_type env = function *)
-(*   | VOID -> void_t *)
-(*   | t -> transl_typ env t *)
+let tr_function_header env fn =
+  let rtyp = tr_return_type env fn in
+  let argst = List.map (fun (_, t) -> find_type t env) fn.fn_args in
+  let uid = gentmp fn.fn_name.s in
+  add_fun fn.fn_name uid argst rtyp env
 
-(* let tr_function_header env fn = *)
-(*   let type_of_free_var env x = *)
-(*     match M.find x env.venv with *)
-(*     | Variable vi -> *)
-(*         if vi.vimm then transl_typ env vi.vtype *)
-(*         else pointer_type (transl_typ env vi.vtype) *)
-(*     | Function _ -> assert false in *)
-(*   let free_vars = S.elements (M.find fn.fn_name.s env.sols) in *)
-(*   let free_vars = List.map (fun x -> (x, type_of_free_var env x)) *)
-(*     free_vars in *)
-(*   let rtyp = tr_return_type env fn in *)
-(*   let argst = List.map (fun (_, t) -> find_type t env) fn.fn_args in *)
-(*   let uid = gentmp fn.fn_name.s in *)
-(*   let llv = define_function uid *)
-(*     (function_type (llvm_return_type env rtyp) *)
-(*       (Array.of_list (List.map snd free_vars @ *)
-(*       (List.map (transl_typ env) argst)))) g_module in *)
-(*   set_linkage Linkage.Internal llv; *)
-(*   set_gc (Some "shadow-stack") llv; *)
-(*   let env' = add_fun fn.fn_name uid argst *)
-(*     rtyp llv env in *)
-(*   env' *)
+let rec tr_function_body env fundef =
+  let fi = find_fun fundef.fn_name env in
+  let ts, t = fi.fsign in
+  let count = ref (-1) in
+  (* Process arguments *)
+  let env =
+    List.fold_left2 (fun env (x, _) t -> add_var x t env) env fundef.fn_args ts
+  in
+  (* Process the body *)
+  let body = typ_exp env (* { env with in_loop = NoLoop } *) fundef.fn_body t in
+  let args = List.map (fun (id, _) -> id.s) fundef.fn_args in
+  fundef.fn_name.s, args, body
 
-(* let rec tr_function_body env fundef = *)
-(*   let add_free_var env x llv = *)
-(*     match M.find x env.venv with *)
-(*     | Variable vi -> *)
-(*         { env with venv = *)
-(*           M.add x (Variable {vi with v_alloca = llv}) env.venv } *)
-(*     | Function _ -> assert false in *)
+and let_funs env fundefs e =
+  check_unique_fundef_names fundefs;
+  let env = List.fold_left tr_function_header env fundefs in
+  let funs = List.map (tr_function_body env) fundefs in
+  let t, e = exp env e in
+  t, Lletrec (funs, e)
 
-  (* let fi = find_fun fundef.fn_name env in *)
-  (* let ts, t = fi.fsign in *)
-
-  (* position_at_end (entry_block (Lazy.force fi.f_llvalue)) g_builder; *)
-  (* let startbb = new_block () in *)
-  (* position_at_end startbb g_builder; *)
-  (* let count = ref (-1) in *)
-
-  (* (\* Process arguments *\) *)
-  (* let env = List.fold_left (fun env x -> *)
-  (*   incr count; *)
-  (*   let f_llvalue = Lazy.force fi.f_llvalue in *)
-  (*   set_value_name x (param f_llvalue !count); *)
-  (*   add_free_var env x (param f_llvalue !count)) *)
-  (*   env (S.elements (M.find fundef.fn_name.s env.sols)) in *)
-  (* let env = List.fold_left2 (fun env (x, _) t -> *)
-  (*   incr count; *)
-  (*   let a = alloca (structured_type env t) (transl_typ env t) in *)
-  (*   set_value_name x.s a; *)
-  (*   store (VAL (param (Lazy.force fi.f_llvalue) !count)) (VAL a); *)
-  (*   add_var x t a env) env fundef.fn_args ts in *)
-
-  (* (\* Process the body *\) *)
-  (* typ_exp { env with in_loop = NoLoop } fundef.fn_body t (fun body -> *)
-  (*   if fundef.fn_rtyp = None then *)
-  (*     ignore (build_ret_void g_builder) *)
-  (*   else *)
-  (*     ignore (build_ret (llvm_value body) g_builder)); *)
-
-  (* position_at_end (entry_block (Lazy.force fi.f_llvalue)) g_builder; *)
-  (* ignore (build_br startbb g_builder) *)
-
-(* and let_funs env fundefs e nxt = *)
-(*   check_unique_fundef_names fundefs; *)
-
-(*   let sols' = *)
-(*     List.fold_left (fun s f -> *)
-(*     let ffv = List.fold_left (fun s (x, _) -> S.remove x.s s) *)
-(*         (fv f.fn_body) f.fn_args in *)
-(*     S.union ffv s *)
-(*       ) S.empty fundefs *)
-(*   in *)
-(*   let sols' = List.fold_left (fun sols f -> M.add f.fn_name.s sols' sols) env.sols fundefs in *)
-(*   let env' = {env with sols = sols'} in *)
-(*   let curr = insertion_block g_builder in *)
-(*   let env' = List.fold_left tr_function_header env' fundefs in *)
-(*   List.iter (tr_function_body env') fundefs; *)
-(*   position_at_end curr g_builder; *)
-
-(*   exp env' e nxt *)
-
-let rec array_var env v =
+and array_var env v =
   let t, v' = var env v in
   match base_type env t with
   | ARRAY (_, t') ->
@@ -649,7 +391,7 @@ and exp env = function
       let tx, v = exp env x in
       begin match base_type env tx with
         | RECORD _ ->
-            INT, Lprim (Pintcomp Cne, [Lconst 0n; v])
+            INT, Lprim (Pintcomp Cneq, [Lconst 0n; v])
         | _ ->
             error (exp_p x) "expected expression of record type, found %s"
               (describe_type tx)
@@ -861,8 +603,8 @@ and exp env = function
   | Elet (_, Dtypes tys, e) ->
       let env = let_type env tys in
       exp env e
-  (* | Elet (_, Dfuns funs, e) -> *)
-  (*     let_funs env funs e nxt *)
+  | Elet (_, Dfuns funs, e) ->
+      let_funs env funs e
 
 let stdtypes =
   [
