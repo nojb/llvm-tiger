@@ -102,8 +102,8 @@ end
 type comparison =
   | Ceq | Cneq | Clt | Cgt | Cle | Cge
 
-type array_kind =
-  | Paddrarray | Pintarray
+type value_kind =
+  | Addr | Int
 
 type primitive =
     Pidentity
@@ -114,8 +114,8 @@ type primitive =
   | Psetglobal of Ident.t
   (* Operations on heap blocks *)
   | Pmakeblock of int
-  | Pfield of int
-  | Psetfield of int
+  | Pfield of value_kind * int
+  | Psetfield of value_kind * int
     (* External call *)
   (* | Pccall of Primitive.description *)
   (* Boolean operations *)
@@ -130,12 +130,12 @@ type primitive =
   (* String operations *)
   | Pstringlength | Pstringrefu | Pstringsetu | Pstringrefs | Pstringsets
   (* Array operations *)
-  | Pmakearray of array_kind
-  | Parraylength of array_kind
-  | Parrayrefu of array_kind
-  | Parraysetu of array_kind
-  | Parrayrefs of array_kind
-  | Parraysets of array_kind
+  | Pmakearray of value_kind
+  | Parraylength of value_kind
+  | Parrayrefu of value_kind
+  | Parraysetu of value_kind
+  | Parrayrefs of value_kind
+  | Parraysets of value_kind
   (* (\* Bitvect operations *\) *)
   (* | Pbittest *)
   (* (\* Compile time constants *\) *)
@@ -180,9 +180,9 @@ let rec fv = function
 
 open Format
 
-let array_kind = function
-  | Paddrarray -> "addr"
-  | Pintarray -> "int"
+let value_kind = function
+  | Addr -> "addr"
+  | Int -> "int"
 
 let primitive ppf = function
   | Pidentity -> fprintf ppf "id"
@@ -190,9 +190,8 @@ let primitive ppf = function
   | Pgetglobal id -> fprintf ppf "global %a" Ident.print id
   | Psetglobal id -> fprintf ppf "setglobal %a" Ident.print id
   | Pmakeblock(tag) -> fprintf ppf "makeblock %i" tag
-  | Pfield n -> fprintf ppf "field %i" n
-  | Psetfield(n) ->
-      fprintf ppf "setfield %i" n
+  | Pfield (k, n) -> fprintf ppf "field[%s] %i" (value_kind k) n
+  | Psetfield(k, n) -> fprintf ppf "setfield[%s] %i" (value_kind k) n
   (* | Pccall p -> fprintf ppf "%s" p.prim_name *)
   | Psequand -> fprintf ppf "&&"
   | Psequor -> fprintf ppf "||"
@@ -222,12 +221,12 @@ let primitive ppf = function
   | Pstringsetu -> fprintf ppf "string.unsafe_set"
   | Pstringrefs -> fprintf ppf "string.get"
   | Pstringsets -> fprintf ppf "string.set"
-  | Parraylength k -> fprintf ppf "array.length[%s]" (array_kind k)
-  | Pmakearray k -> fprintf ppf "makearray[%s]" (array_kind k)
-  | Parrayrefu k -> fprintf ppf "array.unsafe_get[%s]" (array_kind k)
-  | Parraysetu k -> fprintf ppf "array.unsafe_set[%s]" (array_kind k)
-  | Parrayrefs k -> fprintf ppf "array.get[%s]" (array_kind k)
-  | Parraysets k -> fprintf ppf "array.set[%s]" (array_kind k)
+  | Parraylength k -> fprintf ppf "array.length[%s]" (value_kind k)
+  | Pmakearray k -> fprintf ppf "makearray[%s]" (value_kind k)
+  | Parrayrefu k -> fprintf ppf "array.unsafe_get[%s]" (value_kind k)
+  | Parraysetu k -> fprintf ppf "array.unsafe_set[%s]" (value_kind k)
+  | Parrayrefs k -> fprintf ppf "array.get[%s]" (value_kind k)
+  | Parraysets k -> fprintf ppf "array.set[%s]" (value_kind k)
 
 let name_of_primitive = function
   | Pidentity -> "Pidentity"

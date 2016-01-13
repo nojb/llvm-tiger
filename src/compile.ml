@@ -240,13 +240,12 @@ let let_type env tys =
 
 (** ----------------------------------------- *)
 
-(* let rec structured_type env t = *)
-(*   match t with *)
-(*   | NAME y -> structured_type env (M.find y env.tenv) *)
-(*   | STRING *)
-(*   | ARRAY _ *)
-(*   | RECORD _ -> true *)
-(*   | _ -> false *)
+let rec structured_type env = function
+  | NAME y -> structured_type env (M.find y env.tenv)
+  | STRING
+  | ARRAY _
+  | RECORD _ -> Addr
+  | VOID | INT -> Int
 
 (* These utility functions are used in the processing of function definitions *)
 
@@ -341,11 +340,11 @@ and var env v =
   | Vsubscript (v, e) ->
       let t', v = array_var env v in
       let e = int_exp env e in
-      t', Lprim (Parrayrefs Paddrarray (* FIXME *), [v; e])
+      t', Lprim (Parrayrefs Addr (* FIXME *), [v; e])
   | Vfield (v, x) ->
       let t', v = record_var env v in
       let i, tx = find_record_field env t' x in
-      tx, Lprim (Pfield i, [v])
+      tx, Lprim (Pfield (structured_type env t', i), [v])
 
 and exp env e =
   match e.edesc with
@@ -459,7 +458,7 @@ and exp env e =
       begin match base_type env t' with
       | RECORD _ ->
           let e = int_exp env e in
-          VOID, Lprim (Parraysets Paddrarray, [v; e; Lconst 0n])
+          VOID, Lprim (Parraysets Addr, [v; e; Lconst 0n])
       | _ ->
           error e.epos "trying to assign 'nil' to a field of non-record type"
       end
@@ -467,13 +466,13 @@ and exp env e =
       let t', v = array_var env v in
       let e1 = int_exp env e1 in
       let e2 = typ_exp env e2 t' in
-      VOID, Lprim (Parraysets Paddrarray, [v; e1; e2])
+      VOID, Lprim (Parraysets Addr, [v; e1; e2]) (* CHECK *)
   | Eassign ({vdesc = Vfield (v, x)}, {edesc = Enil}) ->
       let t', v = record_var env v in
       let i, tx = find_record_field env t' x in
       begin match base_type env tx with
       | RECORD _ ->
-          VOID, Lprim (Psetfield i, [v; Lconst 0n])
+          VOID, Lprim (Psetfield (Addr, i), [v; Lconst 0n])
       | _ ->
           error e.epos "trying to assign 'nil' to a field of non-record type"
       end
@@ -481,7 +480,7 @@ and exp env e =
       let t', v = record_var env v in
       let i, tx = find_record_field env t' x in
       let e = typ_exp env e tx in
-      VOID, Lprim (Psetfield i, [v; e])
+      VOID, Lprim (Psetfield (structured_type env t', i), [v; e])
   (* | Ecall (p, x, xs) -> *)
   (*     let fi = find_fun x env in *)
   (*     let ts, t = fi.fsign in *)
@@ -520,7 +519,7 @@ and exp env e =
       begin match base_type env t' with
       | RECORD _ ->
           let y = int_exp env y in
-          t, Lprim (Pmakearray Paddrarray, [y; Lconst 0n])
+          t, Lprim (Pmakearray Addr, [y; Lconst 0n])
       | _ ->
           error e.epos "array base type must be record type"
       end
@@ -528,7 +527,7 @@ and exp env e =
       let t, t' = find_array_type x env in
       let y = int_exp env y in
       let z = typ_exp env z t' in
-      t, Lprim (Pmakearray Paddrarray (* FIXME *), [y; z])
+      t, Lprim (Pmakearray (structured_type env t'), [y; z])
   | Emakerecord (x, xts) ->
       let t, ts = find_record_type env x in
       let rec bind vs = function
