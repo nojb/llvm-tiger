@@ -174,6 +174,7 @@ type lambda =
   | Lfor of Ident.t * lambda * lambda * lambda
   | Lassign of Ident.t * lambda
   (* | Levent of lambda * lambda_event *)
+  | Lbreak
 
 let rec fv = function
   | Lvar id -> S.singleton id
@@ -188,6 +189,7 @@ let rec fv = function
   | Lsequence (e1, e2)
   | Lwhile (e1, e2) -> S.union (fv e1) (fv e2)
   | Lassign (i, e) -> S.add i (fv e)
+  | Lbreak -> S.empty
 
 open Format
 

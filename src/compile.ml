@@ -72,15 +72,11 @@ type value_desc =
 
 module M = Map.Make (String)
 
-(* type loop_flag = *)
-(*   | NoLoop *)
-(*   | InLoop of llbasicblock *)
-
 type env =
   {
     venv : value_desc M.t;
     tenv : type_spec M.t;
-    (* in_loop : loop_flag; *)
+    in_loop : bool;
   }
 
 let rec base_type env = function
@@ -94,7 +90,7 @@ let empty_env =
   {
     venv = M.empty;
     tenv = M.empty;
-    (* in_loop = NoLoop; *)
+    in_loop = false;
   }
 
 let find_var id env =
@@ -287,7 +283,7 @@ let rec tr_function_body env fundef =
     List.fold_left2 (fun env (x, _) t -> add_var x t env) env fundef.fn_args ts
   in
   (* Process the body *)
-  let body = typ_exp env (* { env with in_loop = NoLoop } *) fundef.fn_body t in
+  let body = typ_exp {env with in_loop = false} fundef.fn_body t in
   let args = List.map (fun (id, _) -> id.s) fundef.fn_args in
   fundef.fn_name.s, args, body
 
@@ -554,12 +550,6 @@ and exp env = function
         | _, [] ->
             error p "all fields have already been initialised"
       in bind [] (xts, ts)
-  (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
-      int_exp tenv venv looping x (fun x ->
-        int_exp tenv venv looping y (fun y ->
-          .Sseq (T.Sif (Ebinop (x, op, y),
-            void_exp tenv venv looping z Sskip, Sskip),
-            nxt Eundef E.Tvoid))) *)
   | Eif (_, e1, e2, e3) ->
       let e1 = int_exp env e1 in
       let t2, e2 = exp env e2 in
@@ -567,18 +557,18 @@ and exp env = function
       t2, Lifthenelse (e1, e2, e3)
   | Ewhile (_, e1, e2) ->
       let e1 = int_exp env e1 in
-      let e2 = void_exp (* { *) env (* with in_loop = InLoop nextbb } *) e2 in
+      let e2 = void_exp {env with in_loop = true} e2 in
       VOID, Lwhile (e1, e2)
   | Efor (_, i, e1, e2, e3) ->
       let e1 = int_exp env e1 in
       let e2 = int_exp env e2 in
-      let e3 = void_exp (add_var i ~immutable:true INT env) e3 in
+      let e3 = void_exp (add_var i ~immutable:true INT {env with in_loop = true}) e3 in
       VOID, Lfor (i.s, e1, e2, e3)
-  (* | Ebreak p -> *)
-  (*     begin match env.in_loop with *)
-  (*     | InLoop bb -> ignore (build_br bb g_builder); *)
-  (*     | NoLoop    -> error p "illegal use of 'break'" *)
-  (*     end *)
+  | Ebreak p ->
+      if env.in_loop then
+        VOID, Lbreak (* TODO FIX TYPE *)
+      else
+        error p "illegal use of 'break'"
   | Elet (_, Dvar (x, None, e1), e2) ->
       let t1, e1 = exp env e1 in
       let env = add_var x t1 (* a *) env in
@@ -653,7 +643,7 @@ let program e =
   (* let startbb = new_block () in *)
   (* position_at_end startbb g_builder; *)
   (* (\* exp env e (fun _ _ -> ignore (build_ret (const_int0 32 0) g_builder)); *\) *)
-  let _, e = exp {tenv; venv} e in (* (fun _ _ -> ignore (build_ret_void g_builder));*)
+  let _, e = exp {tenv; venv; in_loop = false} e in (* (fun _ _ -> ignore (build_ret_void g_builder));*)
   (* position_at_end (entry_block main_fun) g_builder; *)
   (* ignore (build_br startbb g_builder); *)
   (* g_module *)
