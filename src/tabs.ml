@@ -27,7 +27,6 @@ type bin =
   | Op_add | Op_sub | Op_mul | Op_div
   | Op_cmp of cmp_op
 
-
 type pos =
   Lexing.position
 
@@ -41,63 +40,53 @@ type typ =
   | Tarray of pos_string
   | Trecord of (pos_string * pos_string) list
 
-type var =
+type var_desc =
   | Vsimple of pos_string
-  | Vsubscript of pos * var * exp
-  | Vfield of pos * var * pos_string
+  | Vsubscript of var * exp
+  | Vfield of var * pos_string
+
+and var =
+  {
+    vdesc : var_desc;
+    vpos : Lexing.position;
+  }
+
+and exp_desc =
+  | Eunit
+  | Eint of int
+  | Estring of string
+  | Enil
+  | Evar of var
+  | Ebinop of exp * bin * exp
+  | Eassign of var * exp
+  | Ecall of pos_string * exp list
+  | Eseq of exp * exp
+  | Emakearray of pos_string * exp * exp
+  | Emakerecord of pos_string * (pos_string * exp) list
+  | Eif of exp * exp * exp
+  | Ewhile of exp * exp
+  | Efor of pos_string * exp * exp * exp
+  | Ebreak
+  | Elet of dec * exp
 
 and exp =
-  | Eunit of pos
-  | Eint of pos * int
-  | Estring of pos * string
-  | Enil of pos
-  | Evar of pos * var
-  | Ebinop of pos * exp * bin * exp
-  | Eassign of pos * var * exp
-  | Ecall of pos * pos_string * exp list
-  | Eseq of pos * exp * exp
-  | Emakearray of pos * pos_string * exp * exp
-  | Emakerecord of pos * pos_string * (pos_string * exp) list
-  | Eif of pos * exp * exp * exp
-  | Ewhile of pos * exp * exp
-  | Efor of pos * pos_string * exp * exp * exp
-  | Ebreak of pos
-  | Elet of pos * dec * exp
+  {
+    edesc : exp_desc;
+    epos : Lexing.position;
+  }
 
 and dec =
   | Dtypes of (pos_string * typ) list
   | Dfuns of fundef list
   | Dvar of pos_string * pos_string option * exp
 
-and fundef = {
-  fn_name : pos_string;
-  fn_rtyp : pos_string option;
-  fn_args : (pos_string * pos_string) list;
-  fn_body : exp
-}
-
-let exp_p = function
-  | Eunit p
-  | Eint (p, _)
-  | Estring (p, _)
-  | Enil p
-  | Evar (p, _)
-  | Ebinop (p, _, _, _)
-  | Eassign (p, _, _)
-  | Ecall (p, _, _)
-  | Eseq (p, _, _)
-  | Emakearray (p, _, _, _)
-  | Emakerecord (p, _, _)
-  | Eif (p, _, _, _)
-  | Ewhile (p, _, _)
-  | Efor (p, _, _, _, _)
-  | Ebreak p
-  | Elet (p, _, _) -> p
-
-let var_p = function
-  | Vsimple s -> s.p
-  | Vsubscript (p, _, _)
-  | Vfield (p, _, _) -> p
+and fundef =
+  {
+    fn_name : pos_string;
+    fn_rtyp : pos_string option;
+    fn_args : (pos_string * pos_string) list;
+    fn_body : exp
+  }
 
 module S = Set.Make (String)
 

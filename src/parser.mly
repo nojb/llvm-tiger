@@ -1,9 +1,27 @@
 %{
-  open Error
-  open Tabs
+open Error
+open Tabs
 
-  let pos i =
-    Parsing.rhs_start_pos i
+let pos i =
+  Parsing.rhs_start_pos i
+
+let mkexp d i =
+  {
+    edesc = d;
+    epos = pos i;
+  }
+
+let mkvar d i =
+  {
+    vdesc = d;
+    vpos = pos i;
+  }
+
+let mkstr s i =
+  {
+    s;
+    p = pos i;
+  }
 %}
 
 %token ARRAY OF
@@ -52,7 +70,7 @@ program:
 
 expseq:
   /* empty */
-  { Eunit (Parsing.symbol_start_pos ()) }
+  { {edesc = Eunit; epos = Parsing.symbol_start_pos ()} }
   | expseq_tail
   { $1 }
   ;
@@ -61,7 +79,7 @@ expseq_tail:
   exp
   { $1 }
   | exp SEMI expseq_tail
-  { Eseq (pos 1, $1, $3) }
+  { mkexp (Eseq ($1, $3)) 1 }
   ;
 
 pos_ident:
@@ -78,70 +96,72 @@ record_field_list:
 
 record_field_list_tail:
   pos_ident EQ exp
-  { [($1, $3)] }
+    { [($1, $3)] }
   | pos_ident EQ exp COMMA record_field_list_tail
-  { ($1, $3) :: $5 }
+    { ($1, $3) :: $5 }
   ;
 
-exp:
-    INT
-  { Eint (pos 1, $1) }
+exp
+: INT
+    { mkexp (Eint $1) 1 }
   | STRING
-  { Estring (pos 1, $1) }
+    { mkexp (Estring $1) 1 }
   | NIL
-  { Enil (pos 1) }
+    { mkexp Enil 1 }
   | var
-  { Evar (pos 1, $1) }
+    { mkexp (Evar $1) 1 }
   | MINUS exp %prec unary_op
-  { Ebinop (pos 1, Eint (pos 1, 0), Op_sub, $2) }
+    { mkexp (Ebinop (mkexp (Eint 0) 1, Op_sub, $2)) 1 }
   | exp LAND exp
-  { Eif (pos 2, $1, $3, Eint (pos 3, 0)) }
+    { mkexp (Eif ($1, $3, mkexp (Eint 0) 3)) 2 }
   | exp LOR exp
-  { Eif (pos 2, $1, Eint (pos 3, 1), $3) }
+    { mkexp (Eif ($1, mkexp (Eint 1) 3, $3)) 2 }
   | exp PLUS exp
-  { Ebinop (pos 2, $1, Op_add, $3) }
+    { mkexp (Ebinop ($1, Op_add, $3)) 2 }
   | exp TIMES exp
-  { Ebinop (pos 2, $1, Op_mul, $3) }
+    { mkexp (Ebinop ($1, Op_mul, $3)) 2 }
   | exp MINUS exp
-  { Ebinop (pos 2, $1, Op_sub, $3) }
+    { mkexp (Ebinop ($1, Op_sub, $3)) 2 }
   | exp SLASH exp
-  { Ebinop (pos 2, $1, Op_div, $3) }
+    { mkexp (Ebinop ($1, Op_div, $3)) 2 }
   | exp EQ exp
-  { Ebinop (pos 2, $1, Op_cmp Ceq, $3) }
+    { mkexp (Ebinop ($1, Op_cmp Ceq, $3)) 2 }
   | exp NE exp
-  { Ebinop (pos 2, $1, Op_cmp Cne, $3) }
+    { mkexp (Ebinop ($1, Op_cmp Cne, $3)) 2 }
   | exp LE exp
-  { Ebinop (pos 2, $1, Op_cmp Cle, $3) }
+    { mkexp (Ebinop ($1, Op_cmp Cle, $3)) 2 }
   | exp LT exp
-  { Ebinop (pos 2, $1, Op_cmp Clt, $3) }
+    { mkexp (Ebinop ($1, Op_cmp Clt, $3)) 2 }
   | exp GE exp
-  { Ebinop (pos 2, $1, Op_cmp Cge, $3) }
+    { mkexp (Ebinop ($1, Op_cmp Cge, $3)) 2 }
   | exp GT exp
-  { Ebinop (pos 2, $1, Op_cmp Cgt, $3) }
+    { mkexp (Ebinop ($1, Op_cmp Cgt, $3)) 2 }
   | var COLONEQ exp
-  { Eassign (pos 2, $1, $3) }
+    { mkexp (Eassign ($1, $3)) 2 }
   | pos_ident LPAREN exp_comma_list RPAREN
-  { Ecall (pos 1, $1, $3) }
+    { mkexp (Ecall ($1, $3)) 1 }
   | LPAREN expseq RPAREN
-  { $2 }
+    { $2 }
   | pos_ident LCURLY record_field_list RCURLY
-  { Emakerecord (pos 1, $1, $3) }
+    { mkexp (Emakerecord ($1, $3)) 1 }
   | var LBRACK exp RBRACK OF exp
-  { match $1 with
-    | Vsimple x -> Emakearray (pos 1, x, $3, $6)
-    | _ -> raise Parse_error }
+    {
+      match $1.vdesc with
+      | Vsimple x -> mkexp (Emakearray (x, $3, $6)) 1
+      | _ -> raise Parse_error
+    }
   | IF exp THEN exp
-  { Eif (pos 1, $2, $4, Eunit (Parsing.symbol_end_pos ())) }
+    { mkexp (Eif ($2, $4, {edesc = Eunit; epos = Parsing.symbol_end_pos ()})) 1 }
   | IF exp THEN exp ELSE exp
-  { Eif (pos 1, $2, $4, $6) }
+    { mkexp (Eif ($2, $4, $6)) 1 }
   | WHILE exp DO exp
-  { Ewhile (pos 1, $2, $4) }
+    { mkexp (Ewhile ($2, $4)) 1 }
   | FOR pos_ident COLONEQ exp TO exp DO exp
-  { Efor (pos 1, $2, $4, $6, $8) }
+    { mkexp (Efor ($2, $4, $6, $8)) 1 }
   | BREAK
-  { Ebreak (pos 1) }
+    { mkexp Ebreak 1 }
   | LET decs IN expseq END
-  { List.fold_right (fun (p, d) e -> Elet (p, d, e)) $2 $4 }
+    { List.fold_right (fun (p, d) e -> {edesc = Elet (d, e); epos = p}) $2 $4 }
   ;
 
 exp_comma_list:
@@ -160,11 +180,11 @@ exp_comma_list_tail:
 
 var:
     pos_ident
-  { Vsimple $1 }
+      { mkvar (Vsimple $1) 1 }
   | var LBRACK exp RBRACK
-  { Vsubscript (pos 2, $1, $3) }
+    { mkvar (Vsubscript ($1, $3)) 2 }
   | var DOT pos_ident
-  { Vfield (pos 2, $1, $3) }
+    { mkvar (Vfield ($1, $3)) 2 }
   ;
 
 decs:
@@ -210,11 +230,11 @@ vardec:
   { ($2, $3, $5) }
   ;
 
-optional_var_type:
-  /* empty */
-  { None }
+optional_var_type
+  : /* empty */
+    { None }
   | COLON pos_ident
-  { Some $2 }
+    { Some $2 }
   ;
 
 typdecs:
@@ -244,7 +264,7 @@ typ:
   | ARRAY OF pos_ident
   { Tarray $3 }
   | LCURLY type_field_list RCURLY
-  { Trecord ($2) } 
+  { Trecord ($2) }
   ;
 
 fundec_list:

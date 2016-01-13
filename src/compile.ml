@@ -277,7 +277,6 @@ let tr_function_header env fn =
 let rec tr_function_body env fundef =
   let fi = find_fun fundef.fn_name env in
   let ts, t = fi.fsign in
-  let count = ref (-1) in
   (* Process arguments *)
   let env =
     List.fold_left2 (fun env (x, _) t -> add_var x t env) env fundef.fn_args ts
@@ -300,7 +299,7 @@ and array_var env v =
   | ARRAY (_, t') ->
       t', v'
   | _ ->
-      error (var_p v) "expected variable of array type, but type is '%s'"
+      error v.vpos "expected variable of array type, but type is '%s'"
         (describe_type t)
 
 and record_var env v =
@@ -309,7 +308,7 @@ and record_var env v =
   | RECORD _ ->
       t, v'
   | _ ->
-      error (var_p v) "expected variable of record type, but type is '%s'"
+      error v.vpos "expected variable of record type, but type is '%s'"
         (describe_type t)
 
 and typ_exp env e t' =
@@ -317,7 +316,7 @@ and typ_exp env e t' =
   if type_equal env t t' then
     e'
   else
-    error (exp_p e)
+    error e.epos
       "type mismatch: expected type '%s', instead found '%s'"
       (string_of_type t') (string_of_type t)
 
@@ -329,42 +328,44 @@ and void_exp env e =
 
 (* Main typechecking/compiling functions *)
 
-and var env = function
+and var env v =
+  match v.vdesc with
   | Vsimple x ->
       let vi = find_var x env in
       vi.vtype, Lvar x.s
-  | Vsubscript (p, v, e) ->
+  | Vsubscript (v, e) ->
       let t', v = array_var env v in
       let e = int_exp env e in
       t', Lprim (Parrayrefs Paddrarray (* FIXME *), [v; e])
-  | Vfield (p, v, x) ->
+  | Vfield (v, x) ->
       let t', v = record_var env v in
       let i, tx = find_record_field env t' x in
       tx, Lprim (Pfield i, [v])
 
-and exp env = function
-  | Eunit _ ->
+and exp env e =
+  match e.edesc with
+  | Eunit ->
       VOID, Lconst 0n
-  | Eint (_, n) ->
+  | Eint n ->
       INT, Lconst (Nativeint.of_int n)
-  | Estring (_, s) ->
+  | Estring s ->
       failwith "not implemented"
       (* nxt (VAL (build_global_stringptr s "" g_builder)) STRING *)
-  | Enil p ->
-      error p
+  | Enil ->
+      error e.epos
         "'nil' should be used in a context where \
         its type can be determined"
-  | Evar (_, v) ->
+  | Evar v ->
       var env v
-  | Ebinop (_, e1, Op_add, e2) ->
+  | Ebinop (e1, Op_add, e2) ->
       let e1 = int_exp env e1 in
       let e2 = int_exp env e2 in
       INT, Lprim (Paddint, [e1; e2])
-  | Ebinop (_, e1, Op_sub, e2) ->
+  | Ebinop (e1, Op_sub, e2) ->
       let e1 = int_exp env e1 in
       let e2 = int_exp env e2 in
       INT, Lprim (Psubint, [e1; e2])
-  | Ebinop (_, e1, Op_mul, e2) ->
+  | Ebinop (e1, Op_mul, e2) ->
       let e1 = int_exp env e1 in
       let e2 = int_exp env e2 in
       INT, Lprim (Pmulint, [e1; e2])
@@ -372,24 +373,24 @@ and exp env = function
   (*     int_exp env x (fun x -> *)
   (*     int_exp env y (fun y -> *)
   (*     nxt (binop build_sdiv x y) INT)) *)
-  | Ebinop (_, x, Op_cmp Ceq, Enil _)
-  | Ebinop (_, Enil _, Op_cmp Ceq, x) ->
+  | Ebinop (x, Op_cmp Ceq, {edesc = Enil})
+  | Ebinop ({edesc = Enil}, Op_cmp Ceq, x) ->
       let tx, v = exp env x in
       begin match base_type env tx with
         | RECORD _ ->
             INT, Lprim (Pintcomp Ceq, [Lconst 0n; v])
         | _ ->
-            error (exp_p x) "expected expression of record type, found %s"
+            error x.epos "expected expression of record type, found %s"
               (describe_type tx)
       end
-  | Ebinop (_, x, Op_cmp Cne, Enil _)
-  | Ebinop (_, Enil _, Op_cmp Cne, x) ->
+  | Ebinop (x, Op_cmp Cne, {edesc = Enil})
+  | Ebinop ({edesc = Enil}, Op_cmp Cne, x) ->
       let tx, v = exp env x in
       begin match base_type env tx with
         | RECORD _ ->
             INT, Lprim (Pintcomp Cneq, [Lconst 0n; v])
         | _ ->
-            error (exp_p x) "expected expression of record type, found %s"
+            error x.epos "expected expression of record type, found %s"
               (describe_type tx)
       end
   (* | Ebinop (p, x, Op_cmp cmp, y) -> *)
@@ -435,43 +436,43 @@ and exp env = function
   (*     | _, _ -> *)
   (*         error p "comparison operator cannot be applied to type '%s'" *)
   (*           (describe_type tx))) *)
-  | Eassign (p, Vsimple x, Enil _) ->
+  | Eassign ({vdesc = Vsimple x}, {edesc = Enil}) ->
       let vi = find_var x env in
       begin match base_type env vi.vtype with
       | RECORD _ ->
           VOID, Lassign (x.s, Lconst 0n)
       | _ ->
-          error p "trying to assign 'nil' to a variable of non-record type"
+          error e.epos "trying to assign 'nil' to a variable of non-record type"
       end
-  | Eassign (p, Vsimple x, e) ->
+  | Eassign ({vdesc = Vsimple x}, e) ->
       let vi = find_var x env in
-      if vi.vimm then error p "variable '%s' should not be assigned to" x.s;
+      if vi.vimm then error e.epos "variable '%s' should not be assigned to" x.s;
       let e = typ_exp env e vi.vtype in
       VOID, Lassign (x.s, e)
-  | Eassign (p, Vsubscript (p', v, e), Enil _) ->
+  | Eassign ({vdesc = Vsubscript (v, e)}, {edesc = Enil}) ->
       let t', v = array_var env v in
       begin match base_type env t' with
       | RECORD _ ->
           let e = int_exp env e in
           VOID, Lprim (Parraysets Paddrarray, [v; e; Lconst 0n])
       | _ ->
-          error p "trying to assign 'nil' to a field of non-record type"
+          error e.epos "trying to assign 'nil' to a field of non-record type"
       end
-  | Eassign (_, Vsubscript (p, v, e1), e2) ->
+  | Eassign ({vdesc = Vsubscript (v, e1)}, e2) ->
       let t', v = array_var env v in
       let e1 = int_exp env e1 in
       let e2 = typ_exp env e2 t' in
       VOID, Lprim (Parraysets Paddrarray, [v; e1; e2])
-  | Eassign (p, Vfield (p', v, x), Enil _) ->
+  | Eassign ({vdesc = Vfield (v, x)}, {edesc = Enil}) ->
       let t', v = record_var env v in
       let i, tx = find_record_field env t' x in
       begin match base_type env tx with
       | RECORD _ ->
           VOID, Lprim (Psetfield i, [v; Lconst 0n])
       | _ ->
-          error p "trying to assign 'nil' to a field of non-record type"
+          error e.epos "trying to assign 'nil' to a field of non-record type"
       end
-  | Eassign (_, Vfield (p, v, x), e) ->
+  | Eassign ({vdesc = Vfield (v, x)}, e) ->
       let t', v = record_var env v in
       let i, tx = find_record_field env t' x in
       let e = typ_exp env e tx in
@@ -505,30 +506,30 @@ and exp env = function
   (*       | _ -> *)
   (*           assert false *)
   (*     in bind [] (xs, ts) *)
-  | Eseq (_, e1, e2) ->
+  | Eseq (e1, e2) ->
       let _, e1 = exp env e1 in
       let t, e2 = exp env e2 in
       t, Lsequence (e1, e2)
-  | Emakearray (p, x, y, Enil _) ->
+  | Emakearray (x, y, {edesc = Enil}) ->
       let t, t' = find_array_type x env in
       begin match base_type env t' with
       | RECORD _ ->
           let y = int_exp env y in
           t, Lprim (Pmakearray Paddrarray, [y; Lconst 0n])
       | _ ->
-          error p "array base type must be record type"
+          error e.epos "array base type must be record type"
       end
-  | Emakearray (_, x, y, z) ->
+  | Emakearray (x, y, z) ->
       let t, t' = find_array_type x env in
       let y = int_exp env y in
       let z = typ_exp env z t' in
       t, Lprim (Pmakearray Paddrarray (* FIXME *), [y; z])
-  | Emakerecord (p, x, xts) ->
+  | Emakerecord (x, xts) ->
       let t, ts = find_record_type env x in
       let rec bind vs = function
         | [], [] ->
             t, Lprim (Pmakeblock 0 (* FIXME *), List.rev vs)
-        | (x, Enil _) :: xts, (x', t) :: ts ->
+        | (x, {edesc = Enil}) :: xts, (x', t) :: ts ->
             if x.s = x' then
               bind (Lconst 0n :: vs) (xts, ts)
             else
@@ -546,35 +547,35 @@ and exp env = function
               else
                 error x.p "unknown field '%s'" x.s
         | [], _ ->
-            error p "some fields missing from initialisation"
+            error e.epos "some fields missing from initialisation"
         | _, [] ->
-            error p "all fields have already been initialised"
+            error e.epos "all fields have already been initialised"
       in bind [] (xts, ts)
-  | Eif (_, e1, e2, e3) ->
+  | Eif (e1, e2, e3) ->
       let e1 = int_exp env e1 in
       let t2, e2 = exp env e2 in
       let e3 = typ_exp env e3 t2 in
       t2, Lifthenelse (e1, e2, e3)
-  | Ewhile (_, e1, e2) ->
+  | Ewhile (e1, e2) ->
       let e1 = int_exp env e1 in
       let e2 = void_exp {env with in_loop = true} e2 in
       VOID, Lwhile (e1, e2)
-  | Efor (_, i, e1, e2, e3) ->
+  | Efor (i, e1, e2, e3) ->
       let e1 = int_exp env e1 in
       let e2 = int_exp env e2 in
       let e3 = void_exp (add_var i ~immutable:true INT {env with in_loop = true}) e3 in
       VOID, Lfor (i.s, e1, e2, e3)
-  | Ebreak p ->
+  | Ebreak ->
       if env.in_loop then
         VOID, Lbreak (* TODO FIX TYPE *)
       else
-        error p "illegal use of 'break'"
-  | Elet (_, Dvar (x, None, e1), e2) ->
+        error e.epos "illegal use of 'break'"
+  | Elet (Dvar (x, None, e1), e2) ->
       let t1, e1 = exp env e1 in
       let env = add_var x t1 (* a *) env in
       let t2, e2 = exp env e2 in
       t2, Llet (x.s, e1, e2)
-  | Elet (p, Dvar (x, Some t, Enil _), e2) ->
+  | Elet (Dvar (x, Some t, {edesc = Enil}), e2) ->
       let t = find_type t env in
       begin match base_type env t with
       | RECORD _ ->
@@ -582,18 +583,18 @@ and exp env = function
           let t2, e2 = exp env e2 in
           t2, Llet (x.s, Lconst 0n, e2)
       | _ ->
-          error p "expected record type, found '%s'" (describe_type t)
+          error e.epos "expected record type, found '%s'" (describe_type t)
       end
-  | Elet (_, Dvar (x, Some t, e1), e2) ->
+  | Elet (Dvar (x, Some t, e1), e2) ->
       let ty = find_type t env in
       let e1 = typ_exp env e1 ty in
       let env = add_var x ty (* a *) env in
       let t2, e2 = exp env e2 in
       t2, Llet (x.s, e1, e2)
-  | Elet (_, Dtypes tys, e) ->
+  | Elet (Dtypes tys, e) ->
       let env = let_type env tys in
       exp env e
-  | Elet (_, Dfuns funs, e) ->
+  | Elet (Dfuns funs, e) ->
       let_funs env funs e
 
 let stdtypes =
