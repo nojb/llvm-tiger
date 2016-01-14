@@ -149,20 +149,33 @@ let find_record_field env t (x : pos_string) =
   in loop 0 xts
 
 let declare_type env (x, t) =
-  let find_type y env =
+  let get_type y =
     try
       M.find y.s env.env_types
     with Not_found ->
-      {tname = y.s; tlevel = env.env_level; tdesc = DUMMY}
+      {tid = next_tid (); tname = y.s; tlevel = env.env_level; tdesc = REF (ref None)}
   in
-  match t with
-  | Tname y ->
-      add_type x (find_type y env) env
-  | Tarray y ->
-      add_type x {tname = x.s; tlevel = env.env_level; tdesc = ARRAY (find_type y env)} env
-  | Trecord xs ->
-      let xts = List.map (fun (x, t) -> x.s, find_type t env) xs in
-      add_type x {tname = x.s; tlevel = env.env_level; tdesc = RECORD xts} env
+  let aux = function
+    | Tname y ->
+        get_type y
+    | Tarray y ->
+        {tid = next_tid (); tname = x.s; tlevel = env.env_level; tdesc = ARRAY (get_type y)}
+    | Trecord xs ->
+        let xts = List.map (fun (x, t) -> x.s, get_type t) xs in
+        {tid = next_tid (); tname = x.s; tlevel = env.env_level; tdesc = RECORD xts}
+  in
+  match M.find x.s env.env_types with
+  | {tdesc = REF ({contents = None} as r)} ->
+      r := Some (aux t);
+      env
+  | {tdesc = REF {contents = Some _}} ->
+      failwith "redefined"
+  | t1 when t1.tlevel < env.env_level ->
+      add_type x (aux t) env
+  | t1 ->
+      failwith "redefined"
+  | exception Not_found ->
+      add_type x (aux t) env
 
 let check_unique_type_names xts =
   let rec bind = function
@@ -181,32 +194,22 @@ let check_unique_type_names xts =
 
 let check_type env (x, _) =
   let visited = ref [] in
-  let rec loop thru_record t =
-    if List.memq t !visited then begin
-      if not thru_record then
-        error x.p "type declaration cycle does not pass through record type"
-    end else begin
-      visited := t :: !visited;
-      match t.tdesc with
-      | VOID
-      | INT
-      | STRING -> ()
-      | ARRAY t ->
-          loop thru_record t
-      | RECORD xts ->
-          List.iter (fun (_, t) -> loop true t) xts
-      | DUMMY ->
-          assert false
-      (* | NAME y -> *)
-      (*     begin try *)
-      (*       loop thru_record (M.find y env.tenv) *)
-      (*     with *)
-      (*       Not_found -> error x.p "unbound type '%s'" y *)
-      (*       (\* FIXME x.p != position of y in general *\) *)
-      (*     end *)
-    end
+  let rec shorten t t1 =
+    if List.memq t1.tid !visited then failwith "does not go through structured type"
+    else visited := t1.tid :: !visited;
+    match t1.tdesc with
+    | REF {contents = None} ->
+        failwith "undefined type"
+    | REF {contents = Some t1} ->
+        shorten t t1
+    | _ ->
+        if t.tid != t1.tid then begin
+          t.tid <- t1.tid;
+          t.tdesc <- t1.tdesc
+        end
   in
-  loop false (M.find x.s env.env_types)
+  let t = M.find x.s env.env_types in
+  shorten t t
 
 let let_type env tys =
   check_unique_type_names tys;

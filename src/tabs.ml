@@ -84,22 +84,26 @@ module Typedtree = struct
     | ARRAY of type_expr
     | RECORD of (string * type_expr) list
     | ANY
-    | DUMMY
+    | REF of type_expr option ref
 
   and type_expr =
     {
       tname: string;
       tlevel: int;
+      mutable tid: int;
       mutable tdesc: type_desc;
     }
 
-  let any_ty = {tname = "<any>"; tlevel = -1; tdesc = ANY}
-  let string_ty = {tname = "string"; tlevel = -1; tdesc = STRING}
-  let int_ty = {tname = "int"; tlevel = -1; tdesc = INT}
-  let void_ty = {tname = "void"; tlevel = -1; tdesc = VOID}
+  let last_tid = ref (-1)
+  let next_tid () = incr last_tid; !last_tid
+
+  let any_ty = {tid = next_tid (); tname = "<any>"; tlevel = -1; tdesc = ANY}
+  let string_ty = {tid = next_tid (); tname = "string"; tlevel = -1; tdesc = STRING}
+  let int_ty = {tid = next_tid (); tname = "int"; tlevel = -1; tdesc = INT}
+  let void_ty = {tid = next_tid (); tname = "void"; tlevel = -1; tdesc = VOID}
 
   let type_equal t1 t2 =
-    t1 == t2 || t1 == any_ty || t2 == any_ty
+    t1.tid == t2.tid || t1.tid == any_ty.tid || t2.tid == any_ty.tid
 
   let rec name_of_type ty = ty.tname
 
