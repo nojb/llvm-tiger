@@ -83,19 +83,23 @@ module Typedtree = struct
     | STRING
     | ARRAY of type_expr
     | RECORD of (string * type_expr) list
+    | ANY
     | DUMMY
 
   and type_expr =
     {
       tname: string;
+      tlevel: int;
       mutable tdesc: type_desc;
     }
 
-  let string_ty = {tname = "string"; tdesc = STRING}
-  let int_ty = {tname = "int"; tdesc = INT}
-  let void_ty = {tname = "void"; tdesc = VOID}
+  let any_ty = {tname = "<any>"; tlevel = -1; tdesc = ANY}
+  let string_ty = {tname = "string"; tlevel = -1; tdesc = STRING}
+  let int_ty = {tname = "int"; tlevel = -1; tdesc = INT}
+  let void_ty = {tname = "void"; tlevel = -1; tdesc = VOID}
 
-  let type_equal t1 t2 = t1 == t2
+  let type_equal t1 t2 =
+    t1 == t2 || t1 == any_ty || t2 == any_ty
 
   let rec name_of_type ty = ty.tname
 

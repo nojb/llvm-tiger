@@ -52,21 +52,23 @@ module M = Map.Make (String)
 
 type env =
   {
-    venv: value_desc M.t;
-    tenv: type_expr M.t;
-    in_loop: bool;
+    env_values: value_desc M.t;
+    env_types: type_expr M.t;
+    env_looping: bool;
+    env_level: int;
   }
 
 let empty_env =
   {
-    venv = M.empty;
-    tenv = M.empty;
-    in_loop = false;
+    env_values = M.empty;
+    env_types = M.empty;
+    env_looping = false;
+    env_level = 0;
   }
 
 let find_var id env =
   try
-    match M.find id.s env.venv with
+    match M.find id.s env.env_values with
     | Variable vi -> vi
     | Function _ -> raise Not_found
   with
@@ -75,13 +77,15 @@ let find_var id env =
 
 let add_var (x : pos_string) ?(immutable = false) t env =
   let vi = {vi_type = t; vi_imm = immutable} in
-  {env with venv = M.add x.s (Variable vi) env.venv}
+  {env with env_values = M.add x.s (Variable vi) env.env_values}
 
 let mem_var x env =
-  try match M.find x env.venv with
-  | Variable _ -> true
-  | Function _ -> false
-  with Not_found -> false
+  try
+    match M.find x env.env_values with
+    | Variable _ -> true
+    | Function _ -> false
+  with Not_found ->
+    false
 
 let add_fun x uid atyps rtyp env =
   let fi =
@@ -91,17 +95,19 @@ let add_fun x uid atyps rtyp env =
       f_user = true;
     }
   in
-  {env with venv = M.add x.s (Function fi) env.venv}
+  {env with env_values = M.add x.s (Function fi) env.env_values}
 
 let mem_user_fun x env =
-  try match M.find x env.venv with
-  | Function fi -> fi.f_user
-  | Variable _ -> false
-  with Not_found -> false
+  try
+    match M.find x env.env_values with
+    | Function fi -> fi.f_user
+    | Variable _ -> false
+  with Not_found ->
+    false
 
 let find_fun x env =
   try
-    match M.find x.s env.venv with
+    match M.find x.s env.env_values with
     | Variable _ -> raise Not_found
     | Function fi -> fi
   with
@@ -112,12 +118,12 @@ let find_fun x env =
 
 let find_type x env =
   try
-    M.find x.s env.tenv
+    M.find x.s env.env_types
   with Not_found ->
     error x.p "unbound type '%s'" x.s
 
 let add_type x t env =
-  { env with tenv = M.add x.s t env.tenv }
+  {env with env_types = M.add x.s t env.env_types}
 
 let find_array_type x env =
   match find_type x env with
@@ -145,18 +151,18 @@ let find_record_field env t (x : pos_string) =
 let declare_type env (x, t) =
   let find_type y env =
     try
-      M.find y.s env.tenv
+      M.find y.s env.env_types
     with Not_found ->
-      {tname = y.s; tdesc = DUMMY}
+      {tname = y.s; tlevel = env.env_level; tdesc = DUMMY}
   in
   match t with
   | Tname y ->
       add_type x (find_type y env) env
   | Tarray y ->
-      add_type x {tname = x.s; tdesc = ARRAY (find_type y env)} env
+      add_type x {tname = x.s; tlevel = env.env_level; tdesc = ARRAY (find_type y env)} env
   | Trecord xs ->
       let xts = List.map (fun (x, t) -> x.s, find_type t env) xs in
-      add_type x {tname = x.s; tdesc = RECORD xts} env
+      add_type x {tname = x.s; tlevel = env.env_level; tdesc = RECORD xts} env
 
 let check_unique_type_names xts =
   let rec bind = function
@@ -190,8 +196,7 @@ let check_type env (x, _) =
       | RECORD xts ->
           List.iter (fun (_, t) -> loop true t) xts
       | DUMMY ->
-          begin try
-              t.tdesc <- M.find t.tname
+          assert false
       (* | NAME y -> *)
       (*     begin try *)
       (*       loop thru_record (M.find y env.tenv) *)
@@ -201,7 +206,7 @@ let check_type env (x, _) =
       (*     end *)
     end
   in
-  loop false (M.find x.s env.tenv)
+  loop false (M.find x.s env.env_types)
 
 let let_type env tys =
   check_unique_type_names tys;
@@ -257,15 +262,15 @@ let rec tr_function_body env fundef =
         add_var x t env
       ) env fundef.fn_args ts
   in
-  let body = typ_exp {env with in_loop = false} fundef.fn_body t in
+  let body = typ_exp {env with env_looping = false} fundef.fn_body t in
   let args = List.combine (List.map fst fundef.fn_args) ts in
   {fun_name = fundef.fn_name; fun_args = args; fun_rety = t; fun_body = body}
 
 and let_funs env fundefs e =
   check_unique_fundef_names fundefs;
-  let env' = List.fold_left tr_function_header env fundefs in
-  let fundefs = List.map (tr_function_body env') fundefs in
-  let e = exp env' e in
+  let env = List.fold_left tr_function_header env fundefs in
+  let fundefs = List.map (tr_function_body env) fundefs in
+  let e = exp {env with env_level = env.env_level + 1} e in
   mkexp (Tletrec (fundefs, e)) e.etype
 
 and array_var env v =
@@ -534,29 +539,29 @@ and exp env e : Typedtree.exp =
       mkexp (Tif (x, y, z)) y.etype
   | Ewhile (_, x, y) ->
       let x = int_exp env x in
-      let y = void_exp {env with in_loop = true} y in
+      let y = void_exp {env with env_looping = true} y in
       mkexp (Twhile (x, y)) void_ty
   | Efor (_, i, x, y, z) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      let z = void_exp (add_var i ~immutable:true int_ty env) z in
+      let z = void_exp (add_var i ~immutable:true int_ty {env with env_looping = true}) z in
       mkexp (Tfor (i, x, y, z)) void_ty
   | Ebreak p ->
-      if env.in_loop then
-        mkexp Tbreak void_ty (* FIXME *)
+      if env.env_looping then
+        mkexp Tbreak any_ty
       else
         error p "illegal use of 'break'"
   | Elet (_, Dvar (x, None, y), z) ->
       let y = exp env y in
       let env = add_var x y.etype env in
-      let z = exp env z in
+      let z = exp {env with env_level = env.env_level + 1} z in
       mkexp (Tlet (x, y, z)) z.etype
   | Elet (p, Dvar (x, Some t, Enil _), z) ->
       let t = find_type t env in
       begin match t.tdesc with
       | RECORD _ ->
           let env = add_var x t env in
-          let z = exp env z in
+          let z = exp {env with env_level = env.env_level + 1} z in
           mkexp (Tlet (x, mkexp Tnil t, z)) z.etype
       | _ ->
           error p "expected record type, found '%s'" (name_of_type t)
@@ -565,11 +570,11 @@ and exp env e : Typedtree.exp =
       let ty = find_type t env in
       let y = typ_exp env y ty in
       let env = add_var x ty env in
-      let z = exp env z in
+      let z = exp {env with env_level = env.env_level + 1} z in
       mkexp (Tlet (x, y, z)) z.etype
   | Elet (_, Dtypes tys, e) ->
       let env = let_type env tys in
-      exp env e
+      exp {env with env_level = env.env_level + 1} e
   | Elet (_, Dfuns funs, e) ->
       let_funs env funs e
 
