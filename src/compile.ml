@@ -31,27 +31,17 @@ let gentmp s =
   incr tmp_counter;
   s ^ "__" ^ (string_of_int !tmp_counter)
 
-let describe_type = function
-  | VOID      -> "void"
-  | INT       -> "int"
-  | STRING    -> "string"
-  | ARRAY _   -> "array"
-  | RECORD _  -> "record"
-  | NAME x    -> "named type " ^ x
-
 type var_info =
   {
-    vi_type : type_spec;
-    vi_imm : bool;
-    (* v_alloca : llvalue *)
+    vi_type: type_expr;
+    vi_imm: bool;
   }
 
 type fun_info =
   {
-    fname : string;
-    fsign : type_spec list * type_spec;
-    f_user : bool;
-    (* f_llvalue : llvalue Lazy.t *)
+    fname: string;
+    fsign: type_expr list * type_expr;
+    f_user: bool;
   }
 
 type value_desc =
@@ -62,26 +52,16 @@ module M = Map.Make (String)
 
 type env =
   {
-    venv : value_desc M.t;
-    tenv : type_spec M.t;
-    in_loop : bool;
-    (* used for lambda lifting *)
-    sols : S.t M.t
+    venv: value_desc M.t;
+    tenv: type_expr M.t;
+    in_loop: bool;
   }
-
-let rec base_type env = function
-  | NAME x -> base_type env (M.find x env.tenv)
-  | _ as t -> t
-
-let type_equal env t1 t2 =
-  base_type env t1 == base_type env t2
 
 let empty_env =
   {
     venv = M.empty;
     tenv = M.empty;
     in_loop = false;
-    sols = M.empty
   }
 
 let find_var id env =
@@ -140,39 +120,43 @@ let add_type x t env =
   { env with tenv = M.add x.s t env.tenv }
 
 let find_array_type x env =
-  match base_type env (find_type x env) with
-  | ARRAY (_, t') as t -> t, t'
-  | _ as t ->
+  match find_type x env with
+  | {tdesc = ARRAY t'} as t -> t, t'
+  | t ->
       error x.p "expected '%s' to be of array type, but is '%s'" x.s
-        (describe_type t)
+        (name_of_type t)
 
 let find_record_type env x =
-  match base_type env (find_type x env) with
-  | RECORD (_, xts) as t -> t, xts
-  | _ as t ->
+  match find_type x env with
+  | {tdesc = RECORD xts} as t -> t, xts
+  | t ->
       error x.p "expected '%s' to be of record type, but is '%s'" x.s
-        (describe_type t)
+        (name_of_type t)
 
 let find_record_field env t (x : pos_string) =
-  let t, xts = match base_type env t with RECORD (t, xts) -> t, xts | _ -> assert false in
+  let xts = match t.tdesc with RECORD xts -> xts | _ -> assert false in
   (* let ts = M.find t env.renv in *)
   let rec loop i = function
-    | [] -> error x.p "record type '%s' does not contain field '%s'" t x.s
+    | [] -> error x.p "record type '%s' does not contain field '%s'" (name_of_type t) x.s
     | (x', t') :: xs when x' = x.s -> i, t'
     | _ :: xs -> loop (i+1) xs
   in loop 0 xts
 
 let declare_type env (x, t) =
   let find_type y env =
-    try M.find y.s env.tenv
-    with Not_found -> NAME y.s in
+    try
+      M.find y.s env.tenv
+    with Not_found ->
+      {tname = y.s; tdesc = DUMMY}
+  in
   match t with
   | Tname y ->
       add_type x (find_type y env) env
   | Tarray y ->
-      add_type x (ARRAY (x.s, find_type y env)) env
+      add_type x {tname = x.s; tdesc = ARRAY (find_type y env)} env
   | Trecord xs ->
-      add_type x (RECORD (x.s, List.map (fun (x, t) -> x.s, find_type t env) xs)) env
+      let xts = List.map (fun (x, t) -> x.s, find_type t env) xs in
+      add_type x {tname = x.s; tdesc = RECORD xts} env
 
 let check_unique_type_names xts =
   let rec bind = function
@@ -186,33 +170,38 @@ let check_unique_type_names xts =
             x.s
         else
           bind xts
-  in bind xts
+  in
+  bind xts
 
 let check_type env (x, _) =
   let visited = ref [] in
   let rec loop thru_record t =
-    if List.memq t !visited then
-      if thru_record then ()
-      else error x.p "type declaration cycle does not pass through record type"
-    else begin
+    if List.memq t !visited then begin
+      if not thru_record then
+        error x.p "type declaration cycle does not pass through record type"
+    end else begin
       visited := t :: !visited;
-      match t with
+      match t.tdesc with
       | VOID
       | INT
       | STRING -> ()
-      | ARRAY (_, t) ->
+      | ARRAY t ->
           loop thru_record t
-      | RECORD (_, xts) ->
+      | RECORD xts ->
           List.iter (fun (_, t) -> loop true t) xts
-      | NAME y ->
+      | DUMMY ->
           begin try
-            loop thru_record (M.find y env.tenv)
-          with
-            Not_found -> error x.p "unbound type '%s'" y
-            (* FIXME x.p != position of y in general *)
-          end
+              t.tdesc <- M.find t.tname
+      (* | NAME y -> *)
+      (*     begin try *)
+      (*       loop thru_record (M.find y env.tenv) *)
+      (*     with *)
+      (*       Not_found -> error x.p "unbound type '%s'" y *)
+      (*       (\* FIXME x.p != position of y in general *\) *)
+      (*     end *)
     end
-  in loop false (M.find x.s env.tenv)
+  in
+  loop false (M.find x.s env.tenv)
 
 let let_type env tys =
   check_unique_type_names tys;
@@ -223,8 +212,7 @@ let let_type env tys =
 (** ----------------------------------------- *)
 
 let rec structured_type env t =
-  match t with
-  | NAME y -> structured_type env (M.find y env.tenv)
+  match t.tdesc with
   | STRING
   | ARRAY _
   | RECORD _ -> true
@@ -251,7 +239,7 @@ let check_unique_fundef_names fundefs =
 let tr_return_type env fn =
   match fn.fn_rtyp with
   | None ->
-      VOID
+      void_ty
   | Some t ->
       find_type t env
 
@@ -282,36 +270,36 @@ and let_funs env fundefs e =
 
 and array_var env v =
   let v' = var env v in
-  match base_type env v'.vtype with
-  | ARRAY (_, t') ->
+  match v'.vtype.tdesc with
+  | ARRAY t' ->
       v', t'
   | _ ->
       error (var_p v) "expected variable of array type, but type is '%s'"
-        (describe_type v'.vtype)
+        (name_of_type v'.vtype)
 
 and record_var env v =
   let v' = var env v in
-  match base_type env v'.vtype with
+  match v'.vtype.tdesc with
   | RECORD _ ->
       v'
   | _ ->
       error (var_p v) "expected variable of record type, but type is '%s'"
-        (describe_type v'.vtype)
+        (name_of_type v'.vtype)
 
 and typ_exp env e t' =
   let e' = exp env e in
-  if type_equal env t' e'.etype then
+  if type_equal t' e'.etype then
     e'
   else
     error (exp_p e)
       "type mismatch: expected type '%s', instead found '%s'"
-      (string_of_type t') (string_of_type e'.etype)
+      (name_of_type t') (name_of_type e'.etype)
 
 and int_exp env e =
-  typ_exp env e INT
+  typ_exp env e int_ty
 
 and void_exp env e =
-  typ_exp env e VOID
+  typ_exp env e void_ty
 
 (* Main typechecking/compiling functions *)
 
@@ -341,9 +329,9 @@ and var env v : Typedtree.var =
 and exp env e : Typedtree.exp =
   match e with
   | Eunit _ ->
-      mkexp Tunit VOID
+      mkexp Tunit void_ty
   | Eint (_, n) ->
-      mkexp (Tint n) INT
+      mkexp (Tint n) int_ty
   (* | Estring (_, s) -> *)
   (*     nxt (VAL (build_global_stringptr s "" g_builder)) STRING *)
   | Enil p ->
@@ -356,15 +344,15 @@ and exp env e : Typedtree.exp =
   | Ebinop (_, x, Op_add, y) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      mkexp (Tbinop (x, Op_add, y)) INT
+      mkexp (Tbinop (x, Op_add, y)) int_ty
   | Ebinop (_, x, Op_sub, y) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      mkexp (Tbinop (x, Op_sub, y)) INT
+      mkexp (Tbinop (x, Op_sub, y)) int_ty
   | Ebinop (_, x, Op_mul, y) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      mkexp (Tbinop (x, Op_mul, y)) INT
+      mkexp (Tbinop (x, Op_mul, y)) int_ty
   (* | Ebinop (_, x, Op_div, y) -> *)
   (*     int_exp env x (fun x -> *)
   (*     int_exp env y (fun y -> *)
@@ -441,16 +429,16 @@ and exp env e : Typedtree.exp =
   (*           (describe_type tx))) *)
   | Eassign (p, v, Enil _) ->
       let v = var env v in
-      begin match base_type env v.vtype with
+      begin match v.vtype.tdesc with
         | RECORD _ ->
-            mkexp (Tassign (v, mkexp Tnil v.vtype)) VOID
+            mkexp (Tassign (v, mkexp Tnil v.vtype)) void_ty
         | _ ->
             error p "trying to assign 'nil' to a variable of non-record type"
       end
   | Eassign (p, v, e) ->
       let v = var env v in
       let e = typ_exp env e v.vtype in
-      mkexp (Tassign (v, e)) VOID
+      mkexp (Tassign (v, e)) void_ty
   | Ecall (p, x, xs) ->
       let fi = find_fun x env in
       let ts, t = fi.fsign in
@@ -470,11 +458,11 @@ and exp env e : Typedtree.exp =
             in
             mkexp (Tcall (x, actuals)) t
         | Enil p :: xs, t :: ts ->
-            begin match base_type env t with
+            begin match t.tdesc with
             | RECORD _ ->
                 bind (mkexp Tnil t :: ys) (xs, ts)
             | _ ->
-                error p "expected record type, found '%s'" (describe_type t)
+                error p "expected record type, found '%s'" (name_of_type t)
             end
         | x :: xs, t :: ts ->
             let x = typ_exp env x t in
@@ -489,7 +477,7 @@ and exp env e : Typedtree.exp =
       mkexp (Tseq (e1, e2)) e2.etype
   | Emakearray (p, x, y, Enil _) ->
       let t, t' = find_array_type x env in
-      begin match base_type env t' with
+      begin match t'.tdesc with
       | RECORD _ ->
           let y = int_exp env y in
           mkexp (Tmakearray (y, mkexp Tnil t')) t
@@ -538,7 +526,7 @@ and exp env e : Typedtree.exp =
   | Eif (_, x, y, Eunit _) ->
       let x = int_exp env x in
       let y = void_exp env y in
-      mkexp (Tif (x, y, mkexp Tunit VOID)) VOID
+      mkexp (Tif (x, y, mkexp Tunit void_ty)) void_ty
   | Eif (_, x, y, z) ->
       let x = int_exp env x in
       let y = exp env y in
@@ -547,15 +535,15 @@ and exp env e : Typedtree.exp =
   | Ewhile (_, x, y) ->
       let x = int_exp env x in
       let y = void_exp {env with in_loop = true} y in
-      mkexp (Twhile (x, y)) VOID
+      mkexp (Twhile (x, y)) void_ty
   | Efor (_, i, x, y, z) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      let z = void_exp (add_var i ~immutable:true INT env) z in
-      mkexp (Tfor (i, x, y, z)) VOID
+      let z = void_exp (add_var i ~immutable:true int_ty env) z in
+      mkexp (Tfor (i, x, y, z)) void_ty
   | Ebreak p ->
       if env.in_loop then
-        mkexp Tbreak VOID (* FIXME *)
+        mkexp Tbreak void_ty (* FIXME *)
       else
         error p "illegal use of 'break'"
   | Elet (_, Dvar (x, None, y), z) ->
@@ -565,13 +553,13 @@ and exp env e : Typedtree.exp =
       mkexp (Tlet (x, y, z)) z.etype
   | Elet (p, Dvar (x, Some t, Enil _), z) ->
       let t = find_type t env in
-      begin match base_type env t with
+      begin match t.tdesc with
       | RECORD _ ->
           let env = add_var x t env in
           let z = exp env z in
           mkexp (Tlet (x, mkexp Tnil t, z)) z.etype
       | _ ->
-          error p "expected record type, found '%s'" (describe_type t)
+          error p "expected record type, found '%s'" (name_of_type t)
       end
   | Elet (_, Dvar (x, Some t, y), z) ->
       let ty = find_type t env in
@@ -586,7 +574,7 @@ and exp env e : Typedtree.exp =
       let_funs env funs e
 
 let base_tenv =
-  M.add "int" INT (M.add "string" STRING M.empty)
+  M.add "int" int_ty (M.add "string" string_ty M.empty)
 
 let base_venv env =
   env

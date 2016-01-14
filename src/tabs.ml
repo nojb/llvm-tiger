@@ -77,21 +77,27 @@ and fundef = {
 }
 
 module Typedtree = struct
-  type type_spec =
+  type type_desc =
     | VOID
     | INT
     | STRING
-    | ARRAY   of string * type_spec
-    | RECORD  of string * (string * type_spec) list
-    | NAME    of string
+    | ARRAY of type_expr
+    | RECORD of (string * type_expr) list
+    | DUMMY
 
-  let rec string_of_type = function
-    | VOID          -> "void"
-    | INT           -> "int"
-    | STRING        -> "string"
-    | ARRAY (x, _)
-    | RECORD (x, _)
-    | NAME x        -> x
+  and type_expr =
+    {
+      tname: string;
+      mutable tdesc: type_desc;
+    }
+
+  let string_ty = {tname = "string"; tdesc = STRING}
+  let int_ty = {tname = "int"; tdesc = INT}
+  let void_ty = {tname = "void"; tdesc = VOID}
+
+  let type_equal t1 t2 = t1 == t2
+
+  let rec name_of_type ty = ty.tname
 
   type var_desc  =
     | Tsimple of string
@@ -101,7 +107,7 @@ module Typedtree = struct
   and var =
     {
       vdesc: var_desc;
-      vtype: type_spec;
+      vtype: type_expr;
     }
 
   and exp_desc =
@@ -126,14 +132,14 @@ module Typedtree = struct
   and exp =
     {
       edesc: exp_desc;
-      etype: type_spec;
+      etype: type_expr;
     }
 
   and fundef =
     {
       fun_name: pos_string;
-      fun_args: (pos_string * type_spec) list;
-      fun_rety: type_spec;
+      fun_args: (pos_string * type_expr) list;
+      fun_rety: type_expr;
       fun_body: exp;
     }
 
