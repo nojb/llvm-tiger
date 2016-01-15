@@ -66,18 +66,17 @@ and compile env e k =
                 Cstore (v, e, k (Cint 0l))))
   | Tseq (e1, e2) ->
       compile env e1 (fun _ -> compile env e2 k)
+  | Tif (e1, e2, e3) when type_equal e2.texp_type void_ty ->
+      let b = mkblock (k (Cint 0l)) in
+      let b2 = mkblock (compile env e2 (fun _ -> Cgoto b)) in
+      let b3 = mkblock (compile env e3 (fun _ -> Cgoto b)) in
+      compile env e1 (fun e1 -> Cifthenelse (e1, b2, b3))
   | Tif (e1, e2, e3) ->
-      if type_equal e2.texp_type void_ty then
-        let b = mkblock (k (Cint 0l)) in
-        let b2 = mkblock (compile env e2 (fun _ -> Cgoto b)) in
-        let b3 = mkblock (compile env e3 (fun _ -> Cgoto b)) in
-        compile env e1 (fun e1 -> Cifthenelse (e1, b2, b3))
-      else
-        let id = "dummy" in
-        let b = mkblock (k (Cop (Cload, [Cvar id]))) in
-        let b2 = mkblock (compile env e2 (fun e -> Cstore (Cvar id, e, Cgoto b))) in
-        let b3 = mkblock (compile env e3 (fun e -> Cstore (Cvar id, e, Cgoto b))) in
-        compile env e1 (fun e1 -> Cifthenelse (e1, b2, b3))
+      let id = "dummy" in
+      let b = mkblock (k (Cop (Cload, [Cvar id]))) in
+      let b2 = mkblock (compile env e2 (fun e -> Cstore (Cvar id, e, Cgoto b))) in
+      let b3 = mkblock (compile env e3 (fun e -> Cstore (Cvar id, e, Cgoto b))) in
+      compile env e1 (fun e1 -> Cifthenelse (e1, b2, b3))
   | Twhile (e1, e2) ->
       let b3 = mkblock (k (Cint 0l)) in
       let rec b = {bid = 3; bcode = Cgoto b} in
