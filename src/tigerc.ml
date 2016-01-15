@@ -48,7 +48,9 @@ let compile_stdin () =
     let lexbuf = Lexing.from_channel stdin in
     lexbuf.Lexing.lex_curr_p <-
       { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>" };
-    let m = Compile.program (Parser.program Lexer.token lexbuf) in
+    let p = Parser.program Lexer.token lexbuf in
+    let m = Compile.program p in
+    let c = Cmmgen.compile (assert false) m in
     assert false
     (* Llvm.dump_module m; *)
     (* Llvm.dispose_module m *)

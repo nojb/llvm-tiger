@@ -124,8 +124,8 @@ module Typedtree = struct
 
   and var =
     {
-      vdesc: var_desc;
-      vtype: type_expr;
+      tvar_desc: var_desc;
+      tvar_type: type_expr;
     }
 
   and exp_desc =
@@ -149,8 +149,8 @@ module Typedtree = struct
 
   and exp =
     {
-      edesc: exp_desc;
-      etype: type_expr;
+      texp_desc: exp_desc;
+      texp_type: type_expr;
     }
 
   and fundef =
@@ -163,45 +163,14 @@ module Typedtree = struct
 
   let mkexp d t =
     {
-      edesc = d;
-      etype = t;
+      texp_desc = d;
+      texp_type = t;
     }
 
   let mkvar d t =
     {
-      vdesc = d;
-      vtype = t;
-    }
-end
-
-module Cmm = struct
-  type ty =
-    | Tint of int
-    | Tptr of ty
-
-  type operation =
-    | Caddint
-    | Csubint
-    | Cmulint
-    | Cgep
-    | Cload
-
-  type expr =
-    | Cint of int32
-    | Cop of operation * expr list
-    | Cvar of string
-
-  type code =
-    | Calloca of string * ty * code
-    | Cstore of expr * expr * code
-    | Cgoto of block
-    | Cifthenelse of expr * block * block
-    | Capply of string * string * expr list * code
-
-  and block =
-    {
-      bid: int;
-      bcode: code;
+      tvar_desc = d;
+      tvar_type = t;
     }
 end
 

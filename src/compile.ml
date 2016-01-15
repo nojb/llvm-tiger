@@ -274,34 +274,34 @@ and let_funs env fundefs e =
   let env = List.fold_left tr_function_header env fundefs in
   let fundefs = List.map (tr_function_body env) fundefs in
   let e = exp {env with env_level = env.env_level + 1} e in
-  mkexp (Tletrec (fundefs, e)) e.etype
+  mkexp (Tletrec (fundefs, e)) e.texp_type
 
 and array_var env v =
   let v' = var env v in
-  match v'.vtype.tdesc with
+  match v'.tvar_type.tdesc with
   | ARRAY t' ->
       v', t'
   | _ ->
       error v.pvar_pos "expected variable of array type, but type is '%s'"
-        (name_of_type v'.vtype)
+        (name_of_type v'.tvar_type)
 
 and record_var env v =
   let v' = var env v in
-  match v'.vtype.tdesc with
+  match v'.tvar_type.tdesc with
   | RECORD _ ->
       v'
   | _ ->
       error v.pvar_pos "expected variable of record type, but type is '%s'"
-        (name_of_type v'.vtype)
+        (name_of_type v'.tvar_type)
 
 and typ_exp env e t' =
   let e' = exp env e in
-  if type_equal t' e'.etype then
+  if type_equal t' e'.texp_type then
     e'
   else
     error e.pexp_pos
       "type mismatch: expected type '%s', instead found '%s'"
-      (name_of_type t') (name_of_type e'.etype)
+      (name_of_type t') (name_of_type e'.texp_type)
 
 and int_exp env e =
   typ_exp env e int_ty
@@ -329,7 +329,7 @@ and var env v : Typedtree.var =
               (* nxt (load v) t')) *)
   | Vfield (v, x) ->
       let v = record_var env v in
-      let i, tx = find_record_field env v.vtype x in
+      let i, tx = find_record_field env v.tvar_type x in
       mkvar (Tfield (v, i)) tx
 (* let v = record_index p.Lexing.pos_lnum v i in *)
 (* nxt (load v) tx) *)
@@ -348,7 +348,7 @@ and exp env e : Typedtree.exp =
         its type can be determined"
   | Evar v ->
       let v = var env v in
-      mkexp (Tvar v) v.vtype
+      mkexp (Tvar v) v.tvar_type
   | Ebinop (x, Op_add, y) ->
       let x = int_exp env x in
       let y = int_exp env y in
@@ -437,15 +437,15 @@ and exp env e : Typedtree.exp =
   (*           (describe_type tx))) *)
   | Eassign (v, {pexp_desc = Enil}) ->
       let v = var env v in
-      begin match v.vtype.tdesc with
+      begin match v.tvar_type.tdesc with
         | RECORD _ ->
-            mkexp (Tassign (v, mkexp Tnil v.vtype)) void_ty
+            mkexp (Tassign (v, mkexp Tnil v.tvar_type)) void_ty
         | _ ->
             error e.pexp_pos "trying to assign 'nil' to a variable of non-record type"
       end
   | Eassign (v, e) ->
       let v = var env v in
-      let e = typ_exp env e v.vtype in
+      let e = typ_exp env e v.tvar_type in
       mkexp (Tassign (v, e)) void_ty
   | Ecall (x, xs) ->
       let fi = find_fun x env in
@@ -482,7 +482,7 @@ and exp env e : Typedtree.exp =
   | Eseq (x1, x2) ->
       let e1 = exp env x1 in
       let e2 = exp env x2 in
-      mkexp (Tseq (e1, e2)) e2.etype
+      mkexp (Tseq (e1, e2)) e2.texp_type
   | Emakearray (x, y, {pexp_desc = Enil}) ->
       let t, t' = find_array_type x env in
       begin match t'.tdesc with
@@ -538,8 +538,8 @@ and exp env e : Typedtree.exp =
   | Eif (x, y, z) ->
       let x = int_exp env x in
       let y = exp env y in
-      let z = typ_exp env z y.etype in
-      mkexp (Tif (x, y, z)) y.etype
+      let z = typ_exp env z y.texp_type in
+      mkexp (Tif (x, y, z)) y.texp_type
   | Ewhile (x, y) ->
       let x = int_exp env x in
       let y = void_exp {env with env_looping = true} y in
@@ -556,16 +556,16 @@ and exp env e : Typedtree.exp =
         error e.pexp_pos "illegal use of 'break'"
   | Elet (Dvar (x, None, y), z) ->
       let y = exp env y in
-      let env = add_var x y.etype env in
+      let env = add_var x y.texp_type env in
       let z = exp {env with env_level = env.env_level + 1} z in
-      mkexp (Tlet (x, y, z)) z.etype
+      mkexp (Tlet (x, y, z)) z.texp_type
   | Elet (Dvar (x, Some t, {pexp_desc = Enil}), z) ->
       let t = find_type t env in
       begin match t.tdesc with
       | RECORD _ ->
           let env = add_var x t env in
           let z = exp {env with env_level = env.env_level + 1} z in
-          mkexp (Tlet (x, mkexp Tnil t, z)) z.etype
+          mkexp (Tlet (x, mkexp Tnil t, z)) z.texp_type
       | _ ->
           error e.pexp_pos "expected record type, found '%s'" (name_of_type t)
       end
@@ -574,7 +574,7 @@ and exp env e : Typedtree.exp =
       let y = typ_exp env y ty in
       let env = add_var x ty env in
       let z = exp {env with env_level = env.env_level + 1} z in
-      mkexp (Tlet (x, y, z)) z.etype
+      mkexp (Tlet (x, y, z)) z.texp_type
   | Elet (Dtypes tys, e) ->
       let env = let_type env tys in
       exp {env with env_level = env.env_level + 1} e
@@ -610,7 +610,7 @@ let base_venv env =
 (*         fllval }) env.venv } in *)
 (*   List.fold_left decl_fun env stdlib *)
 
-let program e = e
+let program e = exp empty_env e
   (* let env = { empty_env with tenv = base_tenv } in *)
   (* let env = base_venv env in *)
   (* let main_fun = define_function "__tiger__main" *)
