@@ -24,157 +24,229 @@ open Error
 open Tabs
 open Typedtree
 
-let tmp_counter = ref (-1)
+module Env : sig
+  type t
+  val empty: t
+  val enter_scope: t -> t
+  val loop: t -> t
+  val no_loop: t -> t
+  val looping: t -> bool
+  type variable = ident * type_expr * bool
+  type external_flag = External | Defined
+  type signature = type_expr list * type_expr
+  type function_ = ident * external_flag * signature
+  val find_variable: Tabs.ident -> t -> variable
+  val find_function: Tabs.ident -> t -> function_
+  val find_type: Tabs.ident -> t -> type_expr
+  val find_type_local: Tabs.ident -> t -> type_expr
+  val add_variable: Tabs.ident -> ?immutable:bool -> type_expr -> t -> t * ident
+  val add_function: Tabs.ident -> external_flag -> type_expr list -> type_expr -> t -> t
+  val add_type: Tabs.ident -> type_expr -> t -> t
+  val find_array_type: Tabs.ident -> t -> type_expr * type_expr
+  val find_record_type: Tabs.ident -> t -> type_expr * (string * type_expr) list
+  val find_record_field: type_expr -> Tabs.ident -> t -> int * type_expr
+end = struct
 
-let gentmp s =
-  incr tmp_counter;
-  s ^ "__" ^ (string_of_int !tmp_counter)
+  module StringMap = Map.Make (String)
 
-type var_info =
-  {
-    vi_type: type_expr;
-    vi_imm: bool;
-  }
+  type variable = ident * type_expr * bool
 
-type fun_info =
-  {
-    fname: string;
-    fsign: type_expr list * type_expr;
-    f_user: bool;
-  }
+  type external_flag = External | Defined
 
-type value_desc =
-  | Variable of var_info
-  | Function of fun_info
+  type signature = type_expr list * type_expr
 
-module M = Map.Make (String)
+  type function_ = ident * external_flag * signature
 
-type env =
-  {
-    env_values: value_desc M.t;
-    env_types: type_expr M.t;
-    env_looping: bool;
-    env_level: int;
-  }
+  type value =
+    | Variable of variable
+    | Function of function_
 
-let empty_env =
-  {
-    env_values = M.empty;
-    env_types = M.empty;
-    env_looping = false;
-    env_level = 0;
-  }
-
-let find_var id env =
-  try
-    match M.find id.pid_text env.env_values with
-    | Variable vi -> vi
-    | Function _ -> raise Not_found
-  with
-    Not_found ->
-      error id.pid_pos "unbound variable '%s'" id.pid_text
-
-let add_var (x : ident) ?(immutable = false) t env =
-  let vi = {vi_type = t; vi_imm = immutable} in
-  {env with env_values = M.add x.pid_text (Variable vi) env.env_values}
-
-let mem_var x env =
-  try
-    match M.find x env.env_values with
-    | Variable _ -> true
-    | Function _ -> false
-  with Not_found ->
-    false
-
-let add_fun x uid atyps rtyp env =
-  let fi =
+  type t =
     {
-      fname = uid;
-      fsign = atyps, rtyp;
-      f_user = true;
+      values: value StringMap.t list;
+      types: type_expr StringMap.t list;
+      looping: bool;
+      level: int;
     }
-  in
-  {env with env_values = M.add x.pid_text (Function fi) env.env_values}
 
-let mem_user_fun x env =
-  try
-    match M.find x env.env_values with
-    | Function fi -> fi.f_user
-    | Variable _ -> false
-  with Not_found ->
-    false
+  let looping env = env.looping
 
-let find_fun x env =
-  try
-    match M.find x.pid_text env.env_values with
-    | Variable _ -> raise Not_found
-    | Function fi -> fi
-  with
-    Not_found ->
-      error x.pid_pos "unbound function '%s'" x.pid_text
+  type error =
+    | Expected_record of Lexing.position * string * type_expr
+    | Expected_array of Lexing.position * string * type_expr
+    | Expected_record_type of Lexing.position * type_expr
+    | Field_not_found of Lexing.position * type_expr * string
+    | Redefined_function of Lexing.position * string
+    | Redefined_variable of Lexing.position * string
+    | Redefined_type of Lexing.position * string
+    | Variable_not_found of Lexing.position * string
+    | Function_not_found of Lexing.position * string
+    | Type_not_found of Lexing.position * string
+    | Variable_expected of Lexing.position * string
+    | Function_expected of Lexing.position * string
 
-(* type tenv = (string * E.typ) list *)
+  exception Error of error
 
-let find_type x env =
-  try
-    M.find x.pid_text env.env_types
-  with Not_found ->
-    error x.pid_pos "unbound type '%s'" x.pid_text
+  let find_variable id env =
+    let rec aux = function
+      | [] ->
+          raise (Error (Variable_not_found (id.pid_pos, id.pid_text)))
+      | env :: rest ->
+          begin match StringMap.find id.pid_text env with
+            | Variable v ->
+                v
+            | Function _ ->
+                raise (Error (Variable_expected (id.pid_pos, id.pid_text)))
+            | exception Not_found ->
+                aux rest
+          end
+    in
+    aux env.values
 
-let add_type x t env =
-  {env with env_types = M.add x.pid_text t env.env_types}
+  let find_function id env =
+    let rec aux = function
+      | [] ->
+          raise (Error (Function_not_found (id.pid_pos, id.pid_text)))
+      | env :: rest ->
+          begin match StringMap.find id.pid_text env with
+            | Variable _ ->
+                raise (Error (Function_expected (id.pid_pos, id.pid_text)))
+            | Function f ->
+                f
+            | exception Not_found ->
+                aux rest
+          end
+    in
+    aux env.values
 
-let find_array_type x env =
-  match find_type x env with
-  | {tdesc = ARRAY t'} as t -> t, t'
-  | t ->
-      error x.pid_pos "expected '%s' to be of array type, but is '%s'" x.pid_text
-        (name_of_type t)
+  let find_type id env =
+    let rec aux = function
+      | [] ->
+          raise (Error (Type_not_found (id.pid_pos, id.pid_text)))
+      | env :: rest ->
+          begin match StringMap.find id.pid_text env with
+            | ty ->
+                ty
+            | exception Not_found ->
+                aux rest
+          end
+    in
+    aux env.types
 
-let find_record_type env x =
-  match find_type x env with
-  | {tdesc = RECORD xts} as t -> t, xts
-  | t ->
-      error x.pid_pos "expected '%s' to be of record type, but is '%s'" x.pid_text
-        (name_of_type t)
+  let find_type_local id env =
+    match env.types with
+    | [] ->
+        raise Not_found
+    | env :: _ ->
+        StringMap.find id.pid_text env
 
-let find_record_field env t (x : ident) =
-  let xts = match t.tdesc with RECORD xts -> xts | _ -> assert false in
-  (* let ts = M.find t env.renv in *)
-  let rec loop i = function
-    | [] -> error x.pid_pos "record type '%s' does not contain field '%s'" (name_of_type t) x.pid_text
-    | (x', t') :: xs when x' = x.pid_text -> i, t'
-    | _ :: xs -> loop (i+1) xs
-  in loop 0 xts
+  let add_variable {pid_text; pid_pos} ?(immutable = false) t env =
+    let id = new_ident pid_text in
+    let v = Variable (id, t, immutable) in
+    match env.values with
+    | env0 :: _ when StringMap.mem pid_text env0 ->
+        raise (Error (Redefined_variable (pid_pos, pid_text)))
+    | env0 :: rest ->
+        {env with values = StringMap.add pid_text v env0 :: rest}, id
+    | [] ->
+        assert false
+
+  let add_function {pid_text; pid_pos} eflag argty rety env =
+    let id = new_ident pid_text in
+    let f = Function (id, eflag, (argty, rety)) in
+    match env.values with
+    | env0 :: _ when StringMap.mem pid_text env0 ->
+        raise (Error (Redefined_function (pid_pos, pid_text)))
+    | env0 :: rest ->
+        {env with values = StringMap.add pid_text f env0 :: rest}
+    | [] ->
+        assert false
+
+  let add_type {pid_text; pid_pos} t env =
+    match env.types with
+    | env0 :: _ when StringMap.mem pid_text env0 ->
+        raise (Error (Redefined_type (pid_pos, pid_text)))
+    | env0 :: rest ->
+        {env with types = StringMap.add pid_text t env0 :: rest}
+    | [] ->
+        assert false
+
+  let empty =
+    {
+      values = [];
+      types = [];
+      looping = false;
+      level = 0;
+    }
+
+  let loop env = {env with looping = true}
+
+  let no_loop env = {env with looping = false}
+
+  let enter_scope env =
+    {
+      env with values = StringMap.empty :: env.values;
+               types = StringMap.empty :: env.types;
+               level = env.level + 1;
+    }
+
+  let find_array_type ({pid_text; pid_pos} as id) env =
+    match find_type id env with
+    | {tdesc = ARRAY t'} as t ->
+        t, t'
+    | t ->
+        raise (Error (Expected_array (pid_pos, pid_text, t)))
+
+  let find_record_type ({pid_text; pid_pos} as id) env =
+    match find_type id env with
+    | {tdesc = RECORD xts} as t ->
+        t, xts
+    | t ->
+        raise (Error (Expected_record (pid_pos, pid_text, t)))
+
+  let find_record_field t ({pid_text; pid_pos} as id) env =
+    let xts =
+      match t.tdesc with
+      | RECORD xts -> xts
+      | _ -> raise (Error (Expected_record_type (pid_pos, t)))
+    in
+    let rec loop i = function
+      | [] ->
+          raise (Error (Field_not_found (pid_pos, t, pid_text)))
+      | (x, t) :: xs when x = pid_text ->
+          i, t
+      | _ :: xs ->
+          loop (i+1) xs
+    in
+    loop 0 xts
+end
 
 let declare_type env (x, t) =
   let get_type y =
     try
-      M.find y.pid_text env.env_types
+      Env.find_type y env
     with Not_found ->
-      {tid = next_tid (); tname = y.pid_text; tlevel = env.env_level; tdesc = REF (ref None)}
+      {tid = next_tid (); tname = y.pid_text; tdesc = REF (ref None)}
   in
   let aux = function
     | Tname y ->
         get_type y
     | Tarray y ->
-        {tid = next_tid (); tname = x.pid_text; tlevel = env.env_level; tdesc = ARRAY (get_type y)}
+        {tid = next_tid (); tname = x.pid_text; tdesc = ARRAY (get_type y)}
     | Trecord xs ->
         let xts = List.map (fun (x, t) -> x.pid_text, get_type t) xs in
-        {tid = next_tid (); tname = x.pid_text; tlevel = env.env_level; tdesc = RECORD xts}
+        {tid = next_tid (); tname = x.pid_text; tdesc = RECORD xts}
   in
-  match M.find x.pid_text env.env_types with
+  match Env.find_type_local x env with
   | {tdesc = REF ({contents = None} as r)} ->
       r := Some (aux t);
       env
   | {tdesc = REF {contents = Some _}} ->
       failwith "redefined"
-  | t1 when t1.tlevel < env.env_level ->
-      add_type x (aux t) env
   | t1 ->
       failwith "redefined"
   | exception Not_found ->
-      add_type x (aux t) env
+      Env.add_type x (aux t) env
 
 let check_unique_type_names xts =
   let rec bind = function
@@ -207,7 +279,7 @@ let check_type env (x, _) =
           t.tdesc <- t1.tdesc
         end
   in
-  let t = M.find x.pid_text env.env_types in
+  let t = Env.find_type x env in
   shorten t t
 
 let let_type env tys =
@@ -248,31 +320,35 @@ let tr_return_type env fn =
   | None ->
       void_ty
   | Some t ->
-      find_type t env
+      Env.find_type t env
 
 let tr_function_header env fn =
   let rtyp = tr_return_type env fn in
-  let argst = List.map (fun (_, t) -> find_type t env) fn.fn_args in
-  let uid = gentmp fn.fn_name.pid_text in
-  add_fun fn.fn_name uid argst rtyp env
+  let argst = List.map (fun (_, t) -> Env.find_type t env) fn.fn_args in
+  Env.add_function fn.fn_name Env.Defined argst rtyp env
 
 let rec tr_function_body env fundef =
-  let fi = find_fun fundef.fn_name env in
-  let ts, t = fi.fsign in
+  let (_, _, (ts, t)) = Env.find_function fundef.fn_name env in
   let env =
     List.fold_left2 (fun env (x, _) t ->
-        add_var x t env
+        let env, _ = Env.add_variable x t env in
+        env
       ) env fundef.fn_args ts
   in
-  let body = typ_exp {env with env_looping = false} fundef.fn_body t in
-  let args = List.combine (List.map fst fundef.fn_args) ts in
-  {fun_name = fundef.fn_name; fun_args = args; fun_rety = t; fun_body = body}
+  let body = typ_exp (Env.no_loop env) fundef.fn_body t in
+  let args = List.combine (List.map (fun (id, _) -> new_ident id.pid_text) fundef.fn_args) ts in
+  {
+    fun_name = new_ident fundef.fn_name.pid_text;
+    fun_args = args;
+    fun_rety = t;
+    fun_body = body;
+  }
 
 and let_funs env fundefs e =
   check_unique_fundef_names fundefs;
   let env = List.fold_left tr_function_header env fundefs in
   let fundefs = List.map (tr_function_body env) fundefs in
-  let e = exp {env with env_level = env.env_level + 1} e in
+  let e = exp (Env.enter_scope env) e in
   mkexp (Tletrec (fundefs, e)) e.texp_type
 
 and array_var env v =
@@ -313,25 +389,16 @@ and void_exp env e =
 and var env v : Typedtree.var =
   match v.pvar_desc with
   | Vsimple x ->
-      let vi = find_var x env in
-      mkvar (Tsimple x.pid_text) vi.vi_type (* CHECK *)
-      (* if vi.vimm then *)
-      (*   nxt (VAL vi.v_alloca) vi.vtype *)
-      (* else *)
-      (*   nxt (LOADVAL vi.v_alloca) vi.vtype *)
+      let id, t, _ = Env.find_variable x env in
+      mkvar (Tsimple id) t
   | Vsubscript (v, x) ->
       let v, t = array_var env v in
-          (* let v = save (triggers x) v in *)
       let x = int_exp env x in
       mkvar (Tindex (v, x)) t
-              (* let v = array_index p.Lexing.pos_lnum v x in *)
-              (* nxt (load v) t')) *)
-  | Vfield (v, x) ->
+  | Vfield (v, id) ->
       let v = record_var env v in
-      let i, tx = find_record_field env v.tvar_type x in
+      let i, tx = Env.find_record_field v.tvar_type id env in
       mkvar (Tfield (v, i)) tx
-(* let v = record_index p.Lexing.pos_lnum v i in *)
-(* nxt (load v) tx) *)
 
 and exp env e : Typedtree.exp =
   match e.pexp_desc with
@@ -446,12 +513,11 @@ and exp env e : Typedtree.exp =
       let v = var env v in
       let e = typ_exp env e v.tvar_type in
       mkexp (Tassign (v, e)) void_ty
-  | Ecall (x, xs) ->
-      let fi = find_fun x env in
-      let ts, t = fi.fsign in
-      if List.length xs <> List.length ts then
+  | Ecall (id, es) ->
+      let id, eflag, (ts, t) = Env.find_function id env in
+      if List.length es <> List.length ts then
         error e.pexp_pos "bad arity: is %d, should be %d"
-          (List.length xs) (List.length ts);
+          (List.length es) (List.length ts);
       let rec bind ys = function
         | [], [] ->
             let actuals =
@@ -463,7 +529,7 @@ and exp env e : Typedtree.exp =
               (* else *)
                 List.rev ys
             in
-            mkexp (Tcall (x, actuals)) t
+            mkexp (Tcall (id, actuals)) t
         | {pexp_desc = Enil; pexp_pos = p} :: xs, t :: ts ->
             begin match t.tdesc with
             | RECORD _ ->
@@ -477,13 +543,13 @@ and exp env e : Typedtree.exp =
         | _ ->
             assert false
       in
-      bind [] (xs, ts)
+      bind [] (es, ts)
   | Eseq (x1, x2) ->
       let e1 = exp env x1 in
       let e2 = exp env x2 in
       mkexp (Tseq (e1, e2)) e2.texp_type
-  | Emakearray (x, y, {pexp_desc = Enil}) ->
-      let t, t' = find_array_type x env in
+  | Emakearray (id, y, {pexp_desc = Enil}) ->
+      let t, t' = Env.find_array_type id env in
       begin match t'.tdesc with
       | RECORD _ ->
           let y = int_exp env y in
@@ -492,12 +558,12 @@ and exp env e : Typedtree.exp =
           error e.pexp_pos "array base type must be record type"
       end
   | Emakearray (x, y, z) ->
-      let t, t' = find_array_type x env in
+      let t, t' = Env.find_array_type x env in
       let y = int_exp env y in
       let z = typ_exp env z t' in
       mkexp (Tmakearray (y, z)) t
   | Emakerecord (x, xts) ->
-      let t, ts = find_record_type env x in
+      let t, ts = Env.find_record_type x env in
       let rec bind vs = function
         | [], [] ->
             mkexp (Tmakerecord (List.rev vs)) t
@@ -541,50 +607,52 @@ and exp env e : Typedtree.exp =
       mkexp (Tif (x, y, z)) y.texp_type
   | Ewhile (x, y) ->
       let x = int_exp env x in
-      let y = void_exp {env with env_looping = true} y in
+      let y = void_exp (Env.loop env) y in
       mkexp (Twhile (x, y)) void_ty
   | Efor (i, x, y, z) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      let z = void_exp (add_var i ~immutable:true int_ty {env with env_looping = true}) z in
+      let env = Env.enter_scope env in
+      let env, i = Env.add_variable i ~immutable:true int_ty (Env.loop env) in
+      let z = void_exp env z in
       mkexp (Tfor (i, x, y, z)) void_ty
+  | Ebreak when Env.looping env ->
+      mkexp Tbreak any_ty
   | Ebreak ->
-      if env.env_looping then
-        mkexp Tbreak any_ty
-      else
-        error e.pexp_pos "illegal use of 'break'"
+      error e.pexp_pos "illegal use of 'break'"
   | Elet (Dvar (x, None, y), z) ->
       let y = exp env y in
-      let env = add_var x y.texp_type env in
-      let z = exp {env with env_level = env.env_level + 1} z in
+      let env, x = Env.add_variable x y.texp_type env in
+      let env = Env.enter_scope env in
+      let z = exp env z in
       mkexp (Tlet (x, y, z)) z.texp_type
   | Elet (Dvar (x, Some t, {pexp_desc = Enil}), z) ->
-      let t = find_type t env in
+      let t = Env.find_type t env in
       begin match t.tdesc with
       | RECORD _ ->
-          let env = add_var x t env in
-          let z = exp {env with env_level = env.env_level + 1} z in
+          let env, x = Env.add_variable x t env in
+          let env = Env.enter_scope env in
+          let z = exp env z in
           mkexp (Tlet (x, mkexp Tnil t, z)) z.texp_type
       | _ ->
           error e.pexp_pos "expected record type, found '%s'" (name_of_type t)
       end
   | Elet (Dvar (x, Some t, y), z) ->
-      let ty = find_type t env in
+      let ty = Env.find_type t env in
       let y = typ_exp env y ty in
-      let env = add_var x ty env in
-      let z = exp {env with env_level = env.env_level + 1} z in
+      let env, x = Env.add_variable x ty env in
+      let z = exp (Env.enter_scope env) z in
       mkexp (Tlet (x, y, z)) z.texp_type
   | Elet (Dtypes tys, e) ->
       let env = let_type env tys in
-      exp {env with env_level = env.env_level + 1} e
+      exp (Env.enter_scope env) e
   | Elet (Dfuns funs, e) ->
       let_funs env funs e
 
-let base_tenv =
-  M.add "int" int_ty (M.add "string" string_ty M.empty)
+let base_env =
+  Env.add_type (makeghost "int") int_ty
+    (Env.add_type (makeghost "string") string_ty Env.empty)
 
-let base_venv env =
-  env
 (*   let stdlib = *)
 (*     [ "print" , [STRING], VOID; *)
 (*       "printi", [INT], VOID; *)
@@ -609,7 +677,8 @@ let base_venv env =
 (*         fllval }) env.venv } in *)
 (*   List.fold_left decl_fun env stdlib *)
 
-let program e = exp empty_env e
+let program e =
+  exp base_env e
   (* let env = { empty_env with tenv = base_tenv } in *)
   (* let env = base_venv env in *)
   (* let main_fun = define_function "__tiger__main" *)

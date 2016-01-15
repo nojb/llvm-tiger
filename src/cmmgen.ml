@@ -36,7 +36,7 @@ let mkblock c =
 let rec compile_var env v k =
   match v.tvar_desc with
   | Tsimple id ->
-      k (Cvar id)
+      k (Cvar id.stamp)
   | Tindex (v, e) ->
       compile_var env v
         (fun v ->
@@ -72,7 +72,7 @@ and compile env e k =
       let b3 = mkblock (compile env e3 (fun _ -> Cgoto b)) in
       compile env e1 (fun e1 -> Cifthenelse (e1, b2, b3))
   | Tif (e1, e2, e3) ->
-      let id = "dummy" in
+      let id = (-1) in (* CHECK *)
       let b = mkblock (k (Cop (Cload, [Cvar id]))) in
       let b2 = mkblock (compile env e2 (fun e -> Cstore (Cvar id, e, Cgoto b))) in
       let b3 = mkblock (compile env e3 (fun e -> Cstore (Cvar id, e, Cgoto b))) in
@@ -86,4 +86,4 @@ and compile env e k =
   | Tbreak ->
       Cgoto env
   | Tlet (id, e1, e2) ->
-      Calloca (id.pid_text, assert false, compile env e1 (fun e1 -> Cstore (Cvar id.pid_text, e1, compile env e2 k)))
+      Calloca (id.name, assert false, compile env e1 (fun e1 -> Cstore (Cvar id.stamp, e1, compile env e2 k)))

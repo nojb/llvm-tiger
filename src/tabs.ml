@@ -33,6 +33,12 @@ type ident =
     pid_pos: Lexing.position;
   }
 
+let makeghost s =
+  {
+    pid_text = s;
+    pid_pos = Lexing.dummy_pos;
+  }
+
 type typ =
   | Tname of ident
   | Tarray of ident

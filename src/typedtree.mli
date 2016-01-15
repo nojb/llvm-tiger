@@ -36,18 +36,15 @@ and type_expr =
     mutable tdesc: type_desc;
   }
 
-let last_tid = ref (-1)
-let next_tid () = incr last_tid; !last_tid
+val next_tid: unit -> int
+val any_ty: type_expr
+val string_ty: type_expr
+val int_ty: type_expr
+val void_ty: type_expr
 
-let any_ty = {tid = next_tid (); tname = "<any>"; tdesc = ANY}
-let string_ty = {tid = next_tid (); tname = "string"; tdesc = STRING}
-let int_ty = {tid = next_tid (); tname = "int"; tdesc = INT}
-let void_ty = {tid = next_tid (); tname = "void"; tdesc = VOID}
+val type_equal: type_expr -> type_expr -> bool
 
-let type_equal t1 t2 =
-  t1.tid == t2.tid || t1.tid == any_ty.tid || t2.tid == any_ty.tid
-
-let rec name_of_type ty = ty.tname
+val name_of_type: type_expr -> string
 
 type ident =
   {
@@ -55,13 +52,7 @@ type ident =
     name: string;
   }
 
-let last_id = ref (-1)
-let new_ident s =
-  incr last_id;
-  {
-    stamp = !last_id;
-    name = s;
-  }
+val new_ident: string -> ident
 
 type var_desc  =
   | Tsimple of ident
@@ -107,14 +98,5 @@ and fundef =
     fun_body: exp;
   }
 
-let mkexp d t =
-  {
-    texp_desc = d;
-    texp_type = t;
-  }
-
-let mkvar d t =
-  {
-    tvar_desc = d;
-    tvar_type = t;
-  }
+val mkexp: exp_desc -> type_expr -> exp
+val mkvar: var_desc -> type_expr -> var

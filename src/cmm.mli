@@ -31,17 +31,20 @@ type operation =
   | Cgep
   | Cload
 
+type ident = int
+
 type expr =
   | Cint of int32
   | Cop of operation * expr list
-  | Cvar of string
+  | Cvar of ident
 
 type code =
   | Calloca of string * ty * code
   | Cstore of expr * expr * code
   | Cgoto of block
   | Cifthenelse of expr * block * block
-  | Capply of string * string * expr list * code
+  | Capply of ident * string * expr list * code
+  | Cexternal of ident * string * expr list * code
   | Creturn of expr option
 
 and block =
