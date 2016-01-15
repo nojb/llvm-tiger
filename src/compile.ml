@@ -23,7 +23,6 @@
 open Error
 open Tabs
 open Typedtree
-(* open Llvm *)
 
 let tmp_counter = ref (-1)
 

@@ -51,6 +51,7 @@ let compile_stdin () =
     let p = Parser.program Lexer.token lexbuf in
     let m = Compile.program p in
     let c = Cmmgen.compile (assert false) m in
+    let m = Llvmgen.compile c in
     assert false
     (* Llvm.dump_module m; *)
     (* Llvm.dispose_module m *)
