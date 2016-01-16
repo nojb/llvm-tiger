@@ -23,5 +23,40 @@
 open Cmm
 open Llvm
 
+type env =
+  {
+    blocks: (int, llbasicblock) Hashtbl.t;
+    builder: llbuilder;
+    context: llcontext;
+    variables: (int, llvalue) Hashtbl.t;
+  }
+
+let rec compile_op env op args =
+  match op, args with
+  | Cload, [e] ->
+      build_load (compile_expr env e) "" env.builder
+
+and compile_expr env = function
+  | Cint n ->
+      const_int (i32_type env.context) (Int32.to_int n)
+  | Cvar i ->
+      Hashtbl.find env.variables i
+
+let rec compile_code env = function
+  | Cstore (e1, e2, c) ->
+      build_store (compile_expr env e2) (compile_expr env e1) env.builder;
+      compile_code env c
+  | Cgoto b ->
+      let bb = Hashtbl.find env.blocks b.bid in
+      build_br bb env.builder
+  | Cifthenelse (e1, b2, b3) ->
+      let bb2 = Hashtbl.find env.blocks b2.bid in
+      let bb3 = Hashtbl.find env.blocks b3.bid in
+      build_cond_br (compile_expr env e1) bb2 bb3 env.builder
+  | Creturn None ->
+      build_ret_void env.builder
+  | Creturn (Some e) ->
+      build_ret (compile_expr env e) env.builder
+
 let compile _ =
   create_module (global_context ())

@@ -24,6 +24,22 @@ open Error
 open Tabs
 open Typedtree
 
+type error =
+  | Expected_record of Lexing.position * string * type_expr
+  | Expected_array of Lexing.position * string * type_expr
+  | Expected_record_type of Lexing.position * type_expr
+  | Field_not_found of Lexing.position * type_expr * string
+  | Redefined_function of Lexing.position * string
+  | Redefined_variable of Lexing.position * string
+  | Redefined_type of Lexing.position * string
+  | Variable_not_found of Lexing.position * string
+  | Function_not_found of Lexing.position * string
+  | Type_not_found of Lexing.position * string
+  | Variable_expected of Lexing.position * string
+  | Function_expected of Lexing.position * string
+
+exception Error of error
+
 module Env : sig
   type t
   val empty: t
@@ -70,22 +86,6 @@ end = struct
     }
 
   let looping env = env.looping
-
-  type error =
-    | Expected_record of Lexing.position * string * type_expr
-    | Expected_array of Lexing.position * string * type_expr
-    | Expected_record_type of Lexing.position * type_expr
-    | Field_not_found of Lexing.position * type_expr * string
-    | Redefined_function of Lexing.position * string
-    | Redefined_variable of Lexing.position * string
-    | Redefined_type of Lexing.position * string
-    | Variable_not_found of Lexing.position * string
-    | Function_not_found of Lexing.position * string
-    | Type_not_found of Lexing.position * string
-    | Variable_expected of Lexing.position * string
-    | Function_expected of Lexing.position * string
-
-  exception Error of error
 
   let find_variable id env =
     let rec aux = function
