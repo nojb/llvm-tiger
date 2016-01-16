@@ -78,3 +78,6 @@ let rec compile env e brk sz k =
       compile env e1 brk sz (Kpush :: compile (add_var id (sz+1) env) e2 brk (sz+1) (pop 1 k))
   | Lsequence (e1, e2) ->
       compile env e1 brk sz (compile env e2 brk sz k)
+
+let compile e =
+  compile [] e (new_label (), 0) 0 [Kstop]
