@@ -28,7 +28,8 @@ let compile_stdin () =
     let p = Parser.program Lexer.token lexbuf in
     let m, _ = Compile.program p in
     let b = Bytegen.compile m in
-    assert false
+    let _ = Byterun.run b in
+    ()
   with
     Error.Error (p, msg) -> Error.report_error p msg
 
@@ -40,7 +41,6 @@ let basename name =
 
 let compile_file name =
   let base = basename name in
-  let basebase = Filename.basename base in
   let f = open_in name in
   try
     try
