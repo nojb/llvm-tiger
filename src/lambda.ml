@@ -58,3 +58,40 @@ type lambda =
   | Lletrec of (ident * ident list * lambda) list * lambda
   | Llet of ident * lambda * lambda
   | Lsequence of lambda * lambda
+
+module Ident = struct
+  type t = ident
+  let compare id1 id2 =
+    compare id1.Typedtree.stamp id2.Typedtree.stamp
+end
+
+module IdentSet = Set.Make (Ident)
+
+let rec fv = function
+  | Lconst _ ->
+      IdentSet.empty
+  | Lvar id ->
+      IdentSet.singleton id
+  | Lifthenelse (e1, e2, e3) ->
+      IdentSet.union (fv e1) (IdentSet.union (fv e2) (fv e3))
+  | Lassign (id, e) ->
+      IdentSet.add id (fv e)
+  | Lwhile (e1, e2) ->
+      IdentSet.union (fv e1) (fv e2)
+  | Lfor (id, e1, e2, e3) ->
+      IdentSet.union (fv e1) (IdentSet.union (fv e2) (IdentSet.remove id (fv e3)))
+  | Lstaticcatch e ->
+      fv e
+  | Lstaticfail ->
+      IdentSet.empty
+  | Lprim (_, el) | Lapply (_, el) ->
+      List.fold_left (fun s e -> IdentSet.union s (fv e)) IdentSet.empty el
+  | Lletrec (funs, e) ->
+      List.fold_left (fun s f -> IdentSet.union s (fv_fundef f)) (fv e) funs
+  | Llet (id, e1, e2) ->
+      IdentSet.union (fv e1) (IdentSet.remove id (fv e2))
+  | Lsequence (e1, e2) ->
+      IdentSet.union (fv e1) (fv e2)
+
+and fv_fundef (_, args, body) =
+  List.fold_right IdentSet.remove args (fv body)

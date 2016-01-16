@@ -58,3 +58,7 @@ type lambda =
   | Lletrec of (ident * ident list * lambda) list * lambda
   | Llet of ident * lambda * lambda
   | Lsequence of lambda * lambda
+
+module IdentSet: Set.S with type elt = ident
+
+val fv: lambda -> IdentSet.t
