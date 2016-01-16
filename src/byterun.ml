@@ -22,33 +22,11 @@
 
 open Instruct
 
-let blocks = Hashtbl.create 7
-
-let rec pop n stack =
-  match n, stack with
-  | 0, _ -> stack
-  | n, _ :: stack -> pop (n-1) stack
-  | _, [] -> failwith "pop"
-
-let rec access n stack =
-  match n, stack with
-  | 0, x :: _ -> x
-  | n, _ :: stack -> access (n-1) stack
-  | _, [] -> failwith "access"
-
-let rec assign n acc stack =
-  match n, stack with
-  | 0, _ :: stack -> acc :: stack
-  | n, x :: stack -> x :: assign (n-1) acc stack
-  | _, [] -> failwith "assign"
-
-let get l =
-  Hashtbl.find blocks l
-
 type machine =
   {
     mutable acc: int;
     mutable sp: int;
+    mutable pc: int;
     mutable stack: int array;
     mutable heap: int array;
   }
@@ -57,6 +35,7 @@ let mach =
   {
     acc = 0;
     sp = 0;
+    pc = 0;
     stack = [| |];
     heap = [| |];
   }
@@ -74,24 +53,35 @@ let assign n =
 let access n =
   mach.acc <- mach.stack.(mach.sp - n)
 
-let rec run = function
-  | Klabel _ :: k -> run k
-  | Kacc n :: k -> access n; run k
-  | Kpush :: k -> push (); run k
-  | Kpop n :: k -> pop n; run k
-  | Kassign n :: k -> assign n; run k
-  | Kconst (Const_int n) :: k -> mach.acc <- n; run k
-  | Kbranch l :: _ -> run (get l)
-  | Kbranchif l :: k -> run  (if mach.acc != 0 then get l else k)
-  | Kbranchifnot l :: k -> run (if mach.acc != 0 then k else get l)
-  | Kstop :: _ -> ()
-  | [] -> failwith "run"
+let rec run code =
+  let c = code.(mach.pc) in
+  mach.pc <- mach.pc + 1;
+  match c with
+  | Klabel _ -> run code
+  | Kacc n -> access n; run code
+  | Kpush -> push (); run code
+  | Kpop n -> pop n; run code
+  | Kassign n -> assign n; run code
+  | Kconst (Const_int n) -> mach.acc <- n; run code
+  | Kbranch l -> mach.pc <- l; run code
+  | Kbranchif l -> if mach.acc != 0 then mach.pc <- l; run code
+  | Kbranchifnot l -> if mach.acc = 0 then mach.pc <- l; run code
+  | Kstop -> ()
 
 let run code lstart =
-  let rec aux = function
-    | Klabel l :: k -> Hashtbl.add blocks l k; aux k
-    | _ :: k -> aux k
-    | [] -> ()
-  in
-  aux code;
-  run (Hashtbl.find blocks lstart)
+  let codea = Array.of_list code in
+  let h = Hashtbl.create 101 in
+  for i = 0 to Array.length codea - 1 do
+    match codea.(i) with
+    | Klabel l -> Hashtbl.add h l (i+1);
+    | _ -> ()
+  done;
+  for i = 0 to Array.length codea - 1 do
+    match codea.(i) with
+    | Kbranch l -> codea.(i) <- Kbranch (Hashtbl.find h l)
+    | Kbranchif l -> codea.(i) <- Kbranchif (Hashtbl.find h l)
+    | Kbranchifnot l -> codea.(i) <- Kbranchifnot (Hashtbl.find h l)
+    | _ -> ()
+  done;
+  mach.pc <- Hashtbl.find h lstart;
+  run codea
