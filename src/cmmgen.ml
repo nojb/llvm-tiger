@@ -86,4 +86,4 @@ and compile env e k =
   | Tbreak ->
       Cgoto env
   | Tlet (id, e1, e2) ->
-      Calloca (id.name, assert false, compile env e1 (fun e1 -> Cstore (Cvar id.stamp, e1, compile env e2 k)))
+      Calloca (id.stamp, assert false, compile env e1 (fun e1 -> Cstore (Cvar id.stamp, e1, compile env e2 k)))

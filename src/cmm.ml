@@ -53,4 +53,29 @@ and block =
     mutable bcode: code;
   }
 
-val print: Format.formatter -> block -> unit
+let tbl : (int, unit) Hashtbl.t = Hashtbl.create 3
+
+open Format
+
+let rec print_expr ppf = function
+  | Cvar i ->
+      fprintf ppf "x%i" i
+
+let rec print_code ppf = function
+  | Calloca (id, t, c) ->
+      fprintf ppf "\tx%i = alloca\n" id;
+      print_code ppf c
+  | Cstore (e1, e2, c) ->
+      fprintf ppf "\tstore %a, %a\n" print_expr e1 print_expr e2;
+      print_code ppf c
+  | Cgoto b ->
+      print ppf b
+
+and print ppf b =
+  if Hashtbl.mem tbl b.bid then begin
+    fprintf ppf "\tgoto L%i\n" b.bid
+  end else begin
+    Hashtbl.add tbl b.bid;
+    fprintf ppf "L%i:";
+    print_code ppf b.bcode
+  end
