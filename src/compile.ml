@@ -20,9 +20,12 @@
    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
    SOFTWARE. *)
 
+module IGNORE (M : sig end) = struct end
+
 open Error
 open Tabs
 open Typedtree
+include IGNORE (Lambda)
 
 type error =
   | Expected_record of Lexing.position * string * type_expr
