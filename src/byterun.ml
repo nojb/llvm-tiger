@@ -65,9 +65,8 @@ let push () =
   mach.stack.(mach.sp) <- mach.acc;
   mach.sp <- mach.sp + 1
 
-let pop () =
-  mach.sp <- mach.sp - 1;
-  mach.acc <- mach.stack.(mach.sp)
+let pop n =
+  mach.sp <- mach.sp - n
 
 let assign n =
   mach.stack.(mach.sp - n) <- mach.acc
@@ -79,7 +78,7 @@ let rec run = function
   | Klabel _ :: k -> run k
   | Kacc n :: k -> access n; run k
   | Kpush :: k -> push (); run k
-  | Kpop n :: k -> pop (); run k
+  | Kpop n :: k -> pop n; run k
   | Kassign n :: k -> assign n; run k
   | Kconst (Const_int n) :: k -> mach.acc <- n; run k
   | Kbranch l :: _ -> run (get l)
