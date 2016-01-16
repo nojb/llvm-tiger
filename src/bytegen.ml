@@ -37,13 +37,44 @@ let label_code k =
       let l = new_label () in
       Klabel l :: k, l
 
-let rec compile env e k =
+let add_var id sz env =
+  (id, sz) :: env
+
+let rec pop n k =
+  if n = 0 then k
+  else begin
+    match k with
+    | Kpop m :: k -> pop (n+m) k
+    | _ -> Kpop n :: k
+  end
+
+let rec goto l k =
+  match k with
+  | [] -> [Kbranch l]
+  | Klabel _ :: _ -> Kbranch l :: k
+  | _ :: k -> goto l k
+
+let rec compile env e brk sz k =
   match e with
   | Lconst c ->
       Kconst c :: k
   | Lifthenelse (e1, e2, e3) ->
       let kk, lk = label_code k in
-      let k3, l3 = label_code (compile env e3 kk) in
-      compile env e1 (Kbranchifnot l3 :: compile env e2 (Kbranch lk :: k3))
+      let k3, l3 = label_code (compile env e3 brk sz kk) in
+      compile env e1 brk sz (Kbranchifnot l3 :: compile env e2 brk sz (Kbranch lk :: k3))
+  | Lwhile (e1, e2) ->
+      let k, lend = label_code k in
+      let ltest = new_label () in
+      Klabel ltest :: compile env e1 brk sz
+        (Kbranchifnot lend :: compile env e2 brk sz (Kbranch ltest :: k))
+  | Lstaticcatch e ->
+      let k, l = label_code k in
+      compile env e (l, sz) sz k
+  | Lstaticfail ->
+      let lexit, sz' = brk in
+      pop (sz - sz') (goto lexit k)
+  | Llet (id, e1, e2) ->
+      (* CHECK add_var +1 *)
+      compile env e1 brk sz (Kpush :: compile (add_var id (sz+1) env) e2 brk (sz+1) (pop 1 k))
   | Lsequence (e1, e2) ->
-      compile env e1 (compile env e2 k)
+      compile env e1 brk sz (compile env e2 brk sz k)
