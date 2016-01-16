@@ -20,6 +20,8 @@
    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
    SOFTWARE. *)
 
+module I = Bytegen
+
 (* let opt_level = ref 0 *)
 let emit_llvm = ref false
 let emit_asm = ref false
