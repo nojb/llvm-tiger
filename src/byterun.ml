@@ -38,7 +38,7 @@ let run code startpc =
   let stop = ref false in
   let accu = ref 0 in
   let pc = ref startpc in
-  let sp = ref 0 in
+  let sp = ref 0 in (* points to top of the stack *)
   let hp = ref 0 in
   let stack = [| |] in
   let heap = [| |] in
@@ -55,13 +55,20 @@ let run code startpc =
     | Kpop n ->
         sp := !sp - n
     | Kassign n ->
-        stack.(!sp - n) <- !accu
+        stack.(!sp - n) <- !accu;
+        accu := 0
     | Kconst (Const_int n) ->
         accu := n
     | Kmakeblock (sz, tag) ->
-        heap.(!hp + 1) <- tag;
-        accu := !hp + 2;
-        hp := !hp + sz + 1
+        let block = !hp + 1 in
+        heap.(block - 1) <- tag;
+        hp := !hp + sz + 1;
+        heap.(block) <- !accu;
+        for i = 1 to sz - 1 do
+          heap.(block + i) <- stack.(!sp - i + 1)
+        done;
+        sp := !sp - sz + 1;
+        accu := block
     | Kgetfield i ->
         accu := heap.(!accu + i)
     | Kbranch l ->
