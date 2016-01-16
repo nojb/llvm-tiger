@@ -27,8 +27,10 @@ type machine =
     mutable acc: int;
     mutable sp: int;
     mutable pc: int;
+    mutable hp: int;
     mutable stack: int array;
     mutable heap: int array;
+    mutable code: instruction array;
   }
 
 let mach =
@@ -36,8 +38,10 @@ let mach =
     acc = 0;
     sp = 0;
     pc = 0;
+    hp = 0;
     stack = [| |];
     heap = [| |];
+    code = [| |];
   }
 
 let push () =
@@ -53,35 +57,35 @@ let assign n =
 let access n =
   mach.acc <- mach.stack.(mach.sp - n)
 
-let rec run code =
-  let c = code.(mach.pc) in
+let rec run () =
+  let c = mach.code.(mach.pc) in
   mach.pc <- mach.pc + 1;
   match c with
-  | Klabel _ -> run code
-  | Kacc n -> access n; run code
-  | Kpush -> push (); run code
-  | Kpop n -> pop n; run code
-  | Kassign n -> assign n; run code
-  | Kconst (Const_int n) -> mach.acc <- n; run code
-  | Kbranch l -> mach.pc <- l; run code
-  | Kbranchif l -> if mach.acc != 0 then mach.pc <- l; run code
-  | Kbranchifnot l -> if mach.acc = 0 then mach.pc <- l; run code
+  | Klabel _ -> run ()
+  | Kacc n -> access n; run ()
+  | Kpush -> push (); run ()
+  | Kpop n -> pop n; run ()
+  | Kassign n -> assign n; run ()
+  | Kconst (Const_int n) -> mach.acc <- n; run ()
+  | Kbranch l -> mach.pc <- l; run ()
+  | Kbranchif l -> if mach.acc != 0 then mach.pc <- l; run ()
+  | Kbranchifnot l -> if mach.acc = 0 then mach.pc <- l; run ()
   | Kstop -> ()
 
 let run code lstart =
-  let codea = Array.of_list code in
+  mach.code <- Array.of_list code;
   let h = Hashtbl.create 101 in
-  for i = 0 to Array.length codea - 1 do
-    match codea.(i) with
+  for i = 0 to Array.length mach.code - 1 do
+    match mach.code.(i) with
     | Klabel l -> Hashtbl.add h l (i+1);
     | _ -> ()
   done;
-  for i = 0 to Array.length codea - 1 do
-    match codea.(i) with
-    | Kbranch l -> codea.(i) <- Kbranch (Hashtbl.find h l)
-    | Kbranchif l -> codea.(i) <- Kbranchif (Hashtbl.find h l)
-    | Kbranchifnot l -> codea.(i) <- Kbranchifnot (Hashtbl.find h l)
+  for i = 0 to Array.length mach.code - 1 do
+    match mach.code.(i) with
+    | Kbranch l -> mach.code.(i) <- Kbranch (Hashtbl.find h l)
+    | Kbranchif l -> mach.code.(i) <- Kbranchif (Hashtbl.find h l)
+    | Kbranchifnot l -> mach.code.(i) <- Kbranchifnot (Hashtbl.find h l)
     | _ -> ()
   done;
   mach.pc <- Hashtbl.find h lstart;
-  run codea
+  run ()
