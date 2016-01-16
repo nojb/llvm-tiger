@@ -22,92 +22,75 @@
 
 open Instruct
 
-type machine =
-  {
-    mutable acc: int;
-    mutable sp: int;
-    mutable pc: int;
-    mutable hp: int;
-    mutable stack: int array;
-    mutable heap: int array;
-    mutable code: instruction array;
-  }
+(* let resize_heap n = *)
+(*   if n < mach.hp then assert false; *)
+(*   let heap = Array.make n 0 in *)
+(*   Array.blit mach.heap 0 heap 0 mach.hp; *)
+(*   mach.heap <- heap *)
 
-let mach =
-  {
-    acc = 0;
-    sp = 0;
-    pc = 0;
-    hp = 0;
-    stack = [| |];
-    heap = [| |];
-    code = [| |];
-  }
+(* let resize_stack n = *)
+(*   if n < mach.sp then assert false; *)
+(*   let stack = Array.make n 0 in *)
+(*   Array.blit mach.stack 0 stack 0 mach.sp; *)
+(*   mach.stack <- stack *)
 
-let resize_heap n =
-  if n < mach.hp then assert false;
-  let heap = Array.make n 0 in
-  Array.blit mach.heap 0 heap 0 mach.hp;
-  mach.heap <- heap
-
-let resize_stack n =
-  if n < mach.sp then assert false;
-  let stack = Array.make n 0 in
-  Array.blit mach.stack 0 stack 0 mach.sp;
-  mach.stack <- stack
-
-let push () =
-  mach.stack.(mach.sp) <- mach.acc;
-  mach.sp <- mach.sp + 1
-
-let pop n =
-  mach.sp <- mach.sp - n
-
-let assign n =
-  mach.stack.(mach.sp - n) <- mach.acc
-
-let access n =
-  mach.acc <- mach.stack.(mach.sp - n)
-
-let make_block sz tag =
-  mach.heap.(mach.hp) <- tag;
-  mach.acc <- mach.hp + 1;
-  mach.hp <- mach.hp + sz + 1
-
-let run () =
+let run code startpc =
   let stop = ref false in
+  let accu = ref 0 in
+  let pc = ref startpc in
+  let sp = ref 0 in
+  let hp = ref 0 in
+  let stack = [| |] in
+  let heap = [| |] in
   while not !stop do
-    let c = mach.code.(mach.pc) in
-    mach.pc <- mach.pc + 1;
+    let c = code.(!pc) in
+    incr pc;
     match c with
     | Klabel _ -> ()
-    | Kacc n -> access n
-    | Kpush -> push ()
-    | Kpop n -> pop n
-    | Kassign n -> assign n
-    | Kconst (Const_int n) -> mach.acc <- n
-    | Kmakeblock (sz, tag) -> make_block sz tag (* CHECK *)
-    | Kgetfield i -> mach.acc <- mach.heap.(mach.acc + i)
-    | Kbranch l -> mach.pc <- l
-    | Kbranchif l -> if mach.acc != 0 then mach.pc <- l
-    | Kbranchifnot l -> if mach.acc = 0 then mach.pc <- l
-    | Kstop -> stop := true
+    | Kacc n ->
+        accu := stack.(!sp - n)
+    | Kpush ->
+        sp := !sp + 1;
+        stack.(!sp) <- accu
+    | Kpop n ->
+        sp := !sp - n
+    | Kassign n ->
+        stack.(!sp - n) <- !accu
+    | Kconst (Const_int n) ->
+        accu := n
+    | Kmakeblock (sz, tag) ->
+        heap.(!hp + 1) <- tag;
+        accu := !hp + 2;
+        hp := !hp + sz + 1
+    | Kgetfield i ->
+        accu := heap.(!accu + i)
+    | Kbranch l ->
+        pc := l
+    | Kbranchif l ->
+        if !accu != 0 then pc := l
+    | Kbranchifnot l ->
+        if !accu = 0 then pc := l
+    | Kaddint ->
+        accu := !accu + stack.(!sp);
+        sp := !sp - 1
+    | Kstop ->
+        stop := true
   done
 
 let run code lstart =
-  mach.code <- Array.of_list code;
+  let code = Array.of_list code in
   let h = Hashtbl.create 101 in
-  for i = 0 to Array.length mach.code - 1 do
-    match mach.code.(i) with
+  for i = 0 to Array.length code - 1 do
+    match code.(i) with
     | Klabel l -> Hashtbl.add h l (i+1);
     | _ -> ()
   done;
-  for i = 0 to Array.length mach.code - 1 do
-    match mach.code.(i) with
-    | Kbranch l -> mach.code.(i) <- Kbranch (Hashtbl.find h l)
-    | Kbranchif l -> mach.code.(i) <- Kbranchif (Hashtbl.find h l)
-    | Kbranchifnot l -> mach.code.(i) <- Kbranchifnot (Hashtbl.find h l)
+  for i = 0 to Array.length code - 1 do
+    match code.(i) with
+    | Kbranch l -> code.(i) <- Kbranch (Hashtbl.find h l)
+    | Kbranchif l -> code.(i) <- Kbranchif (Hashtbl.find h l)
+    | Kbranchifnot l -> code.(i) <- Kbranchifnot (Hashtbl.find h l)
     | _ -> ()
   done;
-  mach.pc <- Hashtbl.find h lstart;
-  run ()
+  let startpc = Hashtbl.find h lstart in
+  run code startpc
