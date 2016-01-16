@@ -44,6 +44,18 @@ let mach =
     code = [| |];
   }
 
+let resize_heap n =
+  if n < mach.hp then assert false;
+  let heap = Array.create n 0 in
+  Array.blit mach.heap 0 heap 0 mach.hp;
+  mach.heap <- heap
+
+let resize_stack n =
+  if n < mach.sp then assert false;
+  let stack = Array.create n 0 in
+  Array.blit mach.stack 0 stack 0 mach.sp;
+  mach.stack <- stack
+
 let push () =
   mach.stack.(mach.sp) <- mach.acc;
   mach.sp <- mach.sp + 1
@@ -57,20 +69,23 @@ let assign n =
 let access n =
   mach.acc <- mach.stack.(mach.sp - n)
 
-let rec run () =
-  let c = mach.code.(mach.pc) in
-  mach.pc <- mach.pc + 1;
-  match c with
-  | Klabel _ -> run ()
-  | Kacc n -> access n; run ()
-  | Kpush -> push (); run ()
-  | Kpop n -> pop n; run ()
-  | Kassign n -> assign n; run ()
-  | Kconst (Const_int n) -> mach.acc <- n; run ()
-  | Kbranch l -> mach.pc <- l; run ()
-  | Kbranchif l -> if mach.acc != 0 then mach.pc <- l; run ()
-  | Kbranchifnot l -> if mach.acc = 0 then mach.pc <- l; run ()
-  | Kstop -> ()
+let run () =
+  let stop = ref false in
+  while not !stop do
+    let c = mach.code.(mach.pc) in
+    mach.pc <- mach.pc + 1;
+    match c with
+    | Klabel _ -> ()
+    | Kacc n -> access n
+    | Kpush -> push ()
+    | Kpop n -> pop n
+    | Kassign n -> assign n
+    | Kconst (Const_int n) -> mach.acc <- n
+    | Kbranch l -> mach.pc <- l
+    | Kbranchif l -> if mach.acc != 0 then mach.pc <- l
+    | Kbranchifnot l -> if mach.acc = 0 then mach.pc <- l
+    | Kstop -> stop := true
+  done
 
 let run code lstart =
   mach.code <- Array.of_list code;
