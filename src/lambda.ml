@@ -20,8 +20,14 @@
    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
    SOFTWARE. *)
 
+type ident = Typedtree.ident
+
 type comparison =
   | Ceq | Cneq | Clt | Cgt | Cle | Cge
+
+type constant =
+  | Const_int of int
+  | Const_string of string
 
 type primitive =
   | Paddint
@@ -39,14 +45,16 @@ type primitive =
   | Pccall of string
 
 type lambda =
-  | Lvar of string
+  | Lconst of constant
+  | Lvar of ident
   | Lifthenelse of lambda * lambda * lambda
-  | Lassign of string * lambda
+  | Lassign of ident * lambda
   | Lwhile of lambda * lambda
-  | Lfor of string * lambda * lambda * lambda
-  | Lstaticcatch of lambda * lambda
+  | Lfor of ident * lambda * lambda * lambda
+  | Lstaticcatch of lambda
   | Lstaticfail
   | Lprim of primitive * lambda list
-  | Lapply of string * lambda list
-  | Lletrec of (string * string list * lambda) list * lambda
-  | Llet of string * lambda * lambda
+  | Lapply of ident * lambda list
+  | Lletrec of (ident * ident list * lambda) list * lambda
+  | Llet of ident * lambda * lambda
+  | Lsequence of lambda * lambda

@@ -20,12 +20,10 @@
    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
    SOFTWARE. *)
 
-module IGNORE (M : sig end) = struct end
-
 open Error
 open Tabs
 open Typedtree
-include IGNORE (Lambda)
+open Lambda
 
 type error =
   | Expected_record of Lexing.position * string * type_expr
@@ -332,54 +330,49 @@ let tr_function_header env fn =
 
 let rec tr_function_body env fundef =
   let (_, _, (ts, t)) = Env.find_function fundef.fn_name env in
-  let env =
-    List.fold_left2 (fun env (x, _) t ->
-        let env, _ = Env.add_variable x t env in
-        env
-      ) env fundef.fn_args ts
+  let env, args =
+    List.fold_right2 (fun (x, _) t (env, args) ->
+        let env, x = Env.add_variable x t env in
+        env, x :: args
+      ) fundef.fn_args ts (env, [])
   in
   let body = typ_exp (Env.no_loop env) fundef.fn_body t in
-  let args = List.combine (List.map (fun (id, _) -> new_ident id.pid_text) fundef.fn_args) ts in
-  {
-    fun_name = new_ident fundef.fn_name.pid_text;
-    fun_args = args;
-    fun_rety = t;
-    fun_body = body;
-  }
+  let id = new_ident fundef.fn_name.pid_text in
+  id, args, body
 
 and let_funs env fundefs e =
   check_unique_fundef_names fundefs;
   let env = List.fold_left tr_function_header env fundefs in
   let fundefs = List.map (tr_function_body env) fundefs in
-  let e = exp (Env.enter_scope env) e in
-  mkexp (Tletrec (fundefs, e)) e.texp_type
+  let e, t = exp (Env.enter_scope env) e in
+  Lletrec (fundefs, e), t
 
 and array_var env v =
-  let v' = var env v in
-  match v'.tvar_type.tdesc with
+  let v', t' = var env v in
+  match t'.tdesc with
   | ARRAY t' ->
       v', t'
   | _ ->
       error v.pvar_pos "expected variable of array type, but type is '%s'"
-        (name_of_type v'.tvar_type)
+        (name_of_type t')
 
 and record_var env v =
-  let v' = var env v in
-  match v'.tvar_type.tdesc with
+  let v', t' = var env v in
+  match t'.tdesc with
   | RECORD _ ->
-      v'
+      v', t'
   | _ ->
       error v.pvar_pos "expected variable of record type, but type is '%s'"
-        (name_of_type v'.tvar_type)
+        (name_of_type t')
 
 and typ_exp env e t' =
-  let e' = exp env e in
-  if type_equal t' e'.texp_type then
+  let e', t = exp env e in
+  if type_equal t' t then
     e'
   else
     error e.pexp_pos
       "type mismatch: expected type '%s', instead found '%s'"
-      (name_of_type t') (name_of_type e'.texp_type)
+      (name_of_type t') (name_of_type t)
 
 and int_exp env e =
   typ_exp env e int_ty
@@ -389,26 +382,26 @@ and void_exp env e =
 
 (* Main typechecking/compiling functions *)
 
-and var env v : Typedtree.var =
+and var env v : lambda * type_expr =
   match v.pvar_desc with
   | Vsimple x ->
       let id, t, _ = Env.find_variable x env in
-      mkvar (Tsimple id) t
+      Lvar id, t
   | Vsubscript (v, x) ->
       let v, t = array_var env v in
       let x = int_exp env x in
-      mkvar (Tindex (v, x)) t
+      Lprim (Parrayget, [v; x]), t
   | Vfield (v, id) ->
-      let v = record_var env v in
-      let i, tx = Env.find_record_field v.tvar_type id env in
-      mkvar (Tfield (v, i)) tx
+      let v, t = record_var env v in
+      let i, tx = Env.find_record_field t id env in
+      Lprim (Pgetfield i, [v]), tx
 
-and exp env e : Typedtree.exp =
+and exp env e : lambda * type_expr =
   match e.pexp_desc with
   | Eunit ->
-      mkexp Tunit void_ty
+      Lconst (Const_int 0), void_ty
   | Eint n ->
-      mkexp (Tint n) int_ty
+      Lconst (Const_int n), int_ty
   (* | Estring (_, s) -> *)
   (*     nxt (VAL (build_global_stringptr s "" g_builder)) STRING *)
   | Enil ->
@@ -416,20 +409,19 @@ and exp env e : Typedtree.exp =
         "'nil' should be used in a context where \
         its type can be determined"
   | Evar v ->
-      let v = var env v in
-      mkexp (Tvar v) v.tvar_type
+      var env v
   | Ebinop (x, Op_add, y) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      mkexp (Tbinop (x, Op_add, y)) int_ty
+      Lprim (Paddint, [x; y]), int_ty
   | Ebinop (x, Op_sub, y) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      mkexp (Tbinop (x, Op_sub, y)) int_ty
+      Lprim (Psubint, [x; y]), int_ty
   | Ebinop (x, Op_mul, y) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      mkexp (Tbinop (x, Op_mul, y)) int_ty
+      Lprim (Pmulint, [x; y]), int_ty
   (* | Ebinop (_, x, Op_div, y) -> *)
   (*     int_exp env x (fun x -> *)
   (*     int_exp env y (fun y -> *)
@@ -504,18 +496,22 @@ and exp env e : Typedtree.exp =
   (*     | _, _ -> *)
   (*         error p "comparison operator cannot be applied to type '%s'" *)
   (*           (describe_type tx))) *)
-  | Eassign (v, {pexp_desc = Enil}) ->
-      let v = var env v in
-      begin match v.tvar_type.tdesc with
-        | RECORD _ ->
-            mkexp (Tassign (v, mkexp Tnil v.tvar_type)) void_ty
-        | _ ->
-            error e.pexp_pos "trying to assign 'nil' to a variable of non-record type"
-      end
-  | Eassign (v, e) ->
-      let v = var env v in
-      let e = typ_exp env e v.tvar_type in
-      mkexp (Tassign (v, e)) void_ty
+  (* | Eassign (v, {pexp_desc = Enil}) -> *)
+  (*     let v = var env v in *)
+  (*     begin match v.tvar_type.tdesc with *)
+  (*       | RECORD _ -> *)
+  (*           mkexp (Tassign (v, mkexp Tnil v.tvar_type)) void_ty *)
+  (*       | _ -> *)
+  (*           error e.pexp_pos "trying to assign 'nil' to a variable of non-record type" *)
+  (*     end *)
+  (* | Eassign (v, e) -> *)
+  (*     let v = var env v in *)
+  (*     let e = typ_exp env e v.tvar_type in *)
+  (*     mkexp (Tassign (v, e)) void_ty *)
+  | Eassign ({pvar_desc = Vsimple x}, e) ->
+      let x, t, _ = Env.find_variable x env in
+      let e = typ_exp env e t in
+      Lassign (x, e), void_ty
   | Ecall (id, es) ->
       let id, eflag, (ts, t) = Env.find_function id env in
       if List.length es <> List.length ts then
@@ -523,20 +519,11 @@ and exp env e : Typedtree.exp =
           (List.length es) (List.length ts);
       let rec bind ys = function
         | [], [] ->
-            let actuals =
-              (* if fi.f_user then *)
-              (*   List.fold_right (fun x ys -> *)
-              (*       let vi = find_var {s = x; p = Lexing.dummy_pos} env in *)
-              (*       VAL vi.v_alloca :: ys *)
-              (*     ) (S.elements (M.find x.pid_text env.sols)) (List.rev ys) *)
-              (* else *)
-                List.rev ys
-            in
-            mkexp (Tcall (id, actuals)) t
+            Lapply (id, List.rev ys), t
         | {pexp_desc = Enil; pexp_pos = p} :: xs, t :: ts ->
             begin match t.tdesc with
             | RECORD _ ->
-                bind (mkexp Tnil t :: ys) (xs, ts)
+                bind (Lconst (Const_int 0) :: ys) (xs, ts)
             | _ ->
                 error p "expected record type, found '%s'" (name_of_type t)
             end
@@ -548,31 +535,31 @@ and exp env e : Typedtree.exp =
       in
       bind [] (es, ts)
   | Eseq (x1, x2) ->
-      let e1 = exp env x1 in
-      let e2 = exp env x2 in
-      mkexp (Tseq (e1, e2)) e2.texp_type
-  | Emakearray (id, y, {pexp_desc = Enil}) ->
-      let t, t' = Env.find_array_type id env in
-      begin match t'.tdesc with
-      | RECORD _ ->
-          let y = int_exp env y in
-          mkexp (Tmakearray (y, mkexp Tnil t')) t
-      | _ ->
-          error e.pexp_pos "array base type must be record type"
-      end
+      let e1, _ = exp env x1 in
+      let e2, t2 = exp env x2 in
+      Lsequence (e1, e2), t2
+  (* | Emakearray (id, y, {pexp_desc = Enil}) -> *)
+  (*     let t, t' = Env.find_array_type id env in *)
+  (*     begin match t'.tdesc with *)
+  (*     | RECORD _ -> *)
+  (*         let y = int_exp env y in *)
+  (*         Lprim (Pmakearray, [mkexp (Tmakearray (y, mkexp Tnil t')) t *)
+  (*     | _ -> *)
+  (*         error e.pexp_pos "array base type must be record type" *)
+  (*     end *)
   | Emakearray (x, y, z) ->
       let t, t' = Env.find_array_type x env in
       let y = int_exp env y in
       let z = typ_exp env z t' in
-      mkexp (Tmakearray (y, z)) t
+      Lprim (Pmakearray, [y; z]), t
   | Emakerecord (x, xts) ->
       let t, ts = Env.find_record_type x env in
       let rec bind vs = function
         | [], [] ->
-            mkexp (Tmakerecord (List.rev vs)) t
+            Lprim (Pmakeblock 0, List.rev vs), t
         | (x, {pexp_desc = Enil}) :: xts, (x', t) :: ts ->
             if x.pid_text = x' then
-              bind (mkexp Tnil t :: vs) (xts, ts)
+              bind (Lconst (Const_int 0) :: vs) (xts, ts)
             else
               if List.exists (fun (x', _) -> x.pid_text = x') ts then
                 error x.pid_pos "field '%s' is in the wrong other" x.pid_text
@@ -599,53 +586,53 @@ and exp env e : Typedtree.exp =
           .Sseq (T.Sif (Ebinop (x, op, y),
             void_exp tenv venv looping z Sskip, Sskip),
             nxt Eundef E.Tvoid))) *)
-  | Eif (x, y, {pexp_desc = Eunit}) ->
-      let x = int_exp env x in
-      let y = void_exp env y in
-      mkexp (Tif (x, y, mkexp Tunit void_ty)) void_ty
+  (* | Eif (x, y, {pexp_desc = Eunit}) -> *)
+  (*     let x = int_exp env x in *)
+  (*     let y = void_exp env y in *)
+  (*     mkexp (Tif (x, y, mkexp Tunit void_ty)) void_ty *)
   | Eif (x, y, z) ->
       let x = int_exp env x in
-      let y = exp env y in
-      let z = typ_exp env z y.texp_type in
-      mkexp (Tif (x, y, z)) y.texp_type
+      let y, t = exp env y in
+      let z = typ_exp env z t in
+      Lifthenelse (x, y, z), t
   | Ewhile (x, y) ->
       let x = int_exp env x in
       let y = void_exp (Env.loop env) y in
-      mkexp (Twhile (x, y)) void_ty
+      Lstaticcatch (Lwhile (x, y)), void_ty
   | Efor (i, x, y, z) ->
       let x = int_exp env x in
       let y = int_exp env y in
       let env = Env.enter_scope env in
       let env, i = Env.add_variable i ~immutable:true int_ty (Env.loop env) in
       let z = void_exp env z in
-      mkexp (Tfor (i, x, y, z)) void_ty
+      Lstaticcatch (Lfor (i, x, y, z)), void_ty
   | Ebreak when Env.looping env ->
-      mkexp Tbreak any_ty
+      Lstaticfail, any_ty
   | Ebreak ->
       error e.pexp_pos "illegal use of 'break'"
   | Elet (Dvar (x, None, y), z) ->
-      let y = exp env y in
-      let env, x = Env.add_variable x y.texp_type env in
+      let y, t = exp env y in
+      let env, x = Env.add_variable x t env in
       let env = Env.enter_scope env in
-      let z = exp env z in
-      mkexp (Tlet (x, y, z)) z.texp_type
-  | Elet (Dvar (x, Some t, {pexp_desc = Enil}), z) ->
-      let t = Env.find_type t env in
-      begin match t.tdesc with
-      | RECORD _ ->
-          let env, x = Env.add_variable x t env in
-          let env = Env.enter_scope env in
-          let z = exp env z in
-          mkexp (Tlet (x, mkexp Tnil t, z)) z.texp_type
-      | _ ->
-          error e.pexp_pos "expected record type, found '%s'" (name_of_type t)
-      end
+      let z, t = exp env z in
+      Llet (x, y, z), t
+  (* | Elet (Dvar (x, Some t, {pexp_desc = Enil}), z) -> *)
+  (*     let t = Env.find_type t env in *)
+  (*     begin match t.tdesc with *)
+  (*     | RECORD _ -> *)
+  (*         let env, x = Env.add_variable x t env in *)
+  (*         let env = Env.enter_scope env in *)
+  (*         let z = exp env z in *)
+  (*         mkexp (Tlet (x, mkexp Tnil t, z)) z.texp_type *)
+  (*     | _ -> *)
+  (*         error e.pexp_pos "expected record type, found '%s'" (name_of_type t) *)
+  (*     end *)
   | Elet (Dvar (x, Some t, y), z) ->
       let ty = Env.find_type t env in
       let y = typ_exp env y ty in
       let env, x = Env.add_variable x ty env in
-      let z = exp (Env.enter_scope env) z in
-      mkexp (Tlet (x, y, z)) z.texp_type
+      let z, t = exp (Env.enter_scope env) z in
+      Llet (x, y, z), t
   | Elet (Dtypes tys, e) ->
       let env = let_type env tys in
       exp (Env.enter_scope env) e
