@@ -35,7 +35,7 @@ type instruction =
   | Kreturn of int                      (* slot size *)
   (* | Kgetglobal of Ident.t *)
   (* | Ksetglobal of Ident.t *)
-  (* | Kconst of structured_constant *)
+  | Kconst of constant
   | Kmakeblock of int * int             (* size, tag *)
   | Kgetfield of int
   | Ksetfield of int

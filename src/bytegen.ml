@@ -23,7 +23,27 @@
 open Lambda
 open Instruct
 
+let label_num = ref (-1)
+
+let new_label () =
+  incr label_num;
+  !label_num
+
+let label_code k =
+  match k with
+  | Klabel l :: _ ->
+      k, l
+  | _ ->
+      let l = new_label () in
+      Klabel l :: k, l
+
 let rec compile env e k =
   match e with
+  | Lconst c ->
+      Kconst c :: k
+  | Lifthenelse (e1, e2, e3) ->
+      let kk, lk = label_code k in
+      let k3, l3 = label_code (compile env e3 kk) in
+      compile env e1 (Kbranchifnot l3 :: compile env e2 (Kbranch lk :: k3))
   | Lsequence (e1, e2) ->
       compile env e1 (compile env e2 k)
