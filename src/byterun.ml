@@ -42,17 +42,50 @@ let rec assign n acc stack =
   | n, x :: stack -> x :: assign (n-1) acc stack
   | _, [] -> failwith "assign"
 
-let rec run stack acc = function
-  | Klabel _ :: k -> run stack acc k
-  | Kacc n :: k -> run stack (access n stack) k
-  | Kpush :: k -> run (acc :: stack) acc k
-  | Kpop n :: k -> run (pop n stack) acc k
-  | Kassign n :: k -> run (assign n acc stack) acc k
-  | Kconst (Const_int n) :: k -> run stack n k
-  | Kbranch l :: _ -> run stack acc (Hashtbl.find blocks l)
-  | Kbranchif l :: k -> run stack acc (if acc != 0 then Hashtbl.find blocks l else k)
-  | Kbranchifnot l :: k -> run stack acc (if acc != 0 then k else Hashtbl.find blocks l)
-  | Kstop :: _ -> acc
+let get l =
+  Hashtbl.find blocks l
+
+type machine =
+  {
+    mutable acc: int;
+    mutable sp: int;
+    mutable stack: int array;
+    mutable heap: int array;
+  }
+
+let mach =
+  {
+    acc = 0;
+    sp = 0;
+    stack = [| |];
+    heap = [| |];
+  }
+
+let push () =
+  mach.stack.(mach.sp) <- mach.acc;
+  mach.sp <- mach.sp + 1
+
+let pop () =
+  mach.sp <- mach.sp - 1;
+  mach.acc <- mach.stack.(mach.sp)
+
+let assign n =
+  mach.stack.(mach.sp - n) <- mach.acc
+
+let access n =
+  mach.acc <- mach.stack.(mach.sp - n)
+
+let rec run = function
+  | Klabel _ :: k -> run k
+  | Kacc n :: k -> access n; run k
+  | Kpush :: k -> push (); run k
+  | Kpop n :: k -> pop (); run k
+  | Kassign n :: k -> assign n; run k
+  | Kconst (Const_int n) :: k -> mach.acc <- n; run k
+  | Kbranch l :: _ -> run (get l)
+  | Kbranchif l :: k -> run  (if mach.acc != 0 then get l else k)
+  | Kbranchifnot l :: k -> run (if mach.acc != 0 then k else get l)
+  | Kstop :: _ -> ()
   | [] -> failwith "run"
 
 let run code lstart =
@@ -62,4 +95,4 @@ let run code lstart =
     | [] -> ()
   in
   aux code;
-  run [] 0 (Hashtbl.find blocks lstart)
+  run (Hashtbl.find blocks lstart)
