@@ -46,13 +46,13 @@ let mach =
 
 let resize_heap n =
   if n < mach.hp then assert false;
-  let heap = Array.create n 0 in
+  let heap = Array.make n 0 in
   Array.blit mach.heap 0 heap 0 mach.hp;
   mach.heap <- heap
 
 let resize_stack n =
   if n < mach.sp then assert false;
-  let stack = Array.create n 0 in
+  let stack = Array.make n 0 in
   Array.blit mach.stack 0 stack 0 mach.sp;
   mach.stack <- stack
 
@@ -69,6 +69,11 @@ let assign n =
 let access n =
   mach.acc <- mach.stack.(mach.sp - n)
 
+let make_block sz tag =
+  mach.heap.(mach.hp) <- tag;
+  mach.acc <- mach.hp + 1;
+  mach.hp <- mach.hp + sz + 1
+
 let run () =
   let stop = ref false in
   while not !stop do
@@ -81,6 +86,8 @@ let run () =
     | Kpop n -> pop n
     | Kassign n -> assign n
     | Kconst (Const_int n) -> mach.acc <- n
+    | Kmakeblock (sz, tag) -> make_block sz tag (* CHECK *)
+    | Kgetfield i -> mach.acc <- mach.heap.(mach.acc + i)
     | Kbranch l -> mach.pc <- l
     | Kbranchif l -> if mach.acc != 0 then mach.pc <- l
     | Kbranchifnot l -> if mach.acc = 0 then mach.pc <- l
