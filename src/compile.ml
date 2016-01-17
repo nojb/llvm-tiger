@@ -26,20 +26,20 @@ open Typedtree
 open Lambda
 
 type error =
-  | Expected_record of Lexing.position * string * type_expr
-  | Expected_array of Lexing.position * string * type_expr
-  | Expected_record_type of Lexing.position * type_expr
-  | Field_not_found of Lexing.position * type_expr * string
-  | Redefined_function of Lexing.position * string
-  | Redefined_variable of Lexing.position * string
-  | Redefined_type of Lexing.position * string
-  | Variable_not_found of Lexing.position * string
-  | Function_not_found of Lexing.position * string
-  | Type_not_found of Lexing.position * string
-  | Variable_expected of Lexing.position * string
-  | Function_expected of Lexing.position * string
+  | Expected_record of string * type_expr
+  | Expected_array of string * type_expr
+  | Expected_record_type of type_expr
+  | Field_not_found of type_expr * string
+  | Redefined_function of string
+  | Redefined_variable of string
+  | Redefined_type of string
+  | Variable_not_found of string
+  | Function_not_found of string
+  | Type_not_found of string
+  | Variable_expected of string
+  | Function_expected of string
 
-exception Error of error
+exception Error of Lexing.position * error
 
 module Env : sig
   type t
@@ -91,13 +91,13 @@ end = struct
   let find_variable id env =
     let rec aux = function
       | [] ->
-          raise (Error (Variable_not_found (id.pid_pos, id.pid_text)))
+          raise (Error (id.pid_pos, Variable_not_found id.pid_text))
       | env :: rest ->
           begin match StringMap.find id.pid_text env with
             | Variable v ->
                 v
             | Function _ ->
-                raise (Error (Variable_expected (id.pid_pos, id.pid_text)))
+                raise (Error (id.pid_pos, Variable_expected id.pid_text))
             | exception Not_found ->
                 aux rest
           end
@@ -107,11 +107,11 @@ end = struct
   let find_function id env =
     let rec aux = function
       | [] ->
-          raise (Error (Function_not_found (id.pid_pos, id.pid_text)))
+          raise (Error (id.pid_pos, Function_not_found id.pid_text))
       | env :: rest ->
           begin match StringMap.find id.pid_text env with
             | Variable _ ->
-                raise (Error (Function_expected (id.pid_pos, id.pid_text)))
+              raise (Error (id.pid_pos, Function_expected id.pid_text))
             | Function f ->
                 f
             | exception Not_found ->
@@ -123,7 +123,7 @@ end = struct
   let find_type id env =
     let rec aux = function
       | [] ->
-          raise (Error (Type_not_found (id.pid_pos, id.pid_text)))
+          raise (Error (id.pid_pos, Type_not_found id.pid_text))
       | env :: rest ->
           begin match StringMap.find id.pid_text env with
             | ty ->
@@ -146,7 +146,7 @@ end = struct
     let v = Variable (id, t, immutable) in
     match env.values with
     | env0 :: _ when StringMap.mem pid_text env0 ->
-        raise (Error (Redefined_variable (pid_pos, pid_text)))
+        raise (Error (pid_pos, Redefined_variable pid_text))
     | env0 :: rest ->
         {env with values = StringMap.add pid_text v env0 :: rest}, id
     | [] ->
@@ -157,7 +157,7 @@ end = struct
     let f = Function (id, eflag, (argty, rety)) in
     match env.values with
     | env0 :: _ when StringMap.mem pid_text env0 ->
-        raise (Error (Redefined_function (pid_pos, pid_text)))
+        raise (Error (pid_pos, Redefined_function pid_text))
     | env0 :: rest ->
         {env with values = StringMap.add pid_text f env0 :: rest}
     | [] ->
@@ -166,7 +166,7 @@ end = struct
   let add_type {pid_text; pid_pos} t env =
     match env.types with
     | env0 :: _ when StringMap.mem pid_text env0 ->
-        raise (Error (Redefined_type (pid_pos, pid_text)))
+        raise (Error (pid_pos, Redefined_type pid_text))
     | env0 :: rest ->
         {env with types = StringMap.add pid_text t env0 :: rest}
     | [] ->
@@ -196,24 +196,24 @@ end = struct
     | {tdesc = ARRAY t'} as t ->
         t, t'
     | t ->
-        raise (Error (Expected_array (pid_pos, pid_text, t)))
+        raise (Error (pid_pos, Expected_array (pid_text, t)))
 
   let find_record_type ({pid_text; pid_pos} as id) env =
     match find_type id env with
     | {tdesc = RECORD xts} as t ->
         t, xts
     | t ->
-        raise (Error (Expected_record (pid_pos, pid_text, t)))
+        raise (Error (pid_pos, Expected_record (pid_text, t)))
 
   let find_record_field t ({pid_text; pid_pos} as id) env =
     let xts =
       match t.tdesc with
       | RECORD xts -> xts
-      | _ -> raise (Error (Expected_record_type (pid_pos, t)))
+      | _ -> raise (Error (pid_pos, Expected_record_type t))
     in
     let rec loop i = function
       | [] ->
-          raise (Error (Field_not_found (pid_pos, t, pid_text)))
+          raise (Error (pid_pos, Field_not_found (t, pid_text)))
       | (x, t) :: xs when x = pid_text ->
           i, t
       | _ :: xs ->
