@@ -60,6 +60,13 @@ let basename name =
   else
     name
 
+let command fmt =
+  Printf.ksprintf (fun cmd ->
+      let code = Sys.command cmd in
+      if code <> 0 then
+        Printf.ksprintf failwith "command %S failed with code %d" cmd code
+    ) fmt
+
 let compile_file name =
   let base  = basename name in
   let basebase = Filename.basename base in
@@ -77,16 +84,21 @@ let compile_file name =
       close_out outchan;
       Llvm.dispose_module m;
       if !emit_llvm then
-        ignore (Sys.command (Printf.sprintf "llvm-dis %s -o %s.ll" outname
-        base));
+        command "llvm-dis %s -o %s.ll" outname base;
       if !emit_asm then
-        ignore (Sys.command (Printf.sprintf "llc %s -o %s.s" outname base));
+        command "clang %s -o %s.s" outname base;
       if not !emit_llvm && not !emit_asm then begin
-        ignore (Sys.command (Printf.sprintf "llc %s" outname));
-        ignore (Sys.command (Printf.sprintf "clang %s.s tiger_stdlib.c tiger_gc.c" outbase))
+        command "llc %s" outname;
+        command "clang %s.s tiger_stdlib.c tiger_gc.c" outbase
       end
-    with e -> (close_in f; raise e)
-  with Error.Error (p, msg) -> Error.report_error p msg
+    with e ->
+      close_in f;
+      raise e
+  with
+  | Error.Error (p, msg) ->
+      Error.report_error p msg
+  | Failure s ->
+      Printf.eprintf ">> Fatal error: %s\n%!" s
 
 let _ =
   Arg.parse [
