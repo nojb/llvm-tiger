@@ -1,4 +1,7 @@
 type ty =
+  | Tvoid
+  | Tstruct of ty list
+  | Tarray of ty * int
   | Tnamed of string
   | Tpointer of ty
   | Tint of int

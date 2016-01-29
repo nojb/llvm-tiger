@@ -58,19 +58,15 @@ let describe_type = function
   | RECORD _  -> "record"
   | NAME x    -> "named type " ^ x
 
-type var_info = {
-  id: int;
-  vtype : type_spec;
-  vimm : bool;
-  v_alloca : unit (* llvalue *)
-}
+type var_info =
+  { id: int;
+    vtype : type_spec;
+    vimm : bool }
 
-type fun_info = {
-  fname : string;
-  fsign : type_spec list * type_spec;
-  f_user : bool;
-  f_llvalue : unit (* llvalue *) Lazy.t
-}
+type fun_info =
+  { fname: string;
+    fsign: type_spec list * type_spec;
+    f_user: bool }
 
 type value_desc =
   | Variable of var_info
@@ -78,15 +74,11 @@ type value_desc =
 
 module M = Map.Make (String)
 
-type env = {
-  venv : value_desc M.t;
-  tenv : type_spec M.t;
-
-  in_loop : bool;
-
-  (* used for lambda lifting *)
-  sols : S.t M.t
-}
+type env =
+  { venv: value_desc M.t;
+    tenv: type_spec M.t;
+    in_loop: bool;
+    sols: S.t M.t }
 
 let rec base_type env = function
   | NAME x -> base_type env (M.find x env.tenv)
@@ -95,55 +87,54 @@ let rec base_type env = function
 let type_equal env t1 t2 =
   base_type env t1 == base_type env t2
 
-let empty_env = {
-  venv = M.empty;
-  tenv = M.empty;
-  in_loop = false;
-  sols = M.empty
-}
+let empty_env =
+  { venv = M.empty;
+    tenv = M.empty;
+    in_loop = false;
+    sols = M.empty }
 
 let find_var id env =
   try
     match M.find id.s env.venv with
     | Variable vi -> vi
     | Function _ -> raise Not_found
-  with
-    Not_found ->
-      error id.p "unbound variable '%s'" id.s
+  with Not_found ->
+    error id.p "unbound variable '%s'" id.s
 
-let add_var (x : pos_string) ?immutable:(immut=false) t llv env =
-  let vi = { id = fresh (); vtype = t; vimm = immut; v_alloca = llv } in
-  { env with venv = M.add x.s (Variable vi) env.venv }
+let add_var (x : pos_string) ?immutable:(immut=false) t env =
+  let vi = {id = fresh (); vtype = t; vimm = immut} in
+  {env with venv = M.add x.s (Variable vi) env.venv}, vi
 
 let mem_var x env =
-  try match M.find x env.venv with
-  | Variable _ -> true
-  | Function _ -> false
-  with Not_found -> false
+  try
+    match M.find x env.venv with
+    | Variable _ -> true
+    | Function _ -> false
+  with Not_found ->
+    false
 
 let add_fun x uid atyps rtyp llv env =
-  let fi = {
-    fname = uid;
-    fsign = atyps, rtyp;
-    f_user = true;
-    f_llvalue = lazy llv
-  } in
-  { env with venv = M.add x.s (Function fi) env.venv }
+  let fi =
+    { fname = uid; fsign = atyps, rtyp;
+      f_user = true }
+  in
+  {env with venv = M.add x.s (Function fi) env.venv}
 
 let mem_user_fun x env =
-  try match M.find x env.venv with
-  | Function fi -> fi.f_user
-  | Variable _ -> false
-  with Not_found -> false
+  try
+    match M.find x env.venv with
+    | Function fi -> fi.f_user
+    | Variable _ -> false
+  with Not_found ->
+    false
 
 let find_fun x env =
   try
     match M.find x.s env.venv with
     | Variable _ -> raise Not_found
     | Function fi -> fi
-  with
-    Not_found ->
-      error x.p "unbound function '%s'" x.s
+  with Not_found ->
+    error x.p "unbound function '%s'" x.s
 
 (* type tenv = (string * E.typ) list *)
 
@@ -154,7 +145,7 @@ let find_type x env =
     error x.p "unbound type '%s'" x.s
 
 let add_type x t env =
-  { env with tenv = M.add x.s t env.tenv }
+  {env with tenv = M.add x.s t env.tenv}
 
 let find_array_type x env =
   match base_type env (find_type x env) with
@@ -177,7 +168,8 @@ let find_record_field env t (x : pos_string) =
     | [] -> error x.p "record type '%s' does not contain field '%s'" t x.s
     | (x', t') :: xs when x' = x.s -> i, t'
     | _ :: xs -> loop (i+1) xs
-  in loop 0 xts
+  in
+  loop 0 xts
 
 (* (\* * LLVM Utils *\) *)
 
@@ -356,26 +348,27 @@ let find_record_field env t (x : pos_string) =
 
 (* let named_structs : (type_spec * Llvm.lltype) list ref = ref [] *)
 
-(* let rec transl_typ env t = *)
-(*   let rec loop t = *)
-(*     match t with *)
-(*     | VOID    -> int_t 32 *)
-(*     | INT     -> int_t 32 *)
-(*     | STRING  -> pointer_type (int_t 8) *)
-(*     | ARRAY (_, t) -> (\* { i32, [0 x t] }* *\) *)
-(*         ptr_t (struct_t [| int_t 32; array_type (loop t) 0 |]) *)
-(*     | RECORD (x, xts) -> *)
-(*         if not (List.mem_assq t !named_structs) then begin *)
-(*           let ty = named_struct_type g_context x in *)
-(*           named_structs := (t, ty) :: !named_structs; *)
-(*           struct_set_body ty *)
-(*             (Array.of_list (List.map (fun (_, t) -> loop t) xts)) *)
-(*             false *)
-(*         end; *)
-(*         pointer_type (List.assq t !named_structs) *)
-(*     | NAME y -> *)
-(*         loop (M.find y env.tenv) *)
-(*   in loop t *)
+let rec transl_typ env t =
+  let rec loop t =
+    match t with
+    | VOID    -> Tvoid
+    | INT     -> Tint 32
+    | STRING  -> Tpointer (Tint 8)
+    | ARRAY (_, t) -> (* { i32, [0 x t] }* *)
+        Tpointer (Tstruct [Tint 32; Tarray (loop t, 0)])
+    | RECORD (x, xts) -> Tpointer (Tnamed x)
+        (* if not (List.mem_assq t !named_structs) then begin *)
+        (*   let ty = named_struct_type g_context x in *)
+        (*   named_structs := (t, ty) :: !named_structs; *)
+        (*   struct_set_body ty *)
+        (*     (Array.of_list (List.map (fun (_, t) -> loop t) xts)) *)
+        (*     false *)
+        (* end; *)
+        (* pointer_type (List.assq t !named_structs) *)
+    | NAME y ->
+        loop (M.find y env.tenv)
+  in
+  loop t
 
 type code =
   | Cvar of ident
@@ -629,18 +622,18 @@ and exp env e =
   | Evar (_, v) ->
       let t, v = var env v in
       t, Cprim (Pload, [v])
-  (* | Ebinop (_, x, Op_add, y) -> *)
-  (*     int_exp env x (fun x -> *)
-  (*     int_exp env y (fun y -> *)
-  (*     nxt (binop build_add x y) INT)) *)
-  (* | Ebinop (_, x, Op_sub, y) -> *)
-  (*     int_exp env x (fun x -> *)
-  (*     int_exp env y (fun y -> *)
-  (*     nxt (binop build_sub x y) INT)) *)
-  (* | Ebinop (_, x, Op_mul, y) -> *)
-  (*     int_exp env x (fun x -> *)
-  (*     int_exp env y (fun y -> *)
-  (*     nxt (binop build_mul x y) INT)) *)
+  | Ebinop (_, x, Op_add, y) ->
+      let x = int_exp env x in
+      let y = int_exp env y in
+      INT, Cprim (Paddint, [x; y])
+  | Ebinop (_, x, Op_sub, y) ->
+      let x = int_exp env x in
+      let y = int_exp env y in
+      INT, Cprim (Psubint, [x; y])
+  | Ebinop (_, x, Op_mul, y) ->
+      let x = int_exp env x in
+      let y = int_exp env y in
+      INT, Cprim (Pmulint, [x; y])
   (* | Ebinop (_, x, Op_div, y) -> *)
   (*     int_exp env x (fun x -> *)
   (*     int_exp env y (fun y -> *)
@@ -749,6 +742,11 @@ and exp env e =
   (*     typ_exp env e2 t' (fun e2 -> *)
   (*     store e2 v; *)
   (*     nxt nil VOID))) *)
+  | Eassign (_, v, e) ->
+      let t, v = var env v in
+      let e = typ_exp env e t in
+      insert_instr (Istore (insert_code e, insert_code v));
+      VOID, Cprim (Pconstint 0l, [])
   (* | Eassign (p, Vfield (p', v, x), Enil _) -> *)
   (*     record_var env v (fun v t' -> *)
   (*     let i, tx = find_record_field env t' x in *)
@@ -796,8 +794,9 @@ and exp env e =
   (*       | _ -> *)
   (*           assert false *)
   (*     in bind [] (xs, ts) *)
-  (* | Eseq (_, x1, x2) -> *)
-  (*     exp env x1 (fun _ _ -> exp env x2 nxt) *)
+  | Eseq (_, e1, e2) ->
+      let _ = exp env e1 in
+      exp env e2
   (* | Emakearray (p, x, y, Enil _) -> *)
   (*     let t, t' = find_array_type x env in *)
   (*     begin match base_type env t' with *)
@@ -864,12 +863,12 @@ and exp env e =
   (*       | _, [] -> *)
   (*           error p "all fields have already been initialised" *)
   (*     in bind [] (xts, ts) *)
-  (* (\* | Pif (_, P.Ecmp (x, op, y), z, None) -> *)
-  (*     int_exp tenv venv looping x (fun x -> *)
-  (*       int_exp tenv venv looping y (fun y -> *)
-  (*         .Sseq (T.Sif (Ebinop (x, op, y), *)
-  (*           void_exp tenv venv looping z Sskip, Sskip), *)
-  (*           nxt Eundef E.Tvoid))) *\) *)
+  (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
+      int_exp tenv venv looping x (fun x ->
+        int_exp tenv venv looping y (fun y ->
+          .Sseq (T.Sif (Ebinop (x, op, y),
+            void_exp tenv venv looping z Sskip, Sskip),
+            nxt Eundef E.Tvoid))) *)
   (* | Eif (_, x, y, Eunit _) -> *)
   (*     let nextbb = new_block () in *)
   (*     let yesbb  = new_block () in *)
@@ -900,20 +899,16 @@ and exp env e =
   (*     typ_exp env z !typ (fun z -> if !typ <> VOID then store z !tmp; ignore (build_br nextbb g_builder)); *)
   (*     position_at_end nextbb g_builder; *)
   (*     nxt (if !typ = VOID then nil else load !tmp) !typ *)
-  (* | Ewhile (_, x, y) -> *)
-  (*     let nextbb = new_block () in *)
-  (*     let testbb = new_block () in *)
-  (*     let bodybb = new_block () in *)
-  (*     ignore (build_br testbb g_builder); *)
-  (*     position_at_end testbb g_builder; *)
-  (*     int_exp env x (fun x -> *)
-  (*       let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in *)
-  (*       cond_br c bodybb nextbb); *)
-  (*     position_at_end bodybb g_builder; *)
-  (*     void_exp { env with in_loop = InLoop nextbb } y *)
-  (*       (fun () -> ignore (build_br testbb g_builder)); *)
-  (*     position_at_end nextbb g_builder; *)
-  (*     nxt nil VOID *)
+  | Ewhile (_, e1, e2) ->
+      let ifso = extract_instr_seq (fun () -> ignore (exp env e2)) in
+      let ifnot = extract_instr_seq (fun () -> insert_instr (Iexit 0)) in
+      let body =
+        extract_instr_seq (fun () ->
+            insert_instr (Iifthenelse (insert_code (int_exp env e1), ifso, ifnot))
+          )
+      in
+      insert_instr (Icatch body);
+      VOID, Cprim (Pconstint 0l, [])
   (* | Efor (_, i, x, y, z) -> *)
   (*     let nextbb = new_block () in *)
   (*     let testbb = new_block () in *)
@@ -943,15 +938,12 @@ and exp env e =
   (*     | InLoop bb -> ignore (build_br bb g_builder); *)
   (*     | NoLoop    -> error p "illegal use of 'break'" *)
   (*     end *)
-  (* | Elet (_, Dvar (x, None, y), z) -> *)
-  (*     exp env y (fun y ty -> *)
-  (*     let a = alloca (structured_type env ty) (transl_typ env ty) in *)
-  (*     set_value_name x.s a; *)
-  (*     let env = add_var x ty a env in *)
-  (*     store y (VAL a); *)
-  (*     exp env z (fun z tz -> *)
-  (*     if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a); *)
-  (*     nxt z tz)) *)
+  | Elet (_, Dvar (x, None, y), z) ->
+      let ty, y = exp env y in
+      let env, x = add_var x ty env in
+      insert_instr (Ialloca (x.id, transl_typ env ty));
+      insert_instr (Istore (insert_code y, x.id));
+      exp env z
   (* | Elet (p, Dvar (x, Some t, Enil _), z) -> *)
   (*     let t = find_type t env in *)
   (*     begin match base_type env t with *)
