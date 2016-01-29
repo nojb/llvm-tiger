@@ -31,7 +31,7 @@ rule token = parse
   | ['A'-'Z''a'-'z''_']['a'-'z''A'-'Z''0'-'9''_']* as id
   { try Hashtbl.find keywords id with Not_found -> IDENT id }
   | ['0'-'9']+ as int
-  { INT (int_of_string int) }
+  { INT32 (Int32.of_string int) }
   | '+'
   { PLUS }
   | '*'

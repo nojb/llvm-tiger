@@ -48,7 +48,7 @@ type var =
 
 and exp =
   | Eunit of pos
-  | Eint of pos * int
+  | Eint of pos * int32
   | Estring of pos * string
   | Enil of pos
   | Evar of pos * var

@@ -22,7 +22,7 @@
 %token LCURLY RCURLY
 %token LBRACK RBRACK
 %token LPAREN RPAREN
-%token <int> INT
+%token <int32> INT32
 %token <string> IDENT
 %token <string> STRING
 %token EOF
@@ -84,7 +84,7 @@ record_field_list_tail:
   ;
 
 exp:
-    INT
+    INT32
   { Eint (pos 1, $1) }
   | STRING
   { Estring (pos 1, $1) }
@@ -93,11 +93,11 @@ exp:
   | var
   { Evar (pos 1, $1) }
   | MINUS exp %prec unary_op
-  { Ebinop (pos 1, Eint (pos 1, 0), Op_sub, $2) }
+  { Ebinop (pos 1, Eint (pos 1, 0l), Op_sub, $2) }
   | exp LAND exp
-  { Eif (pos 2, $1, $3, Eint (pos 3, 0)) }
+  { Eif (pos 2, $1, $3, Eint (pos 3, 0l)) }
   | exp LOR exp
-  { Eif (pos 2, $1, Eint (pos 3, 1), $3) }
+  { Eif (pos 2, $1, Eint (pos 3, 1l), $3) }
   | exp PLUS exp
   { Ebinop (pos 2, $1, Op_add, $3) }
   | exp TIMES exp
@@ -244,7 +244,7 @@ typ:
   | ARRAY OF pos_ident
   { Tarray $3 }
   | LCURLY type_field_list RCURLY
-  { Trecord ($2) } 
+  { Trecord ($2) }
   ;
 
 fundec_list:

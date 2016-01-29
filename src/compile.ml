@@ -611,8 +611,8 @@ and exp env e =
   match e with
   | Eunit _ ->
       VOID, Cprim (Pconstint 0l, [])
-  (* | Eint (_, n) -> *)
-  (*     nxt (const_int 32 n) INT *)
+  | Eint (_, n) ->
+      INT, Cprim (Pconstint n, [])
   (* | Estring (_, s) -> *)
   (*     nxt (VAL (build_global_stringptr s "" g_builder)) STRING *)
   (* | Enil p -> *)
