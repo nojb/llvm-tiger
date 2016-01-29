@@ -48,7 +48,9 @@ let compile_stdin () =
     let lexbuf = Lexing.from_channel stdin in
     lexbuf.Lexing.lex_curr_p <-
       { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>" };
-    let m = Compile.program (Parser.program Lexer.token lexbuf) in
+    let f = Compile.program (Parser.program Lexer.token lexbuf) in
+    let m = Llvm.create_module (Llvm.global_context ()) "" in
+    Irep.transl_fundecl m f;
     Llvm.dump_module m;
     Llvm.dispose_module m
   with
@@ -67,38 +69,38 @@ let command fmt =
         Printf.ksprintf failwith "command %S failed with code %d" cmd code
     ) fmt
 
-let compile_file name =
-  let base  = basename name in
-  let basebase = Filename.basename base in
-  let f     = open_in name in
-  try
-    try
-      let lexbuf = Lexing.from_channel f in
-      lexbuf.Lexing.lex_curr_p <-
-        { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = name };
-      let m = Compile.program (Parser.program Lexer.token lexbuf) in
-      close_in f;
-      let outname, outchan = Filename.open_temp_file ~mode:[Open_binary] basebase ".bc" in
-      let outbase = Filename.chop_suffix outname ".bc" in
-      ignore (Llvm_bitwriter.output_bitcode outchan m);
-      close_out outchan;
-      Llvm.dispose_module m;
-      if !emit_llvm then
-        command "llvm-dis %s -o %s.ll" outname base;
-      if !emit_asm then
-        command "clang %s -o %s.s" outname base;
-      if not !emit_llvm && not !emit_asm then begin
-        command "llc %s" outname;
-        command "clang %s.s tiger_stdlib.c tiger_gc.c" outbase
-      end
-    with e ->
-      close_in f;
-      raise e
-  with
-  | Error.Error (p, msg) ->
-      Error.report_error p msg
-  | Failure s ->
-      Printf.eprintf ">> Fatal error: %s\n%!" s
+(* let compile_file name = *)
+(*   let base  = basename name in *)
+(*   let basebase = Filename.basename base in *)
+(*   let f     = open_in name in *)
+(*   try *)
+(*     try *)
+(*       let lexbuf = Lexing.from_channel f in *)
+(*       lexbuf.Lexing.lex_curr_p <- *)
+(*         { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = name }; *)
+(*       let m = Compile.program (Parser.program Lexer.token lexbuf) in *)
+(*       close_in f; *)
+(*       let outname, outchan = Filename.open_temp_file ~mode:[Open_binary] basebase ".bc" in *)
+(*       let outbase = Filename.chop_suffix outname ".bc" in *)
+(*       ignore (Llvm_bitwriter.output_bitcode outchan m); *)
+(*       close_out outchan; *)
+(*       Llvm.dispose_module m; *)
+(*       if !emit_llvm then *)
+(*         command "llvm-dis %s -o %s.ll" outname base; *)
+(*       if !emit_asm then *)
+(*         command "clang %s -o %s.s" outname base; *)
+(*       if not !emit_llvm && not !emit_asm then begin *)
+(*         command "llc %s" outname; *)
+(*         command "clang %s.s tiger_stdlib.c tiger_gc.c" outbase *)
+(*       end *)
+(*     with e -> *)
+(*       close_in f; *)
+(*       raise e *)
+(*   with *)
+(*   | Error.Error (p, msg) -> *)
+(*       Error.report_error p msg *)
+(*   | Failure s -> *)
+(*       Printf.eprintf ">> Fatal error: %s\n%!" s *)
 
 let _ =
   Arg.parse [
@@ -106,4 +108,4 @@ let _ =
     "-S", Arg.Set emit_asm, "\t\tEmit asm assembly in .s file";
     "-emit-llvm", Arg.Set emit_llvm, "\temit LLVM assembly in .ll file";
     "-stdin", Arg.Unit compile_stdin, "\tread input from stdin"
-  ] compile_file "llvm-tigerc compiler 0.1"
+  ] ignore (* compile_file *) "llvm-tigerc compiler 0.1"

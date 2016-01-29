@@ -4,6 +4,7 @@ type ty =
   | Tint of int
 
 type primitive =
+  | Pconstint of int32
   | Paddint
   | Psubint
   | Pmulint
@@ -12,21 +13,17 @@ type primitive =
 
 type ident = int
 
-type expression =
-  | Iconst of int32
-  | Iprim of primitive * expression list
-  | Ivar of ident
-
 type instruction_desc =
+  | Ilet of ident * primitive * ident list
   | Ialloca of ident * ty
-  | Istore of expression * expression
-  | Iifthenelse of expression * instruction * instruction
+  | Istore of ident * ident
+  | Iifthenelse of ident * instruction * instruction
   | Iloop of instruction
   | Icatch of instruction
   | Iexit of int
-  | Iapply of ident * string * expression list
-  | Iexternal of ident * string * expression list
-  | Ireturn of expression option
+  | Iapply of ident * string * ident list
+  | Iexternal of ident * string * ident list
+  | Ireturn of ident option
   | Iend
 
 and instruction =
@@ -47,9 +44,9 @@ let end_instr () =
     next = dummy_instr }
 
 let instr_seq = ref dummy_instr
-let cons_instr i = instr_seq := {i with next = !instr_seq}
+let insert_instr desc = instr_seq := {desc; next = !instr_seq}
 
-let extract_instr () =
+let extract () =
   let rec aux i next =
     if i == dummy_instr then
       next
@@ -63,7 +60,7 @@ let extract_instr_seq f =
   instr_seq := dummy_instr;
   match f () with
   | () ->
-      let i = extract_instr () in
+      let i = extract () in
       instr_seq := curr;
       i
   | exception e ->
@@ -87,28 +84,25 @@ let rec transl_ty m ty =
 
 let transl_primitive env m b p args =
   match p, args with
+  | Pconstint n, [] ->
+      let c = module_context m in
+      const_of_int64 (i32_type c) (Int64.of_int32 n) false
   | Paddint, [v; w] ->
       build_add v w "" b
   | Pload, [v] ->
       build_load v "" b
 
-let rec transl_expr env m b e =
-  match e with
-  | Iconst n ->
-      let c = module_context m in
-      const_of_int64 (i32_type c) (Int64.of_int32 n) false
-  | Iprim (p, args) ->
-      transl_primitive env m b p (List.map (transl_expr env m b) args)
-  | Ivar id ->
-      IdentMap.find id env
-
 let rec transl_instr env m b i lexit l =
   match i.desc with
+  | Ilet (id, p, args) ->
+      let args = List.map (fun id -> IdentMap.find id env) args in
+      let env = IdentMap.add id (transl_primitive env m b p args) env in
+      transl_instr env m b i.next lexit l
   | Ialloca (id, ty) ->
       let env = IdentMap.add id (build_alloca (transl_ty m ty) "" b) env in
       transl_instr env m b i.next lexit l
   | Istore (v, p) ->
-      ignore (build_store (transl_expr env m b v) (transl_expr env m b p) b);
+      ignore (build_store (IdentMap.find v env) (IdentMap.find p env) b);
       transl_instr env m b i.next lexit l
   | Iifthenelse (e, ifso, ifnot) ->
       let c = module_context m in
@@ -116,7 +110,7 @@ let rec transl_instr env m b i lexit l =
       let lnext = append_block c "" f in
       let lifso = append_block c "" f in
       let lifnot = append_block c "" f in
-      ignore (build_cond_br (transl_expr env m b e) lifso lifnot b);
+      ignore (build_cond_br (IdentMap.find e env) lifso lifnot b);
       position_at_end lifso b;
       transl_instr env m b ifso lexit lnext;
       position_at_end lifnot b;
@@ -142,7 +136,7 @@ let rec transl_instr env m b i lexit l =
   | Iend ->
       ignore (build_br l b)
   | Ireturn (Some e) ->
-      ignore (build_ret (transl_expr env m b e) b)
+      ignore (build_ret (IdentMap.find e env) b)
   | Ireturn None ->
       ignore (build_ret_void b)
 
