@@ -30,10 +30,13 @@ type instruction_desc =
   | Iend
 
 and instruction =
-  {
-    desc: instruction_desc;
-    next: instruction;
-  }
+  { desc: instruction_desc;
+    next: instruction }
+
+type fundecl =
+  { name: string;
+    signature: ty list * ty;
+    body: instruction }
 
 let rec dummy_instr =
   { desc = Iend;
@@ -81,7 +84,7 @@ let rec transl_instr env m b i lexit l =
       let env = IdentMap.add id (build_alloca (transl_ty m ty) "" b) env in
       transl_instr env m b i.next lexit l
   | Istore (v, p) ->
-      build_store (transl_expr env m b v) (transl_expr env m b p) b;
+      ignore (build_store (transl_expr env m b v) (transl_expr env m b p) b);
       transl_instr env m b i.next lexit l
   | Iifthenelse (e, ifso, ifnot) ->
       let c = module_context m in
@@ -89,7 +92,7 @@ let rec transl_instr env m b i lexit l =
       let lnext = append_block c "" f in
       let lifso = append_block c "" f in
       let lifnot = append_block c "" f in
-      build_cond_br (transl_expr env m b e) lifso lifnot b;
+      ignore (build_cond_br (transl_expr env m b e) lifso lifnot b);
       position_at_end lifso b;
       transl_instr env m b ifso lexit lnext;
       position_at_end lifnot b;
@@ -100,7 +103,7 @@ let rec transl_instr env m b i lexit l =
       let c = module_context m in
       let f = block_parent (insertion_block b) in
       let lstart = append_block c "" f in
-      build_br lstart b;
+      ignore (build_br lstart b);
       position_at_end lstart b;
       transl_instr env m b body lexit lstart
   | Icatch body ->
@@ -111,10 +114,20 @@ let rec transl_instr env m b i lexit l =
       position_at_end lnext b;
       transl_instr env m b i.next lexit l
   | Iexit i ->
-      build_br (List.nth lexit i) b
+      ignore (build_br (List.nth lexit i) b)
   | Iend ->
-      build_br l b
+      ignore (build_br l b)
   | Ireturn (Some e) ->
-      build_ret (transl_expr env m b e) b
+      ignore (build_ret (transl_expr env m b e) b)
   | Ireturn None ->
-      build_ret_void b
+      ignore (build_ret_void b)
+
+let transl_fundecl m f =
+  let tys, ty = f.signature in
+  let fty = function_type (transl_ty m ty) (Array.of_list (List.map (transl_ty m) tys)) in
+  let v = define_function f.name fty m in
+  let c = module_context m in
+  let b = builder c in
+  let l = entry_block v in
+  position_at_end l b;
+  transl_instr IdentMap.empty m b f.body [] l
