@@ -869,16 +869,6 @@ and exp env e =
           .Sseq (T.Sif (Ebinop (x, op, y),
             void_exp tenv venv looping z Sskip, Sskip),
             nxt Eundef E.Tvoid))) *)
-  (* | Eif (_, x, y, Eunit _) -> *)
-  (*     let nextbb = new_block () in *)
-  (*     let yesbb  = new_block () in *)
-  (*     int_exp env x (fun x -> *)
-  (*       let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in *)
-  (*       cond_br c yesbb nextbb); *)
-  (*     position_at_end yesbb g_builder; *)
-  (*     void_exp env y (fun () -> ignore (build_br nextbb g_builder)); *)
-  (*     position_at_end nextbb g_builder; *)
-  (*     nxt nil VOID *)
   | Eif (_, e1, e2, e3) ->
       let e1 = int_exp env e1 in
       let t = ref VOID in
@@ -932,44 +922,39 @@ and exp env e =
   (*         ignore (build_br testbb g_builder)))); *)
   (*     position_at_end nextbb g_builder; *)
   (*     nxt nil VOID *)
-  (* | Ebreak p -> *)
-  (*     begin match env.in_loop with *)
-  (*     | InLoop bb -> ignore (build_br bb g_builder); *)
-  (*     | NoLoop    -> error p "illegal use of 'break'" *)
-  (*     end *)
+  | Ebreak p ->
+      if env.in_loop then begin
+        insert_instr (Iexit 0);
+        VOID, Cprim (Pconstint 0l, []) (* FIXME FIXME *)
+      end else
+        error p "illegal use of 'break'"
   | Elet (_, Dvar (x, None, y), z) ->
       let ty, y = exp env y in
       let env, x = add_var x ty env in
       insert_instr (Ialloca (x.id, transl_typ env ty));
       insert_instr (Istore (insert_code y, x.id));
       exp env z
-  (* | Elet (p, Dvar (x, Some t, Enil _), z) -> *)
-  (*     let t = find_type t env in *)
-  (*     begin match base_type env t with *)
-  (*     | RECORD _ -> *)
-  (*         let a = alloca true (transl_typ env t) in *)
-  (*         set_value_name x.s a; *)
-  (*         let env = add_var x t a env in *)
-  (*         store (const_null (transl_typ env t)) (VAL a); *)
-  (*         exp env z (fun z tz -> *)
-  (*         store (const_null (transl_typ env t)) (VAL a); *)
-  (*         nxt z tz) *)
-  (*     | _ -> *)
-  (*         error p "expected record type, found '%s'" (describe_type t) *)
-  (*     end *)
-  (* | Elet (_, Dvar (x, Some t, y), z) -> *)
-  (*     let ty = find_type t env in *)
-  (*     typ_exp env y ty (fun y -> *)
-  (*     let a = alloca (structured_type env ty) (transl_typ env ty) in *)
-  (*     set_value_name x.s a; *)
-  (*     let env = add_var x ty a env in *)
-  (*     store y (VAL a); *)
-  (*     exp env z (fun z tz -> *)
-  (*     if structured_type env ty then store (const_null (transl_typ env ty)) (VAL a); *)
-  (*     nxt z tz)) *)
-  (* | Elet (_, Dtypes tys, e) -> *)
-  (*     let env = let_type env tys in *)
-  (*     exp env e nxt *)
+  | Elet (p, Dvar (x, Some t, Enil _), z) ->
+      let t = find_type t env in
+      begin match base_type env t with
+      | RECORD _ ->
+          let env, x = add_var x t env in
+          insert_instr (Ialloca (x.id, transl_typ env t));
+          insert_instr (Istore (insert_code (Cprim (Pconstint 0l, [])), x.id));
+          exp env z
+      | _ ->
+          error p "expected record type, found '%s'" (describe_type t)
+      end
+  | Elet (_, Dvar (x, Some t, y), z) ->
+      let ty = find_type t env in
+      let y = typ_exp env y ty in
+      let env, x = add_var x ty env in
+      insert_instr (Ialloca (x.id, transl_typ env ty));
+      insert_instr (Istore (insert_code y, x.id));
+      exp env z
+  | Elet (_, Dtypes tys, e) ->
+      let env = let_type env tys in
+      exp env e
   (* | Elet (_, Dfuns funs, e) -> *)
   (*     let_funs env funs e nxt *)
 
