@@ -24,6 +24,8 @@ open Error
 open Tabs
 open Llvm
 
+module I = Irep
+
 let tmp_counter = ref (-1)
 
 let gentmp s =
