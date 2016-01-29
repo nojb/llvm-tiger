@@ -31,6 +31,9 @@ let gentmp s =
   incr tmp_counter;
   s ^ "__" ^ (string_of_int !tmp_counter)
 
+let last_id = ref (-1)
+let fresh () = incr last_id; !last_id
+
 type type_spec =
   | VOID
   | INT
@@ -56,6 +59,7 @@ let describe_type = function
   | NAME x    -> "named type " ^ x
 
 type var_info = {
+  id: int;
   vtype : type_spec;
   vimm : bool;
   v_alloca : unit (* llvalue *)
@@ -108,7 +112,7 @@ let find_var id env =
       error id.p "unbound variable '%s'" id.s
 
 let add_var (x : pos_string) ?immutable:(immut=false) t llv env =
-  let vi = { vtype = t; vimm = immut; v_alloca = llv } in
+  let vi = { id = fresh (); vtype = t; vimm = immut; v_alloca = llv } in
   { env with venv = M.add x.s (Variable vi) env.venv }
 
 let mem_var x env =
@@ -377,6 +381,14 @@ type code =
   | Cvar of ident
   | Cprim of primitive * code list
 
+let rec insert_code = function
+  | Cvar id -> id
+  | Cprim (p, args) ->
+      let id = fresh () in
+      let args = List.map insert_code args in
+      insert_instr (Ilet (id, p, args));
+      id
+
 let declare_type env (x, t) =
   let find_type y env =
     try M.find y.s env.tenv
@@ -585,14 +597,11 @@ and void_exp env e =
 
 (* Main typechecking/compiling functions *)
 
-(* and var env v nxt = *)
-(*   match v with *)
-(*   | Vsimple x -> *)
-(*       let vi = find_var x env in *)
-(*       if vi.vimm then *)
-(*         nxt (VAL vi.v_alloca) vi.vtype *)
-(*       else *)
-(*         nxt (LOADVAL vi.v_alloca) vi.vtype *)
+and var env v =
+  match v with
+  | Vsimple x ->
+      let vi = find_var x env in
+      vi.vtype, Cvar vi.id
 (*   | Vsubscript (p, v, x) -> *)
 (*       array_var env v (fun v t' -> *)
 (*       let v = save (triggers x) v in *)
@@ -617,8 +626,9 @@ and exp env e =
   (*     error p *)
   (*       "'nil' should be used in a context where \ *)
   (*       its type can be determined" *)
-  (* | Evar (_, v) -> *)
-  (*     var env v nxt *)
+  | Evar (_, v) ->
+      let t, v = var env v in
+      t, Cprim (Pload, [v])
   (* | Ebinop (_, x, Op_add, y) -> *)
   (*     int_exp env x (fun x -> *)
   (*     int_exp env y (fun y -> *)
