@@ -953,7 +953,12 @@ let program e =
   (* let startbb = new_block () in *)
   (* position_at_end startbb g_builder; *)
   (* exp env e (fun _ _ -> ignore (build_ret (const_int0 32 0) g_builder)); *)
-  let i = extract_instr_seq (fun () -> ignore (exp env e)) in
+  let i =
+    extract_instr_seq (fun () ->
+        let _ = exp env e in
+        insert_instr (Ireturn (Some (insert_code (Cprim (Pconstint 0l, [])))))
+      )
+  in
   {name = "_tiger_main"; signature = ([], Tint 32); body = i}
   (* (fun _ _ -> ignore (build_ret_void g_builder)); *)
   (* position_at_end (entry_block main_fun) g_builder; *)
