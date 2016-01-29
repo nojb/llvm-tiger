@@ -1,8 +1,8 @@
 OCAMLBUILD = ocamlbuild -classic-display -use-ocamlfind
 
-all: src/tigerc.native
+all: src/main.native
 
-%.native:
+src/main.native:
 	$(OCAMLBUILD) $@
 
 clean:
