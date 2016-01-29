@@ -879,26 +879,25 @@ and exp env e =
   (*     void_exp env y (fun () -> ignore (build_br nextbb g_builder)); *)
   (*     position_at_end nextbb g_builder; *)
   (*     nxt nil VOID *)
-  (* | Eif (_, x, y, z) -> *)
-  (*     let nextbb = new_block () in *)
-  (*     let yesbb  = new_block () in *)
-  (*     let naybb  = new_block () in *)
-  (*     let tmp    = ref nil in *)
-  (*     let typ    = ref VOID in *)
-  (*     int_exp env x (fun x -> *)
-  (*       let c = binop (build_icmp Icmp.Ne) x (const_int 32 0) in *)
-  (*       cond_br c yesbb naybb); *)
-  (*     position_at_end yesbb g_builder; *)
-  (*     exp env y (fun y ty -> *)
-  (*       typ := ty; *)
-  (*       if ty <> VOID then begin *)
-  (*         tmp := VAL (alloca false (transl_typ env ty)); *)
-  (*         store y !tmp *)
-  (*       end; ignore (build_br nextbb g_builder)); *)
-  (*     position_at_end naybb g_builder; *)
-  (*     typ_exp env z !typ (fun z -> if !typ <> VOID then store z !tmp; ignore (build_br nextbb g_builder)); *)
-  (*     position_at_end nextbb g_builder; *)
-  (*     nxt (if !typ = VOID then nil else load !tmp) !typ *)
+  | Eif (_, e1, e2, e3) ->
+      let e1 = int_exp env e1 in
+      let t = ref VOID in
+      let id = fresh () in
+      let ifso =
+        extract_instr_seq (fun () ->
+            let t2, e2 = exp env e2 in
+            t := t2;
+            insert_instr (Istore (insert_code e2, id))
+        )
+      in
+      let ifnot =
+        extract_instr_seq (fun () ->
+            let e3 = typ_exp env e3 !t in
+            insert_instr (Istore (insert_code e3, id))
+          )
+      in
+      insert_instr (Iifthenelse (insert_code e1, ifso, ifnot));
+      !t, Cprim (Pload, [Cvar id])
   | Ewhile (_, e1, e2) ->
       let ifso = extract_instr_seq (fun () -> ignore (exp env e2)) in
       let ifnot = extract_instr_seq (fun () -> insert_instr (Iexit 0)) in
