@@ -46,6 +46,30 @@ let end_instr () =
   { desc = Iend;
     next = dummy_instr }
 
+let instr_seq = ref dummy_instr
+let cons_instr i = instr_seq := {i with next = !instr_seq}
+
+let extract_instr () =
+  let rec aux i next =
+    if i == dummy_instr then
+      next
+    else
+      aux i.next {i with next}
+  in
+  aux !instr_seq (end_instr ())
+
+let extract_instr_seq f =
+  let curr = !instr_seq in
+  instr_seq := dummy_instr;
+  match f () with
+  | () ->
+      let i = extract_instr () in
+      instr_seq := curr;
+      i
+  | exception e ->
+      instr_seq := curr;
+      raise e
+
 open Llvm
 
 module IdentMap = Map.Make (struct type t = ident let compare = Pervasives.compare end)
