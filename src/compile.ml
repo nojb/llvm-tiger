@@ -63,7 +63,8 @@ type var_info =
 type fun_info =
   { fname: string;
     fsign: type_spec list * type_spec;
-    f_user: bool }
+    f_user: bool;
+    free_vars: string list }
 
 type value_desc =
   | Variable of var_info
@@ -74,8 +75,7 @@ module M = Map.Make (String)
 type env =
   { venv: value_desc M.t;
     tenv: type_spec M.t;
-    in_loop: bool;
-    sols: S.t M.t }
+    in_loop: bool }
 
 let rec base_type env = function
   | NAME x -> base_type env (M.find x env.tenv)
@@ -87,8 +87,7 @@ let type_equal env t1 t2 =
 let empty_env =
   { venv = M.empty;
     tenv = M.empty;
-    in_loop = false;
-    sols = M.empty }
+    in_loop = false }
 
 let find_var id env =
   try
@@ -110,10 +109,10 @@ let mem_var x env =
   with Not_found ->
     false
 
-let add_fun x uid atyps rtyp env =
+let add_fun x uid atyps rtyp free_vars env =
   let fi =
     { fname = uid; fsign = atyps, rtyp;
-      f_user = true }
+      f_user = true; free_vars }
   in
   {env with venv = M.add x.s (Function fi) env.venv}
 
@@ -323,11 +322,11 @@ let tr_return_type env fn =
 
 let fundecls = ref []
 
-let tr_function_header env fn =
+let tr_function_header free_vars env fn =
   let rtyp = tr_return_type env fn in
   let argst = List.map (fun (_, t) -> find_type t env) fn.fn_args in
   let uid = gentmp fn.fn_name.s in
-  add_fun fn.fn_name uid argst rtyp env
+  add_fun fn.fn_name uid argst rtyp free_vars env
 
 let rec tr_function_body env fundef =
   let type_of_free_var x =
@@ -346,7 +345,7 @@ let rec tr_function_body env fundef =
   in
   let fi = find_fun fundef.fn_name env in
   let ts, t = fi.fsign in
-  let fvs = S.elements (M.find fundef.fn_name.s env.sols) in
+  let fvs = fi.free_vars in
   let args1 = List.map find_free_var fvs in
   let tys1 = List.map type_of_free_var fvs in
   let env =
@@ -379,7 +378,7 @@ let rec tr_function_body env fundef =
 
 and let_funs env fundefs =
   check_unique_fundef_names fundefs;
-  let sols' =
+  let free_vars =
     List.fold_left
       (fun s f ->
          let ffv =
@@ -388,11 +387,10 @@ and let_funs env fundefs =
          S.union ffv s
       ) S.empty fundefs
   in
-  let sols' = List.fold_left (fun sols f -> M.add f.fn_name.s sols' sols) env.sols fundefs in
-  let env' = {env with sols = sols'} in
-  let env' = List.fold_left tr_function_header env' fundefs in
-  List.iter (tr_function_body env') fundefs;
-  env'
+  let free_vars = S.elements free_vars in
+  let env = List.fold_left (tr_function_header free_vars) env fundefs in
+  List.iter (tr_function_body env) fundefs;
+  env
 
 and array_var env v =
   let t, v' = var env v in
@@ -567,7 +565,7 @@ and exp env e =
                 List.fold_right (fun x ys ->
                     let vi = find_var {s = x; p = Lexing.dummy_pos} env in
                     Cvar vi.id :: ys
-                  ) (S.elements (M.find x.s env.sols)) (List.rev ys)
+                  ) fi.free_vars (List.rev ys)
               else
                 List.rev ys
             in
@@ -769,13 +767,13 @@ let base_venv =
   in
   let decl_fun venv (x, ts, t) =
     let fname = "__tiger__" ^ x in
-    M.add x (Function {fname = fname; f_user = false; fsign = (ts, t)}) venv
+    M.add x (Function {fname = fname; f_user = false; fsign = (ts, t); free_vars = []}) venv
   in
   List.fold_left decl_fun M.empty stdlib
 
 let program e =
   fundecls := [];
-  let env = {tenv = base_tenv; venv = base_venv; in_loop = false; sols = M.empty} in
+  let env = {tenv = base_tenv; venv = base_venv; in_loop = false} in
   let i =
     extract_instr_seq (fun () ->
         let _ = exp env e in
