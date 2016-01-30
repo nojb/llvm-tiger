@@ -11,6 +11,7 @@ type primitive =
   | Paddint
   | Psubint
   | Pmulint
+  | Pdivint
   | Pgep
   | Pload
 
@@ -102,8 +103,14 @@ let transl_primitive env m b p args =
       build_sub v w "" b
   | Pmulint, [v; w] ->
       build_mul v w "" b
+  | Pdivint, [v; w] ->
+      build_sdiv v w "" b
   | Pload, [v] ->
       build_load v "" b
+  | Pgep, v :: args ->
+      build_gep v (Array.of_list args) "" b
+  | _ ->
+      assert false
 
 let rec transl_instr env m b i lexit l =
   match i.desc with
@@ -146,6 +153,15 @@ let rec transl_instr env m b i lexit l =
       transl_instr env m b i.next lexit l
   | Iexit i ->
       ignore (build_br (List.nth lexit i) b)
+  | Iapply (id, f, args) ->
+      let f =
+        match lookup_function f m with
+        | None -> assert false
+        | Some f -> f
+      in
+      let v = build_call f (Array.of_list (List.map (fun id -> IdentMap.find id env) args)) "" b in
+      let env = IdentMap.add id v env in
+      transl_instr env m b i.next lexit l
   | Iend ->
       ignore (build_br l b)
   | Ireturn (Some e) ->

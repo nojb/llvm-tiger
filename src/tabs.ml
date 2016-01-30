@@ -27,10 +27,6 @@ type bin =
   | Op_add | Op_sub | Op_mul | Op_div
   | Op_cmp of cmp_op
 
-
-type pos =
-  Lexing.position
-
 type pos_string =
   { s: string;
     p: Lexing.position }

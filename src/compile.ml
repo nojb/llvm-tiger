@@ -372,10 +372,13 @@ let rec transl_typ env t =
 
 type code =
   | Cvar of ident
+  | Cnull of ty
   | Cprim of primitive * code list
 
 let rec insert_code = function
   | Cvar id -> id
+  | Cnull ty ->
+      assert false (* FIXME *)
   | Cprim (p, args) ->
       let id = fresh () in
       let args = List.map insert_code args in
@@ -563,7 +566,8 @@ and let_funs env fundefs =
 and typ_exp env e t' =
   let t, e' = exp env e in
   if type_equal env t t' then e'
-  else error e.epos
+  else
+    error e.epos
       "type mismatch: expected type '%s', instead found '%s'"
       (string_of_type t') (string_of_type t)
 
@@ -600,10 +604,10 @@ and exp env e =
       INT, Cprim (Pconstint n, [])
   (* | Estring (_, s) -> *)
   (*     nxt (VAL (build_global_stringptr s "" g_builder)) STRING *)
-  (* | Enil p -> *)
-  (*     error p *)
-  (*       "'nil' should be used in a context where \ *)
-  (*       its type can be determined" *)
+  | Enil ->
+      error e.epos
+        "'nil' should be used in a context where \
+         its type can be determined"
   | Evar v ->
       let t, v = var env v in
       t, Cprim (Pload, [v])
@@ -619,10 +623,10 @@ and exp env e =
       let x = int_exp env x in
       let y = int_exp env y in
       INT, Cprim (Pmulint, [x; y])
-  (* | Ebinop (_, x, Op_div, y) -> *)
-  (*     int_exp env x (fun x -> *)
-  (*     int_exp env y (fun y -> *)
-  (*     nxt (binop build_sdiv x y) INT)) *)
+  | Ebinop (x, Op_div, y) ->
+      let x = int_exp env x in
+      let y = int_exp env y in
+      INT, Cprim (Pdivint, [x; y])
   (* | Ebinop (_, x, Op_cmp Ceq, Enil _) *)
   (* | Ebinop (_, Enil _, Op_cmp Ceq, x) -> *)
   (*     exp env x (fun v tx -> *)
@@ -706,35 +710,40 @@ and exp env e =
       let e = typ_exp env e t in
       insert_instr (Istore (insert_code e, insert_code v));
       VOID, Cprim (Pconstint 0l, [])
-  (* | Ecall (p, x, xs) -> *)
-  (*     let fi = find_fun x env in *)
-  (*     let ts, t = fi.fsign in *)
-  (*     if List.length xs <> List.length ts then *)
-  (*       error p "bad arity: is %d, should be %d" *)
-  (*         (List.length xs) (List.length ts); *)
-  (*     let rec bind ys = function *)
-  (*       | [], [] -> *)
-  (*           let actuals = if fi.f_user then *)
-  (*             List.fold_right (fun x ys -> *)
-  (*               let vi = find_var { s = x; p = Lexing.dummy_pos } env in *)
-  (*               VAL vi.v_alloca :: ys) *)
-  (*               (S.elements (M.find x.s env.sols)) (List.rev ys) *)
-  (*               else List.rev ys in *)
-  (*           nxt (call (Lazy.force fi.f_llvalue) actuals) t *)
-  (*       | Enil p :: xs, t :: ts -> *)
-  (*           begin match base_type env t with *)
-  (*           | RECORD _ -> *)
-  (*               bind (const_null (transl_typ env t) :: ys) (xs, ts) *)
-  (*           | _ -> *)
-  (*               error p "expected record type, found '%s'" (describe_type t) *)
-  (*           end *)
-  (*       | x :: xs, t :: ts -> *)
-  (*           typ_exp env x t (fun x -> *)
-  (*           let x = save (structured_type env t && List.exists triggers xs) x in *)
-  (*           bind (x :: ys) (xs, ts)) *)
-  (*       | _ -> *)
-  (*           assert false *)
-  (*     in bind [] (xs, ts) *)
+  | Ecall (x, xs) ->
+      let fi = find_fun x env in
+      let ts, t = fi.fsign in
+      if List.length xs <> List.length ts then
+        error e.epos "bad arity: is %d, should be %d" (List.length xs) (List.length ts);
+      let rec bind ys = function
+        | [], [] ->
+            let actuals =
+              if fi.f_user then
+                List.fold_right (fun x ys ->
+                    let vi = find_var {s = x; p = Lexing.dummy_pos} env in
+                    Cvar vi.id :: ys
+                  ) (S.elements (M.find x.s env.sols)) (List.rev ys)
+              else
+                List.rev ys
+            in
+            let id = fresh () in
+            insert_instr (Iapply (id, fi.fname, List.map insert_code actuals));
+            t, Cvar id
+        | {edesc = Enil; epos = p} :: xs, t :: ts ->
+            begin match base_type env t with
+              | RECORD _ ->
+                  bind (Cnull (transl_typ env t) :: ys) (xs, ts)
+              | _ ->
+                  error p "expected record type, found '%s'" (describe_type t)
+            end
+        | x :: xs, t :: ts ->
+            let x = typ_exp env x t in
+            (* let x = save (structured_type env t && List.exists triggers xs) x in *)
+            bind (x :: ys) (xs, ts)
+        | _ ->
+            assert false
+      in
+      bind [] (xs, ts)
   | Eseq (e1, e2) ->
       let _ = exp env e1 in
       exp env e2
@@ -804,12 +813,6 @@ and exp env e =
   (*       | _, [] -> *)
   (*           error p "all fields have already been initialised" *)
   (*     in bind [] (xts, ts) *)
-  (* | Pif (_, P.Ecmp (x, op, y), z, None) ->
-      int_exp tenv venv looping x (fun x ->
-        int_exp tenv venv looping y (fun y ->
-          .Sseq (T.Sif (Ebinop (x, op, y),
-            void_exp tenv venv looping z Sskip, Sskip),
-            nxt Eundef E.Tvoid))) *)
   | Eif (e1, e2, e3) ->
       let e1 = int_exp env e1 in
       let t = ref VOID in
