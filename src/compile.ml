@@ -355,7 +355,7 @@ let rec transl_typ env t =
     | INT     -> Tint 32
     | STRING  -> Tpointer (Tint 8)
     | ARRAY (_, t) -> (* { i32, [0 x t] }* *)
-        Tpointer (Tstruct [Tint 32; Tarray (loop t, 0)])
+        Tpointer (loop t) (*  (Tstruct [Tint 32; Tarray (loop t, 0)]) *)
     | RECORD (x, xts) -> Tpointer (Tnamed x)
         (* if not (List.mem_assq t !named_structs) then begin *)
         (*   let ty = named_struct_type g_context x in *)
@@ -547,21 +547,21 @@ and let_funs env fundefs =
   List.iter (tr_function_body env') fundefs;
   env'
 
-(* and array_var env v nxt = *)
-(*   var env v (fun v' t -> *)
-(*     match base_type env t with *)
-(*     | ARRAY (_, t') -> nxt v' t' *)
-(*     | _ -> *)
-(*         error (var_p v) "expected variable of array type, but type is '%s'" *)
-(*           (describe_type t)) *)
+and array_var env v =
+  let t, v' = var env v in
+  match base_type env t with
+  | ARRAY (_, t') -> t', v'
+  | _ ->
+      error v.vpos "expected variable of array type, but type is '%s'"
+        (describe_type t)
 
-(* and record_var env v nxt = *)
-(*   var env v (fun v' t -> *)
-(*     match base_type env t with *)
-(*     | RECORD _ -> nxt v' t *)
-(*     | _ -> *)
-(*         error (var_p v) "expected variable of record type, but type is '%s'" *)
-(*           (describe_type t)) *)
+and record_var env v =
+  let t, v' = var env v in
+  match base_type env t with
+  | RECORD _ -> t, v'
+  | _ ->
+      error v.vpos "expected variable of record type, but type is '%s'"
+        (describe_type t)
 
 and typ_exp env e t' =
   let t, e' = exp env e in
@@ -584,17 +584,14 @@ and var env v =
   | Vsimple x ->
       let vi = find_var x env in
       vi.vtype, Cvar vi.id
-(*   | Vsubscript (p, v, x) -> *)
-(*       array_var env v (fun v t' -> *)
-(*       let v = save (triggers x) v in *)
-(*       int_exp env x (fun x -> *)
-(*       let v = array_index p.Lexing.pos_lnum v x in *)
-(*       nxt (load v) t')) *)
-(*   | Vfield (p, v, x) -> *)
-(*       record_var env v (fun v t' -> *)
-(*       let i, tx = find_record_field env t' x in *)
-(*       let v = record_index p.Lexing.pos_lnum v i in *)
-(*       nxt (load v) tx) *)
+  | Vsubscript (v, x) ->
+      let t', v = array_var env v in
+      let x = int_exp env x in
+      t', Cprim (Pgep, [Cprim (Pload, [v]); x])
+  | Vfield (v, x) ->
+      let t', v = record_var env v in
+      let i, tx = find_record_field env t' x in
+      tx, Cprim (Pgep, [Cprim (Pload, [v]); Cprim (Pconstint 0l, []); Cprim (Pconstint (Int32.of_int i), [])])
 
 and exp env e =
   match e.edesc with
@@ -602,8 +599,9 @@ and exp env e =
       VOID, Cprim (Pconstint 0l, [])
   | Eint n ->
       INT, Cprim (Pconstint n, [])
-  (* | Estring (_, s) -> *)
-  (*     nxt (VAL (build_global_stringptr s "" g_builder)) STRING *)
+  | Estring s ->
+      failwith "Estring not implemented"
+      (* nxt (VAL (build_global_stringptr s "" g_builder)) STRING *)
   | Enil ->
       error e.epos
         "'nil' should be used in a context where \
@@ -747,72 +745,70 @@ and exp env e =
   | Eseq (e1, e2) ->
       let _ = exp env e1 in
       exp env e2
-  (* | Emakearray (p, x, y, Enil _) -> *)
-  (*     let t, t' = find_array_type x env in *)
-  (*     begin match base_type env t' with *)
-  (*     | RECORD _ -> *)
-  (*         int_exp env y (fun y -> *)
-  (*         let y = VAL (llvm_value y) in *)
-  (*         let a = gc_alloc (add (const_int Sys.word_size 8) *)
-  (*           (mul (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of (transl_typ env t')))) in *)
-  (*         let a = build_pointercast a (ptr_t (struct_t [| int_t 32; *)
-  (*           array_type (transl_typ env t') 0 |])) "" g_builder in *)
-  (*         store y (array_length_addr (VAL a)); *)
-  (*         (\* FIXME initialisation *\) *)
-  (*         nxt (VAL a) t) *)
-  (*     | _ -> *)
-  (*         error p "array base type must be record type" *)
-  (*     end *)
-  (* | Emakearray (_, x, y, z) -> *)
-  (*     let t, t' = find_array_type x env in *)
-  (*     int_exp env y (fun y -> *)
-  (*     typ_exp env z t' (fun z -> *)
-  (*     let y = VAL (llvm_value y) in *)
-  (*     let a = gc_alloc (add (const_int Sys.word_size 8) (mul *)
-  (*       (unop (fun v -> build_zext v (int_t Sys.word_size)) y) (size_of *)
-  (*       (transl_typ env t')))) in *)
-  (*     let a = build_pointercast a (ptr_t (struct_t *)
-  (*       [| int_t 32; array_type (transl_typ env t') 0 |])) "" g_builder in *)
-  (*     store y (array_length_addr (VAL a)); *)
-  (*     (\* FIXME initialisation *\) *)
-  (*     nxt (VAL a) t)) *)
-  (* | Emakerecord (p, x, xts) -> *)
-  (*     let t, ts = find_record_type env x in *)
-  (*     let rec bind vs = function *)
-  (*       | [], [] -> *)
-  (*           let t' = element_type (transl_typ env t) in *)
-  (*           debug () "%s" (string_of_lltype t'); *)
-  (*           let r = VAL (gc_alloc_type t') in *)
-  (*           let rec bind i = function *)
-  (*             | [] -> nxt r t *)
-  (*             | v :: vs -> *)
-  (*                 let f = gep r [ const_int 32 0; const_int 32 i ] in *)
-  (*                 store v f; *)
-  (*                 bind (i+1) vs *)
-  (*           in bind 0 (List.rev vs) *)
-  (*       | (x, Enil _) :: xts, (x', t) :: ts -> *)
-  (*           if x.s = x' then *)
-  (*             bind (const_null (transl_typ env t) :: vs) (xts, ts) *)
-  (*           else *)
-  (*             if List.exists (fun (x', _) -> x.s = x') ts then *)
-  (*               error x.p "field '%s' is in the wrong other" x.s *)
-  (*             else *)
-  (*               error x.p "field '%s' is unknown" x.s *)
-  (*       | (x, e) :: xts, (x', t) :: ts -> *)
-  (*           if x.s = x' then *)
-  (*             typ_exp env e t (fun e -> *)
-  (*             let e = save (structured_type env t) e in *)
-  (*             bind (e :: vs) (xts, ts)) *)
-  (*           else *)
-  (*             if List.exists (fun (x', _) -> x.s = x') ts then *)
-  (*               error x.p "field '%s' is in the wrong other" x.s *)
-  (*             else *)
-  (*               error x.p "unknown field '%s'" x.s *)
-  (*       | [], _ -> *)
-  (*           error p "some fields missing from initialisation" *)
-  (*       | _, [] -> *)
-  (*           error p "all fields have already been initialised" *)
-  (*     in bind [] (xts, ts) *)
+  | Emakearray (x, y, {edesc = Enil}) ->
+      let t, t' = find_array_type x env in
+      begin match base_type env t' with
+        | RECORD _ ->
+            let y = int_exp env y in
+            let id1 = fresh () in
+            let id2 = fresh () in
+            insert_instr (Iexternal (id1, "tiger_make_array", [insert_code y; insert_code (Cnull (transl_typ env t'))]));
+            insert_instr (Istore (id1, id2));
+            t, Cprim (Pload, [Cvar id2])
+      | _ ->
+          error e.epos "array base type must be record type"
+      end
+  | Emakearray (x, y, z) ->
+      let t, t' = find_array_type x env in
+      let y = int_exp env y in
+      let z = typ_exp env z t' in
+      let id1 = fresh () in
+      let id2 = fresh () in
+      insert_instr (Iexternal (id1, "tiger_make_array", [insert_code y; insert_code z]));
+      insert_instr (Istore (id1, id2));
+      t, Cprim (Pload, [Cvar id2])
+  | Emakerecord (x, xts) ->
+      let t, ts = find_record_type env x in
+      let rec bind vs = function
+        | [], [] ->
+            (* let t' = element_type (transl_typ env t) in *)
+            (* debug () "%s" (string_of_lltype t'); *)
+            (* let r = VAL (gc_alloc_type t') in *)
+            let id1 = fresh () in
+            let id2 = fresh () in
+            insert_instr (Iexternal (id1, "tiger_make_record", [])); (* FIXME *)
+            insert_instr (Istore (id1, id2));
+            let f i = Cprim (Pgep, [Cvar id2; Cprim (Pconstint 0l, []); Cprim (Pconstint (Int32.of_int i), [])]) in
+            let rec bind i = function
+              | [] -> t, Cprim (Pload, [Cvar id2])
+              | v :: vs ->
+                  insert_instr (Istore (insert_code v, insert_code (f i)));
+                  bind (i+1) vs
+            in
+            bind 0 (List.rev vs)
+        | (x, {edesc = Enil}) :: xts, (x', t) :: ts ->
+            if x.s = x' then
+              bind (Cnull (transl_typ env t) :: vs) (xts, ts)
+            else
+              if List.exists (fun (x', _) -> x.s = x') ts then
+                error x.p "field '%s' is in the wrong other" x.s
+              else
+                error x.p "field '%s' is unknown" x.s
+        | (x, e) :: xts, (x', t) :: ts ->
+            if x.s = x' then
+              let e = typ_exp env e t in
+              bind (e :: vs) (xts, ts)
+            else
+              if List.exists (fun (x', _) -> x.s = x') ts then
+                error x.p "field '%s' is in the wrong other" x.s
+              else
+                error x.p "unknown field '%s'" x.s
+        | [], _ ->
+            error e.epos "some fields missing from initialisation"
+        | _, [] ->
+            error e.epos "all fields have already been initialised"
+      in
+      bind [] (xts, ts)
   | Eif (e1, e2, e3) ->
       let e1 = int_exp env e1 in
       let t = ref VOID in
@@ -842,30 +838,27 @@ and exp env e =
       in
       insert_instr (Icatch body);
       VOID, Cprim (Pconstint 0l, [])
-  (* | Efor (_, i, x, y, z) -> *)
-  (*     let nextbb = new_block () in *)
-  (*     let testbb = new_block () in *)
-  (*     let bodybb = new_block () in *)
-  (*     int_exp env x (fun x -> *)
-  (*     int_exp env y (fun y -> *)
-  (*       let a = alloca false (int_t 32) in *)
-  (*       let ii = VAL (a) in *)
-  (*       set_value_name i.s a; *)
-  (*       store x ii; *)
-  (*       ignore (build_br testbb g_builder); *)
-  (*       position_at_end testbb g_builder; *)
-  (*       let iii = load ii in *)
-  (*       let c = binop (build_icmp Icmp.Sle) iii y in *)
-  (*       cond_br c bodybb nextbb; *)
-  (*       position_at_end bodybb g_builder; *)
-  (*       void_exp (add_var i ~immutable:true INT (llvm_value iii) env) z (\* M.add i (llvm_value iii) *)
-  (*     env) nextbb z (fun _ -> *\) *)
-  (*       (fun () -> *)
-  (*         let plusone = binop build_add iii (const_int 32 1) in *)
-  (*         store plusone ii; *)
-  (*         ignore (build_br testbb g_builder)))); *)
-  (*     position_at_end nextbb g_builder; *)
-  (*     nxt nil VOID *)
+  | Efor (i, x, y, z) ->
+      let x = int_exp env x in
+      let y = int_exp env y in
+      let env, i = add_var i ~immutable:true INT env in
+      insert_instr (Ialloca (i.id, Tint 32));
+      insert_instr (Istore (insert_code x, i.id));
+      let body =
+        extract_instr_seq (fun () ->
+            void_exp env z;
+            insert_instr (Istore (insert_code (Cprim (Paddint, [Cprim (Pconstint 1l, []); Cprim (Pload, [Cvar i.id])])), i.id))
+          )
+      in
+      let test =
+        extract_instr_seq (fun () ->
+            let ifso = body in
+            let ifnot = extract_instr_seq (fun () -> insert_instr (Iexit 0)) in
+            insert_instr (Iifthenelse (insert_code (Cprim (Pcmpint Cleq, [Cprim (Pload, [Cvar i.id]); y])), ifso, ifnot))
+          )
+      in
+      insert_instr (Icatch (extract_instr_seq (fun () -> insert_instr (Iloop test))));
+      VOID, Cprim (Pconstint 0l, [])
   | Ebreak ->
       if env.in_loop then begin
         insert_instr (Iexit 0);

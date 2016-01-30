@@ -6,6 +6,9 @@ type ty =
   | Tpointer of ty
   | Tint of int
 
+type comparison =
+  | Cleq
+
 type primitive =
   | Pconstint of int32
   | Paddint
@@ -14,6 +17,7 @@ type primitive =
   | Pdivint
   | Pgep
   | Pload
+  | Pcmpint of comparison
 
 type ident = int
 
