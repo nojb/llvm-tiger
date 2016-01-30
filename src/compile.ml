@@ -563,7 +563,7 @@ and let_funs env fundefs =
 and typ_exp env e t' =
   let t, e' = exp env e in
   if type_equal env t t' then e'
-  else error (exp_p e)
+  else error e.epos
       "type mismatch: expected type '%s', instead found '%s'"
       (string_of_type t') (string_of_type t)
 
@@ -576,7 +576,7 @@ and void_exp env e =
 (* Main typechecking/compiling functions *)
 
 and var env v =
-  match v with
+  match v.vdesc with
   | Vsimple x ->
       let vi = find_var x env in
       vi.vtype, Cvar vi.id
@@ -593,10 +593,10 @@ and var env v =
 (*       nxt (load v) tx) *)
 
 and exp env e =
-  match e with
-  | Eunit _ ->
+  match e.edesc with
+  | Eunit ->
       VOID, Cprim (Pconstint 0l, [])
-  | Eint (_, n) ->
+  | Eint n ->
       INT, Cprim (Pconstint n, [])
   (* | Estring (_, s) -> *)
   (*     nxt (VAL (build_global_stringptr s "" g_builder)) STRING *)
@@ -604,18 +604,18 @@ and exp env e =
   (*     error p *)
   (*       "'nil' should be used in a context where \ *)
   (*       its type can be determined" *)
-  | Evar (_, v) ->
+  | Evar v ->
       let t, v = var env v in
       t, Cprim (Pload, [v])
-  | Ebinop (_, x, Op_add, y) ->
+  | Ebinop (x, Op_add, y) ->
       let x = int_exp env x in
       let y = int_exp env y in
       INT, Cprim (Paddint, [x; y])
-  | Ebinop (_, x, Op_sub, y) ->
+  | Ebinop (x, Op_sub, y) ->
       let x = int_exp env x in
       let y = int_exp env y in
       INT, Cprim (Psubint, [x; y])
-  | Ebinop (_, x, Op_mul, y) ->
+  | Ebinop (x, Op_mul, y) ->
       let x = int_exp env x in
       let y = int_exp env y in
       INT, Cprim (Pmulint, [x; y])
@@ -692,16 +692,16 @@ and exp env e =
   (*     | _, _ -> *)
   (*         error p "comparison operator cannot be applied to type '%s'" *)
   (*           (describe_type tx))) *)
-  | Eassign (p, v, Enil _) ->
+  | Eassign (v, {edesc = Enil}) ->
       let t, v = var env v in
       begin match base_type env t with
         | RECORD _ ->
             insert_instr (Istore (insert_code (Cprim (Pconstint 0l, [])), insert_code v));
             VOID, Cprim (Pconstint 0l, [])
         | _ ->
-            error p "trying to assign 'nil' to a field of non-record type"
+            error e.epos "trying to assign 'nil' to a field of non-record type"
       end
-  | Eassign (_, v, e) ->
+  | Eassign (v, e) ->
       let t, v = var env v in
       let e = typ_exp env e t in
       insert_instr (Istore (insert_code e, insert_code v));
@@ -735,7 +735,7 @@ and exp env e =
   (*       | _ -> *)
   (*           assert false *)
   (*     in bind [] (xs, ts) *)
-  | Eseq (_, e1, e2) ->
+  | Eseq (e1, e2) ->
       let _ = exp env e1 in
       exp env e2
   (* | Emakearray (p, x, y, Enil _) -> *)
@@ -810,7 +810,7 @@ and exp env e =
           .Sseq (T.Sif (Ebinop (x, op, y),
             void_exp tenv venv looping z Sskip, Sskip),
             nxt Eundef E.Tvoid))) *)
-  | Eif (_, e1, e2, e3) ->
+  | Eif (e1, e2, e3) ->
       let e1 = int_exp env e1 in
       let t = ref VOID in
       let id = fresh () in
@@ -829,7 +829,7 @@ and exp env e =
       in
       insert_instr (Iifthenelse (insert_code e1, ifso, ifnot));
       !t, Cprim (Pload, [Cvar id])
-  | Ewhile (_, e1, e2) ->
+  | Ewhile (e1, e2) ->
       let ifso = extract_instr_seq (fun () -> ignore (exp env e2)) in
       let ifnot = extract_instr_seq (fun () -> insert_instr (Iexit 0)) in
       let body =
@@ -863,19 +863,19 @@ and exp env e =
   (*         ignore (build_br testbb g_builder)))); *)
   (*     position_at_end nextbb g_builder; *)
   (*     nxt nil VOID *)
-  | Ebreak p ->
+  | Ebreak ->
       if env.in_loop then begin
         insert_instr (Iexit 0);
         VOID, Cprim (Pconstint 0l, []) (* FIXME FIXME *)
       end else
-        error p "illegal use of 'break'"
-  | Elet (_, Dvar (x, None, y), z) ->
+        error e.epos "illegal use of 'break'"
+  | Elet (Dvar (x, None, y), z) ->
       let ty, y = exp env y in
       let env, x = add_var x ty env in
       insert_instr (Ialloca (x.id, transl_typ env ty));
       insert_instr (Istore (insert_code y, x.id));
       exp env z
-  | Elet (p, Dvar (x, Some t, Enil _), z) ->
+  | Elet (Dvar (x, Some t, {edesc = Enil}), z) ->
       let t = find_type t env in
       begin match base_type env t with
       | RECORD _ ->
@@ -884,19 +884,19 @@ and exp env e =
           insert_instr (Istore (insert_code (Cprim (Pconstint 0l, [])), x.id));
           exp env z
       | _ ->
-          error p "expected record type, found '%s'" (describe_type t)
+          error e.epos "expected record type, found '%s'" (describe_type t)
       end
-  | Elet (_, Dvar (x, Some t, y), z) ->
+  | Elet (Dvar (x, Some t, y), z) ->
       let ty = find_type t env in
       let y = typ_exp env y ty in
       let env, x = add_var x ty env in
       insert_instr (Ialloca (x.id, transl_typ env ty));
       insert_instr (Istore (insert_code y, x.id));
       exp env z
-  | Elet (_, Dtypes tys, e) ->
+  | Elet (Dtypes tys, e) ->
       let env = let_type env tys in
       exp env e
-  | Elet (_, Dfuns funs, e) ->
+  | Elet (Dfuns funs, e) ->
       exp (let_funs env funs) e
 
 let base_tenv =
