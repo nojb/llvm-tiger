@@ -46,38 +46,6 @@ type fundecl =
     signature: signature;
     body: instruction }
 
-let rec dummy_instr =
-  { desc = Iend;
-    next = dummy_instr }
-
-let end_instr () =
-  { desc = Iend;
-    next = dummy_instr }
-
-let instr_seq = ref dummy_instr
-let insert_instr desc = instr_seq := {desc; next = !instr_seq}
-
-let extract () =
-  let rec aux i next =
-    if i == dummy_instr then
-      next
-    else
-      aux i.next {i with next}
-  in
-  aux !instr_seq (end_instr ())
-
-let extract_instr_seq f =
-  let curr = !instr_seq in
-  instr_seq := dummy_instr;
-  match f () with
-  | () ->
-      let i = extract () in
-      instr_seq := curr;
-      i
-  | exception e ->
-      instr_seq := curr;
-      raise e
-
 open Llvm
 
 module IdentMap = Map.Make (struct type t = ident let compare = Pervasives.compare end)
@@ -121,6 +89,7 @@ let transl_primitive env m b p args =
 let rec transl_instr env m b i lexit l =
   match i.desc with
   | Ilet (id, p, args) ->
+      dump_module m;
       let args = List.map (fun id -> IdentMap.find id env) args in
       let env = IdentMap.add id (transl_primitive env m b p args) env in
       transl_instr env m b i.next lexit l
@@ -197,7 +166,9 @@ let transl_fundecl_2 m f =
   let b = builder c in
   let l = entry_block v in
   position_at_end l b;
-  transl_instr IdentMap.empty m b f.body [] l
+  let i = ref (-1) in
+  let env = List.fold_left (fun env arg -> incr i; IdentMap.add arg (param v !i) env) IdentMap.empty f.args in
+  transl_instr env m b f.body [] l
 
 let transl_program m l =
   List.iter (transl_fundecl_1 m) l;

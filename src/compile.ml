@@ -24,14 +24,12 @@ open Error
 open Tabs
 open Irep
 
-let tmp_counter = ref (-1)
-
-let gentmp s =
-  incr tmp_counter;
-  s ^ "__" ^ (string_of_int !tmp_counter)
-
 let last_id = ref (-1)
 let fresh () = incr last_id; !last_id
+
+let gentmp s =
+  let id = fresh () in
+  Printf.sprintf "__tiger_%s_%i" s id
 
 type type_spec =
   | VOID
@@ -189,21 +187,6 @@ let rec transl_typ env t =
   in
   loop t
 
-type code =
-  | Cvar of ident
-  | Cnull of ty
-  | Cprim of primitive * code list
-
-let rec insert_code = function
-  | Cvar id -> id
-  | Cnull ty ->
-      assert false (* FIXME *)
-  | Cprim (p, args) ->
-      let id = fresh () in
-      let args = List.map insert_code args in
-      insert_instr (Ilet (id, p, args));
-      id
-
 let declare_type env (x, t) =
   let find_type y env =
     try M.find y.s env.tenv
@@ -262,8 +245,6 @@ let let_type env tys =
   List.iter (check_type env) tys;
   env
 
-(** ----------------------------------------- *)
-
 let rec structured_type env t =
   match t with
   | NAME y -> structured_type env (M.find y env.tenv)
@@ -272,7 +253,52 @@ let rec structured_type env t =
   | RECORD _ -> true
   | _ -> false
 
-(* These utility functions are used in the processing of function definitions *)
+let rec dummy_instr =
+  { desc = Iend;
+    next = dummy_instr }
+
+let end_instr () =
+  { desc = Iend;
+    next = dummy_instr }
+
+let instr_seq = ref dummy_instr
+let insert_instr desc = instr_seq := {desc; next = !instr_seq}
+
+let extract () =
+  let rec aux i next =
+    if i == dummy_instr then
+      next
+    else
+      aux i.next {i with next}
+  in
+  aux !instr_seq (end_instr ())
+
+let extract_instr_seq f =
+  let curr = !instr_seq in
+  instr_seq := dummy_instr;
+  match f () with
+  | () ->
+      let i = extract () in
+      instr_seq := curr;
+      i
+  | exception e ->
+      instr_seq := curr;
+      raise e
+
+type code =
+  | Cvar of ident
+  | Cnull of ty
+  | Cprim of primitive * code list
+
+let rec insert_code = function
+  | Cvar id -> id
+  | Cnull ty ->
+      assert false (* FIXME *)
+  | Cprim (p, args) ->
+      let id = fresh () in
+      let args = List.map insert_code args in
+      insert_instr (Ilet (id, p, args));
+      id
 
 let check_unique_fundef_names fundefs =
   let rec bind = function
@@ -306,8 +332,10 @@ let tr_function_header env fn =
 let rec tr_function_body env fundef =
   let type_of_free_var x =
     match M.find x env.venv with
-    | Variable vi -> Tpointer (transl_typ env vi.vtype)
-    | Function _ -> assert false
+    | Variable vi ->
+        Tpointer (transl_typ env vi.vtype)
+    | Function _ ->
+        assert false
   in
   let find_free_var x =
     match M.find x env.venv with
@@ -330,7 +358,7 @@ let rec tr_function_body env fundef =
   let args1 = List.map (fun vi -> vi.id) args1 in
   let env =
     List.fold_left2 (fun env (x, _) t ->
-        let env, _ = add_var x t (* a *) env in
+        let env, _ = add_var x t env in
         env
       ) env fundef.fn_args ts
   in
@@ -754,4 +782,4 @@ let program e =
         insert_instr (Ireturn (Some (insert_code (Cprim (Pconstint 0l, [])))))
       )
   in
-  {name = "_tiger_main"; args = []; signature = ([], Tint 32); body = i} :: !fundecls
+  {name = "__tiger_main"; args = []; signature = ([], Tint 32); body = i} :: !fundecls
