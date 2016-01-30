@@ -685,6 +685,9 @@ and exp env e =
             insert_instr (Iifthenelse (insert_code (int_exp env e1), ifso, ifnot))
           )
       in
+      let body =
+        extract_instr_seq (fun () -> insert_instr (Iloop body))
+      in
       insert_instr (Icatch body);
       VOID, Cprim (Pconstint 0l, [])
   | Efor (i, x, y, z) ->

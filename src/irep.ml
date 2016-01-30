@@ -40,11 +40,94 @@ and instruction =
   { desc: instruction_desc;
     next: instruction }
 
+let print_primitive p ppf args =
+  let open Format in
+  match p, args with
+  | Pconstint n, [] ->
+      fprintf ppf "%li" n
+  | Paddint, [id1; id2] ->
+      fprintf ppf "x%i + x%i" id1 id2
+  | Psubint, [id1; id2] ->
+      fprintf ppf "x%i - x%i" id1 id2
+  | Pmulint, [id1; id2] ->
+      fprintf ppf "x%i * x%i" id1 id2
+  | Pdivint, [id1; id2] ->
+      fprintf ppf "x%i / x%i" id1 id2
+  | Pgep, id :: rest ->
+      fprintf ppf "gep x%i, ..." id
+  | Pload, [id] ->
+      fprintf ppf "!x%i" id
+  | Pcmpint _, _ ->
+      fprintf ppf "cmp"
+  | _ ->
+      assert false
+
+let rec print_typ ppf ty =
+  let open Format in
+  match ty with
+  | Tint w -> fprintf ppf "i%i" w
+  | Tpointer t -> fprintf ppf "p%a" print_typ t
+  | Tarray (t, n) -> fprintf ppf "a%i%a" n print_typ t
+  | Tnamed s -> fprintf ppf "%s" s
+  | Tvoid -> fprintf ppf "void"
+
+let print_args ppf ids =
+  let open Format in
+  match ids with
+  | [] -> ()
+  | id :: rest ->
+      fprintf ppf "x%i" id;
+      List.iter (fun id -> fprintf ppf ", x%i" id) rest
+
+let rec print_instruction ppf i =
+  let open Format in
+  begin match i.desc with
+    | Ilet (id, p, args) ->
+        fprintf ppf "x%i = %a" id (print_primitive p) args
+    | Ialloca (id, ty) ->
+        fprintf ppf "x%i = alloca %a" id print_typ ty
+    | Istore (v, p) ->
+        fprintf ppf "x%i := x%i" p v
+    | Iifthenelse (id, ifso, ifnot) ->
+        fprintf ppf "@[<v 2>if x%i then@,%a" id print_instruction ifso;
+        fprintf ppf "@;<0 -2>else@,%a" print_instruction ifnot;
+        fprintf ppf "@;<0 -2>endif@]"
+    | Iloop body ->
+        fprintf ppf "@[<v 2>loop@,%a" print_instruction body;
+        fprintf ppf "@;<0 -2>endloop@]"
+    | Icatch body ->
+        fprintf ppf "@[<v 2>catch@,%a" print_instruction body;
+        fprintf ppf "@;<0 -2>endcatch@]"
+    | Iexit i ->
+        fprintf ppf "exit %i" i
+    | Iapply (id, f, args)
+    | Iexternal (id, f, _, args) ->
+        fprintf ppf "x%i = %s(%a)" id f print_args args
+    | Ireturn None ->
+        fprintf ppf "ret"
+    | Ireturn (Some id) ->
+        fprintf ppf "ret x%i" id
+    | Iend ->
+        ()
+  end;
+  match i.next.desc with
+  | Iend ->
+      ()
+  | _ ->
+      fprintf ppf "@,%a" print_instruction i.next
+
+let print_instruction ppf i =
+  Format.fprintf ppf "@[<v>%a@]@." print_instruction i
+
 type fundecl =
   { name: string;
     args: ident list;
     signature: signature;
     body: instruction }
+
+let print_fundecl ppf f =
+  let open Format in
+  fprintf ppf "@[<v>%s(%a):@,%a@]@." f.name print_args f.args print_instruction f.body
 
 open Llvm
 
@@ -89,7 +172,6 @@ let transl_primitive env m b p args =
 let rec transl_instr env m b i lexit l =
   match i.desc with
   | Ilet (id, p, args) ->
-      dump_module m;
       let args = List.map (fun id -> IdentMap.find id env) args in
       let env = IdentMap.add id (transl_primitive env m b p args) env in
       transl_instr env m b i.next lexit l
