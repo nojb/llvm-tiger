@@ -22,7 +22,6 @@
 
 open Error
 open Tabs
-(* open Llvm *)
 open Irep
 
 let tmp_counter = ref (-1)
@@ -136,8 +135,6 @@ let find_fun x env =
   with Not_found ->
     error x.p "unbound function '%s'" x.s
 
-(* type tenv = (string * E.typ) list *)
-
 let find_type x env =
   try
     M.find x.s env.tenv
@@ -163,190 +160,12 @@ let find_record_type env x =
 
 let find_record_field env t (x : pos_string) =
   let t, xts = match base_type env t with RECORD (t, xts) -> t, xts | _ -> assert false in
-  (* let ts = M.find t env.renv in *)
   let rec loop i = function
     | [] -> error x.p "record type '%s' does not contain field '%s'" t x.s
     | (x', t') :: xs when x' = x.s -> i, t'
     | _ :: xs -> loop (i+1) xs
   in
   loop 0 xts
-
-(* (\* * LLVM Utils *\) *)
-
-(* type llvm_value = *)
-(*   | VAL of llvalue *)
-(*   | LOADVAL of llvalue *)
-
-(* let g_context = global_context () *)
-(* let g_module  = create_module g_context "" *)
-(* let g_builder = builder g_context *)
-
-(* let new_block () = *)
-(*   (\* this assumes that the builder is already set up *)
-(*    * inside a function *\) *)
-(*   let f = block_parent (insertion_block g_builder) in *)
-(*   append_block g_context "" f *)
-
-(* let llvm_value = function *)
-(*   | VAL v -> v *)
-(*   | LOADVAL v -> build_load v "" g_builder *)
-
-(* let dump_llvm_value = function *)
-(*   | VAL v *)
-(*   | LOADVAL v -> dump_value v *)
-
-(* let int_t w = *)
-(*   integer_type g_context w *)
-
-(* let void_t = *)
-(*   void_type g_context *)
-
-(* let ptr_t t = *)
-(*   pointer_type t *)
-
-(* let struct_t fields = *)
-(*   struct_type g_context fields *)
-
-(* let const_int0 w n = *)
-(*   const_int (int_t w) n *)
-
-(*   (\* This one shadows Llvm.const_int *\) *)
-(* let const_int w n = *)
-(*   VAL (const_int (int_t w) n) *)
-
-(* let const_null0 = *)
-(*   const_null *)
-
-(* let const_null t = *)
-(*   VAL (const_null t) *)
-
-(* let size_of t = (\* shadows Llvm.size_of *\) *)
-(*   VAL (size_of t) *)
-
-(* let malloc v = *)
-(*   build_call (declare_function "malloc" *)
-(*     (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module) *)
-(*     [| llvm_value v |] "" g_builder *)
-
-(* let gc_alloc v = *)
-(*   build_call (declare_function "llvm_gc_allocate" *)
-(*     (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module) *)
-(*     [| llvm_value v |] "" g_builder *)
-
-(* let gc_alloc_type t = *)
-(*   dump_llvm_value (size_of t); *)
-(*   let v = build_call (declare_function "llvm_gc_allocate" *)
-(*     (function_type (ptr_t (int_t 8)) [| int_t Sys.word_size  |]) g_module) *)
-(*     [| llvm_value (size_of t) |] "" g_builder in *)
-(*   build_pointercast v (ptr_t t) "" g_builder *)
-
-(* let alloca is_ptr ty = *)
-(*   let b = builder_at_end g_context *)
-(*     (entry_block (block_parent (insertion_block g_builder))) in *)
-(*   let a = build_alloca ty "" b in *)
-(*   if is_ptr then begin *)
-(*     let v = build_pointercast a (ptr_t (ptr_t (int_t 8))) "" b in *)
-(*     ignore (build_call (declare_function "llvm.gcroot" *)
-(*       (function_type void_t [| ptr_t (ptr_t (int_t 8)); ptr_t (int_t 8) |]) *)
-(*       g_module) [| v; const_null0 (ptr_t (int_t 8)) |] "" b) *)
-(*   end; *)
-(*   a *)
-
-(* let add v1 v2 = *)
-(*   VAL (build_add (llvm_value v1) (llvm_value v2) "" g_builder) *)
-
-(* let mul v1 v2 = *)
-(*   VAL (build_mul (llvm_value v1) (llvm_value v2) "" g_builder) *)
-
-(* let load v = *)
-(*   VAL (build_load (llvm_value v) "" g_builder) *)
-
-(* let nil = *)
-(*   const_int 32 0 *)
-
-(* let store v p = *)
-(*   ignore (build_store (llvm_value v) (llvm_value p) g_builder) *)
-
-(* let gep v vs = *)
-(*   VAL (build_gep (llvm_value v) *)
-(*     (Array.of_list (List.map llvm_value vs)) "" g_builder) *)
-
-(* let binop op v1 v2 = *)
-(*   VAL (op (llvm_value v1) (llvm_value v2) "" g_builder) *)
-
-(* let unop op v = *)
-(*   VAL (op (llvm_value v) "" g_builder) *)
-
-(* let call v0 vs = *)
-(*   VAL (build_call v0 (Array.of_list (List.map llvm_value vs)) "" g_builder) *)
-
-(* let phi incoming = *)
-(*   VAL (build_phi *)
-(*     (List.map (fun (v, bb) -> llvm_value v, bb) incoming) "" g_builder) *)
-
-(* let cond_br c yaybb naybb = *)
-(*   ignore (build_cond_br (llvm_value c) yaybb naybb g_builder) *)
-
-(* let array_length_addr v = *)
-(*   gep v [ const_int 32 0; const_int 32 0 ] *)
-
-(* let strcmp v1 v2 = *)
-(*   VAL (build_call (declare_function "strcmp" *)
-(*     (function_type (int_t 32) *)
-(*       [| ptr_t (int_t 8); ptr_t (int_t 8) |]) g_module) *)
-(*     [| llvm_value v1; llvm_value v2 |] "" g_builder) *)
-
-(* let printf msg = *)
-(*   ignore (build_call (declare_function "printf" *)
-(*     (var_arg_function_type (int_t 32) [| ptr_t (int_t 8) |]) *)
-(*     g_module) [| build_global_stringptr msg "" g_builder |] "" g_builder) *)
-
-(* let die msg = *)
-(*   printf msg; *)
-(*   ignore (build_call (declare_function "exit" *)
-(*     (function_type void_t [| int_t 32 |]) g_module) [| const_int0 32 2 |] "" *)
-(*     g_builder); *)
-(*   ignore (build_unreachable g_builder) *)
-
-(* let array_index lnum v x = *)
-(*   let v = VAL (llvm_value v) in *)
-(*   let yesbb = new_block () in *)
-(*   let diebb = new_block () in *)
-(*   let l = load (array_length_addr v) in *)
-(*   let c1 = binop (build_icmp Icmp.Sle) x l in *)
-(*   let c2 = binop (build_icmp Icmp.Sge) x (const_int 32 0) in *)
-(*   let c = binop build_and c1 c2 in *)
-(*   cond_br c yesbb diebb; *)
-(*   position_at_end diebb g_builder; *)
-(*   die (Printf.sprintf "Runtime error: index out of bounds in line %d\n" lnum); *)
-(*   position_at_end yesbb g_builder; *)
-(*   gep v [ const_int 32 0; const_int 32 1; x ] *)
-
-(* let record_index lnum v i = *)
-(*   let v = VAL (llvm_value v) in *)
-(*   let yesbb = new_block () in *)
-(*   let diebb = new_block () in *)
-(*   let ptr = unop (fun v -> build_ptrtoint v (int_t Sys.word_size)) v in *)
-(*   let c = binop (build_icmp Icmp.Ne) ptr (const_int Sys.word_size 0) in *)
-(*   cond_br c yesbb diebb; *)
-(*   position_at_end diebb g_builder; *)
-(*   die (Printf.sprintf *)
-(*     "Runtime error: field access to nil record in line %d\n" lnum); *)
-(*   position_at_end yesbb g_builder; *)
-(*   gep v [ const_int 32 0; const_int 32 i ] *)
-
-(* let save triggers v = *)
-(*   if triggers then *)
-(*     match v with *)
-(*     | LOADVAL _ -> v *)
-(*     | VAL v -> *)
-(*         let a = alloca true (type_of v) in *)
-(*         ignore (build_store v a g_builder); *)
-(*         LOADVAL a *)
-(*   else *)
-(*     v *)
-
-(* let named_structs : (type_spec * Llvm.lltype) list ref = ref [] *)
 
 let rec transl_typ env t =
   let rec loop t =
