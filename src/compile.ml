@@ -336,35 +336,33 @@ let rec tr_function_body env fundef =
     | Function _ ->
         assert false
   in
-  let find_free_var x =
-    match M.find x env.venv with
-    | Variable vi ->
-        vi
-    | Function _ ->
-        assert false
-  in
   let fi = find_fun fundef.fn_name env in
   let ts, t = fi.fsign in
   let fvs = fi.free_vars in
-  let args1 = List.map find_free_var fvs in
   let tys1 = List.map type_of_free_var fvs in
-  let env =
-    List.fold_left2 (fun env x vi ->
-        let venv = M.add x (Variable vi) env.venv in
-        {env with venv}
-      ) env fvs args1
+  let env, args1 =
+    List.fold_left (fun (env, args) x ->
+        let vi = find_var {s = x; p = Lexing.dummy_pos} env in
+        let env, x = add_var {s = x; p = Lexing.dummy_pos} vi.vtype env in
+        env, x.id :: args
+      ) (env, []) fvs
   in
-  let args1 = List.map (fun vi -> vi.id) args1 in
-  let env =
-    List.fold_left2 (fun env (x, _) t ->
-        let env, _ = add_var x t env in
-        env
-      ) env fundef.fn_args ts
+  let args1 = List.rev args1 in
+  let env, args2 =
+    List.fold_left2 (fun (env, args) (x, _) t ->
+        let id = fresh () in
+        let env, x = add_var x t env in
+        env, (id, x.id, transl_typ env t) :: args
+      ) (env, []) fundef.fn_args ts
   in
-  let args2 = List.map (fun (arg, _) -> (find_var arg env).id) fundef.fn_args in
+  let args2 = List.rev args2 in
   let tys2 = List.map (transl_typ env) ts in
   let body =
     extract_instr_seq (fun () ->
+        List.iter (fun (id1, id2, ty) ->
+            insert_instr (Ialloca (id2, ty));
+            insert_instr (Istore (id1, id2))
+          ) args2;
         let e = typ_exp {env with in_loop = false} fundef.fn_body t in
         if fundef.fn_rtyp = None then
           insert_instr (Ireturn None)
@@ -372,6 +370,7 @@ let rec tr_function_body env fundef =
           insert_instr (Ireturn (Some (insert_code e)))
       )
   in
+  let args2 = List.map (fun (id, _, _) -> id) args2 in
   let rty = transl_typ env (tr_return_type env fundef) in
   let signature = (tys1 @ tys2), rty in
   fundecls := {name = fi.fname; args = args1 @ args2; signature; body} :: !fundecls
