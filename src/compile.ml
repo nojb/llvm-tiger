@@ -571,7 +571,9 @@ and exp env e =
             let y = int_exp env y in
             let id1 = fresh () in
             let id2 = fresh () in
-            insert_instr (Iexternal (id1, "tiger_make_array", [insert_code y; insert_code (Cnull (transl_typ env t'))]));
+            let sg = [Tint 32; transl_typ env t'], transl_typ env t in
+            insert_instr (Ialloca (id2, transl_typ env t));
+            insert_instr (Iexternal (id1, "tiger_make_array", sg, [insert_code y; insert_code (Cnull (transl_typ env t'))]));
             insert_instr (Istore (id1, id2));
             t, Cprim (Pload, [Cvar id2])
       | _ ->
@@ -583,7 +585,9 @@ and exp env e =
       let z = typ_exp env z t' in
       let id1 = fresh () in
       let id2 = fresh () in
-      insert_instr (Iexternal (id1, "tiger_make_array", [insert_code y; insert_code z]));
+      let sg = [Tint 32; transl_typ env t'], transl_typ env t in
+      insert_instr (Ialloca (id2, transl_typ env t));
+      insert_instr (Iexternal (id1, "tiger_make_array", sg, [insert_code y; insert_code z]));
       insert_instr (Istore (id1, id2));
       t, Cprim (Pload, [Cvar id2])
   | Emakerecord (x, xts) ->
@@ -595,7 +599,8 @@ and exp env e =
             (* let r = VAL (gc_alloc_type t') in *)
             let id1 = fresh () in
             let id2 = fresh () in
-            insert_instr (Iexternal (id1, "tiger_make_record", [])); (* FIXME *)
+            insert_instr (Ialloca (id2, transl_typ env t));
+            insert_instr (Iexternal (id1, "tiger_make_record", assert false, [])); (* FIXME *)
             insert_instr (Istore (id1, id2));
             let f i = Cprim (Pgep, [Cvar id2; Cprim (Pconstint 0l, []); Cprim (Pconstint (Int32.of_int i), [])]) in
             let rec bind i = function

@@ -21,6 +21,8 @@ type primitive =
 
 type ident = int
 
+type signature = ty list * ty
+
 type instruction_desc =
   | Ilet of ident * primitive * ident list
   | Ialloca of ident * ty
@@ -30,7 +32,7 @@ type instruction_desc =
   | Icatch of instruction
   | Iexit of int
   | Iapply of ident * string * ident list
-  | Iexternal of ident * string * ident list
+  | Iexternal of ident * string * signature * ident list
   | Ireturn of ident option
   | Iend
 
@@ -41,7 +43,7 @@ and instruction =
 type fundecl =
   { name: string;
     args: ident list;
-    signature: ty list * ty;
+    signature: signature;
     body: instruction }
 
 let rec dummy_instr =
@@ -92,7 +94,7 @@ let rec transl_ty m ty =
   | Tnamed name ->
       named_struct_type c name
   | Tpointer base ->
-      pointer_type (transl_ty m ty)
+      pointer_type (transl_ty m base)
   | Tint width ->
       integer_type c width
 
@@ -162,6 +164,13 @@ let rec transl_instr env m b i lexit l =
         match lookup_function f m with
         | None -> assert false
         | Some f -> f
+      in
+      let v = build_call f (Array.of_list (List.map (fun id -> IdentMap.find id env) args)) "" b in
+      let env = IdentMap.add id v env in
+      transl_instr env m b i.next lexit l
+  | Iexternal (id, f, (tys, ty), args) ->
+      let f =
+        declare_function f (function_type (transl_ty m ty) (Array.of_list (List.map (transl_ty m) tys))) m
       in
       let v = build_call f (Array.of_list (List.map (fun id -> IdentMap.find id env) args)) "" b in
       let env = IdentMap.add id v env in
