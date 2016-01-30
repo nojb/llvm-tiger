@@ -158,7 +158,7 @@ let find_record_field env t (x : pos_string) =
   in
   loop 0 xts
 
-let rec transl_typ env t =
+let transl_typ t =
   let rec loop t =
     match !(t.tdesc) with
     | ANY -> assert false
@@ -338,7 +338,7 @@ let rec tr_function_body env fundef =
   let type_of_free_var x =
     match M.find x env.venv with
     | Variable vi ->
-        Tpointer (transl_typ env vi.vtype)
+        Tpointer (transl_typ vi.vtype)
     | Function _ ->
         assert false
   in
@@ -358,11 +358,11 @@ let rec tr_function_body env fundef =
     List.fold_left2 (fun (env, args) (x, _) t ->
         let id = fresh () in
         let env, x = add_var x t env in
-        env, (id, x.id, transl_typ env t) :: args
+        env, (id, x.id, transl_typ t) :: args
       ) (env, []) fundef.fn_args ts
   in
   let args2 = List.rev args2 in
-  let tys2 = List.map (transl_typ env) ts in
+  let tys2 = List.map transl_typ ts in
   let body =
     extract_instr_seq (fun () ->
         List.iter (fun (id1, id2, ty) ->
@@ -377,7 +377,7 @@ let rec tr_function_body env fundef =
       )
   in
   let args2 = List.map (fun (id, _, _) -> id) args2 in
-  let rty = transl_typ env (tr_return_type env fundef) in
+  let rty = transl_typ (tr_return_type env fundef) in
   let signature = (tys1 @ tys2), rty in
   fundecls := {name = fi.fname; args = args1 @ args2; signature; body} :: !fundecls
 
@@ -572,12 +572,17 @@ and exp env e =
                 List.rev ys
             in
             let id = fresh () in
-            insert_instr (Iapply (id, fi.fname, List.map insert_code actuals));
+            if fi.f_user then begin
+              insert_instr (Iapply (id, fi.fname, List.map insert_code actuals))
+            end else begin
+              let sg = List.map transl_typ (fst fi.fsign), transl_typ (snd fi.fsign) in
+              insert_instr (Iexternal (id, fi.fname, sg, List.map insert_code actuals))
+            end;
             t, Cvar id
         | {edesc = Enil; epos = p} :: xs, t :: ts ->
             begin match t with
               | {tdesc = {contents = RECORD _}} ->
-                  bind (Cnull (transl_typ env t) :: ys) (xs, ts)
+                  bind (Cnull (transl_typ t) :: ys) (xs, ts)
               | _ ->
                   error p "expected record type, found '%s'" t.tname
             end
@@ -599,9 +604,9 @@ and exp env e =
             let y = int_exp env y in
             let id1 = fresh () in
             let id2 = fresh () in
-            let sg = [Tint 32; transl_typ env t'], transl_typ env t in
-            insert_instr (Ialloca (id2, transl_typ env t));
-            insert_instr (Iexternal (id1, "tiger_make_array", sg, [insert_code y; insert_code (Cnull (transl_typ env t'))]));
+            let sg = [Tint 32; transl_typ t'], transl_typ t in
+            insert_instr (Ialloca (id2, transl_typ t));
+            insert_instr (Iexternal (id1, "tiger_make_array", sg, [insert_code y; insert_code (Cnull (transl_typ t'))]));
             insert_instr (Istore (id1, id2));
             t, Cprim (Pload, [Cvar id2])
       | _ ->
@@ -613,8 +618,8 @@ and exp env e =
       let z = typ_exp env z t' in
       let id1 = fresh () in
       let id2 = fresh () in
-      let sg = [Tint 32; transl_typ env t'], transl_typ env t in
-      insert_instr (Ialloca (id2, transl_typ env t));
+      let sg = [Tint 32; transl_typ t'], transl_typ t in
+      insert_instr (Ialloca (id2, transl_typ t));
       insert_instr (Iexternal (id1, "tiger_make_array", sg, [insert_code y; insert_code z]));
       insert_instr (Istore (id1, id2));
       t, Cprim (Pload, [Cvar id2])
@@ -627,7 +632,7 @@ and exp env e =
             (* let r = VAL (gc_alloc_type t') in *)
             let id1 = fresh () in
             let id2 = fresh () in
-            insert_instr (Ialloca (id2, transl_typ env t));
+            insert_instr (Ialloca (id2, transl_typ t));
             insert_instr (Iexternal (id1, "tiger_make_record", assert false, [])); (* FIXME *)
             insert_instr (Istore (id1, id2));
             let f i = Cprim (Pgep, [Cvar id2; Cprim (Pconstint 0l, []); Cprim (Pconstint (Int32.of_int i), [])]) in
@@ -640,7 +645,7 @@ and exp env e =
             bind 0 (List.rev vs)
         | (x, {edesc = Enil}) :: xts, (x', t) :: ts ->
             if x.s = x' then
-              bind (Cnull (transl_typ env t) :: vs) (xts, ts)
+              bind (Cnull (transl_typ t) :: vs) (xts, ts)
             else
               if List.exists (fun (x', _) -> x.s = x') ts then
                 error x.p "field '%s' is in the wrong other" x.s
@@ -723,7 +728,7 @@ and exp env e =
   | Elet (Dvar (x, None, y), z) ->
       let ty, y = exp env y in
       let env, x = add_var x ty env in
-      insert_instr (Ialloca (x.id, transl_typ env ty));
+      insert_instr (Ialloca (x.id, transl_typ ty));
       insert_instr (Istore (insert_code y, x.id));
       exp env z
   | Elet (Dvar (x, Some t, {edesc = Enil}), z) ->
@@ -731,7 +736,7 @@ and exp env e =
       begin match t with
       | {tdesc = {contents = RECORD _}} ->
           let env, x = add_var x t env in
-          insert_instr (Ialloca (x.id, transl_typ env t));
+          insert_instr (Ialloca (x.id, transl_typ t));
           insert_instr (Istore (insert_code (Cprim (Pconstint 0l, [])), x.id));
           exp env z
       | _ ->
@@ -741,7 +746,7 @@ and exp env e =
       let ty = find_type t env in
       let y = typ_exp env y ty in
       let env, x = add_var x ty env in
-      insert_instr (Ialloca (x.id, transl_typ env ty));
+      insert_instr (Ialloca (x.id, transl_typ ty));
       insert_instr (Istore (insert_code y, x.id));
       exp env z
   | Elet (Dtypes tys, e) ->
