@@ -35,6 +35,7 @@ and instruction =
 
 type fundecl =
   { name: string;
+    args: ident list;
     signature: ty list * ty;
     body: instruction }
 
@@ -75,14 +76,19 @@ open Llvm
 module IdentMap = Map.Make (struct type t = ident let compare = Pervasives.compare end)
 
 let rec transl_ty m ty =
+  let c = module_context m in
   match ty with
+  | Tvoid ->
+      void_type c
+  | Tarray (ty, len) ->
+      array_type (transl_ty m ty) len
+  | Tstruct tys ->
+      struct_type c (Array.of_list (List.map (transl_ty m) tys))
   | Tnamed name ->
-      let c = module_context m in
       named_struct_type c name
   | Tpointer base ->
       pointer_type (transl_ty m ty)
   | Tint width ->
-      let c = module_context m in
       integer_type c width
 
 let transl_primitive env m b p args =
@@ -92,6 +98,10 @@ let transl_primitive env m b p args =
       const_of_int64 (i32_type c) (Int64.of_int32 n) false
   | Paddint, [v; w] ->
       build_add v w "" b
+  | Psubint, [v; w] ->
+      build_sub v w "" b
+  | Pmulint, [v; w] ->
+      build_mul v w "" b
   | Pload, [v] ->
       build_load v "" b
 
@@ -143,12 +153,23 @@ let rec transl_instr env m b i lexit l =
   | Ireturn None ->
       ignore (build_ret_void b)
 
-let transl_fundecl m f =
+let transl_fundecl_1 m f =
   let tys, ty = f.signature in
   let fty = function_type (transl_ty m ty) (Array.of_list (List.map (transl_ty m) tys)) in
-  let v = define_function f.name fty m in
+  ignore (define_function f.name fty m)
+
+let transl_fundecl_2 m f =
+  let v =
+    match lookup_function f.name m with
+    | None -> assert false
+    | Some v -> v
+  in
   let c = module_context m in
   let b = builder c in
   let l = entry_block v in
   position_at_end l b;
   transl_instr IdentMap.empty m b f.body [] l
+
+let transl_program m l =
+  List.iter (transl_fundecl_1 m) l;
+  List.iter (transl_fundecl_2 m) l
