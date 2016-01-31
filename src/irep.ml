@@ -62,6 +62,14 @@ and instruction =
   { desc: instruction_desc;
     next: instruction }
 
+let rec dummy_instr =
+  { desc = Iend;
+    next = dummy_instr }
+
+let end_instr () =
+  { desc = Iend;
+    next = dummy_instr }
+
 let print_primitive p ppf args =
   let open Format in
   match p, args with
