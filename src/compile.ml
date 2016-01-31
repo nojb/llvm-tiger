@@ -612,9 +612,6 @@ and exp env s e =
       let t, ts = find_record_type env x in
       let rec bind vs = function
         | [], [] ->
-            (* let t' = element_type (transl_typ env t) in *)
-            (* debug () "%s" (string_of_lltype t'); *)
-            (* let r = VAL (gc_alloc_type t') in *)
             let id1 = fresh () in
             let id2 = fresh () in
             s#insert (Ialloca (id2, transl_typ t));
@@ -685,7 +682,8 @@ and exp env s e =
       let sexit = new builder in
       sexit#insert (Iexit 0);
       let stest = new builder in
-      stest#insert (Iifthenelse (C.compint Cleq (C.load (C.var i.id)) y stest, sbody#extract, sexit#extract));
+      let cond = C.compint Cleq (C.load (C.var i.id)) y stest in
+      stest#insert (Iifthenelse (cond, sbody#extract, sexit#extract));
       let scatch = new builder in
       scatch#insert (Iloop (stest#extract));
       s#insert (Icatch (scatch#extract));
