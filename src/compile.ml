@@ -259,20 +259,21 @@ let let_type env tys =
 (*   | _ -> false *)
 
 module C = struct
-  type code =
-    | Cvar of ident
-    | Cnull of ty
-    | Cprim of primitive * code list
-  let var id = Cvar id
-  let constint n = Cprim (Pconstint n, [])
-  let addint c1 c2 = Cprim (Paddint, [c1; c2])
-  let subint c1 c2 = Cprim (Psubint, [c1; c2])
-  let mulint c1 c2 = Cprim (Pmulint, [c1; c2])
-  let divint c1 c2 = Cprim (Pdivint, [c1; c2])
-  let load c = Cprim (Pload, [c])
-  let gep v args = Cprim (Pgep, v :: args)
-  let null t = Cnull t
-  let compint op c1 c2 = Cprim (Pcmpint op, [c1; c2])
+  let var id _ = id
+  let prim p args s =
+    let args = List.map (fun arg -> arg s) args in
+    let id = fresh () in
+    s#insert (Ilet (id, p, args));
+    id
+  let constint n = prim (Pconstint n) []
+  let addint c1 c2 = prim Paddint [c1; c2]
+  let subint c1 c2 = prim Psubint [c1; c2]
+  let mulint c1 c2 = prim Pmulint [c1; c2]
+  let divint c1 c2 = prim Pdivint [c1; c2]
+  let load c = prim Pload [c]
+  let gep v args = prim Pgep (v :: args)
+  let null t s = assert false
+  let compint op c1 c2 = prim (Pcmpint op) [c1; c2]
 end
 
 class builder =
@@ -290,17 +291,6 @@ class builder =
 
     method insert desc =
       instr_seq <- {desc; next = instr_seq}
-
-    method expand c =
-      match c with
-      | C.Cvar id -> id
-      | C.Cnull ty ->
-          assert false (* FIXME *)
-      | C.Cprim (p, args) ->
-          let id = fresh () in
-          let args = List.map (s#expand) args in
-          s#insert (Ilet (id, p, args));
-          id
   end
 
 let check_unique_fundef_names fundefs =
@@ -370,7 +360,7 @@ let rec tr_function_body env fundef =
   begin if fundef.fn_rtyp = None then
     s#insert (Ireturn None)
   else
-    s#insert (Ireturn (Some (s#expand e)))
+    s#insert (Ireturn (Some (e s)))
   end;
   let body = s#extract in
   let args2 = List.map (fun (id, _, _) -> id) args2 in
@@ -419,7 +409,8 @@ and int_exp env s e =
   typ_exp env s e int_ty
 
 and void_exp env s e =
-  ignore (typ_exp env s e void_ty)
+  let _f = typ_exp env s e void_ty in
+  ()
 
 and var env s v =
   match v.vdesc with
@@ -540,7 +531,7 @@ and exp env s e =
       let t, v = var env s v in
       begin match t with
         | {tdesc = {contents = RECORD _}} ->
-            s#insert (Istore (s#expand (C.constint 0l), s#expand v));
+            s#insert (Istore (C.constint 0l s, v s));
             void_ty, C.constint 0l
         | _ ->
             error e.epos "trying to assign 'nil' to a field of non-record type"
@@ -548,7 +539,7 @@ and exp env s e =
   | Eassign (v, e) ->
       let t, v = var env s v in
       let e = typ_exp env s e t in
-      s#insert (Istore (s#expand e, s#expand v));
+      s#insert (Istore (e s, v s));
       void_ty, C.constint 0l
   | Ecall (x, xs) ->
       let fi = find_fun x env in
@@ -568,10 +559,10 @@ and exp env s e =
             in
             let id = fresh () in
             if fi.f_user then begin
-              s#insert (Iapply (id, fi.fname, List.map (s#expand) actuals))
+              s#insert (Iapply (id, fi.fname, List.map (fun arg -> arg s) actuals))
             end else begin
               let sg = List.map transl_typ (fst fi.fsign), transl_typ (snd fi.fsign) in
-              s#insert (Iexternal (id, fi.fname, sg, List.map (s#expand) actuals))
+              s#insert (Iexternal (id, fi.fname, sg, List.map (fun arg -> arg s) actuals))
             end;
             t, C.var id
         | {edesc = Enil; epos = p} :: xs, t :: ts ->
@@ -600,7 +591,7 @@ and exp env s e =
             let id2 = fresh () in
             let sg = [Tint 32; transl_typ t'], transl_typ t in
             s#insert (Ialloca (id2, transl_typ t));
-            s#insert (Iexternal (id1, "tiger_make_array", sg, [s#expand y; s#expand (C.null (transl_typ t'))]));
+            s#insert (Iexternal (id1, "tiger_make_array", sg, [y s; C.null (transl_typ t') s]));
             s#insert (Istore (id1, id2));
             t, C.load (C.var id2)
       | _ ->
@@ -614,7 +605,7 @@ and exp env s e =
       let id2 = fresh () in
       let sg = [Tint 32; transl_typ t'], transl_typ t in
       s#insert (Ialloca (id2, transl_typ t));
-      s#insert (Iexternal (id1, "tiger_make_array", sg, [s#expand y; s#expand z]));
+      s#insert (Iexternal (id1, "tiger_make_array", sg, [y s; z s]));
       s#insert (Istore (id1, id2));
       t, C.load (C.var id2)
   | Emakerecord (x, xts) ->
@@ -633,7 +624,7 @@ and exp env s e =
             let rec bind i = function
               | [] -> t, C.load (C.var id2)
               | v :: vs ->
-                  s#insert (Istore (s#expand v, s#expand (f i)));
+                  s#insert (Istore (v s, f i s));
                   bind (i+1) vs
             in
             bind 0 (List.rev vs)
@@ -665,11 +656,11 @@ and exp env s e =
       let id = fresh () in
       let s2 = new builder in
       let t2, e2 = exp env s2 e2 in
-      s2#insert (Istore (s2#expand e2, id));
+      s2#insert (Istore (e2 s2, id));
       let s3 = new builder in
       let e3 = typ_exp env s3 e3 t2 in
-      s3#insert (Istore (s3#expand e3, id));
-      s#insert (Iifthenelse (s#expand e1, s2#extract, s3#extract));
+      s3#insert (Istore (e3 s3, id));
+      s#insert (Iifthenelse (e1 s, s2#extract, s3#extract));
       t2, C.load (C.var id)
   | Ewhile (e1, e2) ->
       let s2 = new builder in
@@ -677,7 +668,7 @@ and exp env s e =
       let s3 = new builder in
       s3#insert (Iexit 0);
       let sbody = new builder in
-      sbody#insert (Iifthenelse (sbody#expand (int_exp env sbody e1), s2#extract, s3#extract));
+      sbody#insert (Iifthenelse (int_exp env sbody e1 sbody, s2#extract, s3#extract));
       let scatch = new builder in
       scatch#insert (Iloop (sbody#extract));
       s#insert (Icatch (scatch#extract));
@@ -687,14 +678,14 @@ and exp env s e =
       let y = int_exp env s y in
       let env, i = add_var i ~immutable:true int_ty env in
       s#insert (Ialloca (i.id, Tint 32));
-      s#insert (Istore (s#expand x, i.id));
+      s#insert (Istore (x s, i.id));
       let sbody = new builder in
       void_exp env sbody z;
-      sbody#insert (Istore (sbody#expand (C.addint (C.constint 1l) (C.load (C.var i.id))), i.id));
+      sbody#insert (Istore (C.addint (C.constint 1l) (C.load (C.var i.id)) sbody, i.id));
       let sexit = new builder in
       sexit#insert (Iexit 0);
       let stest = new builder in
-      stest#insert (Iifthenelse (stest#expand (C.compint Cleq (C.load (C.var i.id)) y), sbody#extract, sexit#extract));
+      stest#insert (Iifthenelse (C.compint Cleq (C.load (C.var i.id)) y stest, sbody#extract, sexit#extract));
       let scatch = new builder in
       scatch#insert (Iloop (stest#extract));
       s#insert (Icatch (scatch#extract));
@@ -709,7 +700,7 @@ and exp env s e =
       let ty, y = exp env s y in
       let env, x = add_var x ty env in
       s#insert (Ialloca (x.id, transl_typ ty));
-      s#insert (Istore (s#expand y, x.id));
+      s#insert (Istore (y s, x.id));
       exp env s z
   | Elet (Dvar (x, Some t, {edesc = Enil}), z) ->
       let t = find_type t env in
@@ -717,7 +708,7 @@ and exp env s e =
       | {tdesc = {contents = RECORD _}} ->
           let env, x = add_var x t env in
           s#insert (Ialloca (x.id, transl_typ t));
-          s#insert (Istore (s#expand (C.null (transl_typ t)), x.id));
+          s#insert (Istore (C.null (transl_typ t) s, x.id));
           exp env s z
       | _ ->
           error e.epos "expected record type, found '%s'" t.tname
@@ -727,7 +718,7 @@ and exp env s e =
       let y = typ_exp env s y ty in
       let env, x = add_var x ty env in
       s#insert (Ialloca (x.id, transl_typ ty));
-      s#insert (Istore (s#expand y, x.id));
+      s#insert (Istore (y s, x.id));
       exp env s z
   | Elet (Dtypes tys, e) ->
       let env = let_type env tys in
@@ -766,6 +757,6 @@ let program e =
   let env = {tenv = base_tenv; venv = base_venv; in_loop = false} in
   let s = new builder in
   let _ = exp env s e in
-  s#insert (Ireturn (Some (s#expand (C.constint 0l))));
+  s#insert (Ireturn (Some (C.constint 0l s)));
   let body = s#extract in
   {name = "__tiger_main"; args = []; signature = ([], Tint 32); body} :: !fundecls
