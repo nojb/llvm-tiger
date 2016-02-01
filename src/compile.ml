@@ -260,20 +260,20 @@ let let_type env tys =
 
 module C = struct
   let var id _ = id
-  let prim p args s =
+  let op p args s =
     let args = List.map (fun arg -> arg s) args in
     let id = fresh () in
-    s#insert (Ilet (id, p, args));
+    s#insert_op p (Array.of_list args) [|id|];
     id
-  let constint n = prim (Pconstint n) []
-  let addint c1 c2 = prim Paddint [c1; c2]
-  let subint c1 c2 = prim Psubint [c1; c2]
-  let mulint c1 c2 = prim Pmulint [c1; c2]
-  let divint c1 c2 = prim Pdivint [c1; c2]
-  let load c = prim Pload [c]
-  let gep v args = prim Pgep (v :: args)
+  let constint n = op (Pconstint n) []
+  let addint c1 c2 = op Paddint [c1; c2]
+  let subint c1 c2 = op Psubint [c1; c2]
+  let mulint c1 c2 = op Pmulint [c1; c2]
+  let divint c1 c2 = op Pdivint [c1; c2]
+  let load c = op Pload [c]
+  let gep v args = op Pgep (v :: args)
   let null t s = assert false
-  let compint op c1 c2 = prim (Pcmpint op) [c1; c2]
+  let compint cmp c1 c2 = op (Pcmpint cmp) [c1; c2]
 end
 
 class builder =
@@ -289,8 +289,11 @@ class builder =
       in
       aux instr_seq (end_instr ())
 
-    method insert desc =
-      instr_seq <- {desc; next = instr_seq}
+    method insert desc arg res =
+      instr_seq <- {desc; arg; res; next = instr_seq}
+
+    method insert_op op arg res =
+      s#insert (Iop op) arg res
   end
 
 let check_unique_fundef_names fundefs =
@@ -353,20 +356,20 @@ let rec tr_function_body env fundef =
   let tys2 = List.map transl_typ ts in
   let s = new builder in
   List.iter (fun (id1, id2, ty) ->
-      s#insert (Ialloca (id2, ty));
-      s#insert (Istore (id1, id2))
+      s#insert_op (Ialloca ty) [||] [|id2|];
+      s#insert_op Istore [|id1; id2|] [||]
     ) args2;
   let e = typ_exp {env with in_loop = false} s fundef.fn_body t in
   begin if fundef.fn_rtyp = None then
-    s#insert (Ireturn None)
+    s#insert (Ireturn false) [||] [||]
   else
-    s#insert (Ireturn (Some (e s)))
+    s#insert (Ireturn true) [|e s|] [||]
   end;
   let body = s#extract in
   let args2 = List.map (fun (id, _, _) -> id) args2 in
   let rty = transl_typ (tr_return_type env fundef) in
-  let signature = (tys1 @ tys2), rty in
-  fundecls := {name = fi.fname; args = args1 @ args2; signature; body} :: !fundecls
+  let signature = Array.of_list (tys1 @ tys2), rty in
+  fundecls := {name = fi.fname; args = Array.of_list (args1 @ args2); signature; body} :: !fundecls
 
 and let_funs env fundefs =
   check_unique_fundef_names fundefs;
@@ -531,7 +534,7 @@ and exp env s e =
       let t, v = var env s v in
       begin match t with
         | {tdesc = {contents = RECORD _}} ->
-            s#insert (Istore (C.constint 0l s, v s));
+            s#insert_op Istore [|C.constint 0l s; v s|] [||];
             void_ty, C.constint 0l
         | _ ->
             error e.epos "trying to assign 'nil' to a field of non-record type"
@@ -539,7 +542,7 @@ and exp env s e =
   | Eassign (v, e) ->
       let t, v = var env s v in
       let e = typ_exp env s e t in
-      s#insert (Istore (e s, v s));
+      s#insert_op Istore [|e s; v s|] [||];
       void_ty, C.constint 0l
   | Ecall (x, xs) ->
       let fi = find_fun x env in
@@ -559,10 +562,10 @@ and exp env s e =
             in
             let id = fresh () in
             if fi.f_user then begin
-              s#insert (Iapply (id, fi.fname, List.map (fun arg -> arg s) actuals))
+              s#insert_op (Iapply fi.fname) (Array.of_list (List.map (fun arg -> arg s) actuals)) [|id|]
             end else begin
-              let sg = List.map transl_typ (fst fi.fsign), transl_typ (snd fi.fsign) in
-              s#insert (Iexternal (id, fi.fname, sg, List.map (fun arg -> arg s) actuals))
+              let sg = Array.of_list (List.map transl_typ (fst fi.fsign)), transl_typ (snd fi.fsign) in
+              s#insert_op (Iexternal (fi.fname, sg)) (Array.of_list (List.map (fun arg -> arg s) actuals)) [|id|]
             end;
             t, C.var id
         | {edesc = Enil; epos = p} :: xs, t :: ts ->
@@ -589,10 +592,10 @@ and exp env s e =
             let y = int_exp env s y in
             let id1 = fresh () in
             let id2 = fresh () in
-            let sg = [Tint 32; transl_typ t'], transl_typ t in
-            s#insert (Ialloca (id2, transl_typ t));
-            s#insert (Iexternal (id1, "tiger_make_array", sg, [y s; C.null (transl_typ t') s]));
-            s#insert (Istore (id1, id2));
+            let sg = [|Tint 32; transl_typ t'|], transl_typ t in
+            s#insert_op (Ialloca (transl_typ t)) [||] [|id2|];
+            s#insert_op (Iexternal ("tiger_make_array", sg)) [|y s; C.null (transl_typ t') s|] [|id1|];
+            s#insert_op Istore [|id1; id2|] [||];
             t, C.load (C.var id2)
       | _ ->
           error e.epos "array base type must be record type"
@@ -603,10 +606,10 @@ and exp env s e =
       let z = typ_exp env s z t' in
       let id1 = fresh () in
       let id2 = fresh () in
-      let sg = [Tint 32; transl_typ t'], transl_typ t in
-      s#insert (Ialloca (id2, transl_typ t));
-      s#insert (Iexternal (id1, "tiger_make_array", sg, [y s; z s]));
-      s#insert (Istore (id1, id2));
+      let sg = [|Tint 32; transl_typ t'|], transl_typ t in
+      s#insert_op (Ialloca (transl_typ t)) [||] [|id2|];
+      s#insert_op (Iexternal ("tiger_make_array", sg)) [|y s; z s|] [|id1|];
+      s#insert_op Istore [|id1; id2|] [||];
       t, C.load (C.var id2)
   | Emakerecord (x, xts) ->
       let t, ts = find_record_type env x in
@@ -614,14 +617,14 @@ and exp env s e =
         | [], [] ->
             let id1 = fresh () in
             let id2 = fresh () in
-            s#insert (Ialloca (id2, transl_typ t));
-            s#insert (Iexternal (id1, "tiger_make_record", assert false, [])); (* FIXME *)
-            s#insert (Istore (id1, id2));
+            s#insert_op (Ialloca (transl_typ t)) [||] [|id2|];
+            s#insert_op (Iexternal ("tiger_make_record", assert false)) [||] [|id1|]; (* FIXME *)
+            s#insert_op Istore [|id1; id2|] [||];
             let f i = C.gep (C.var id2) [C.constint 0l; C.constint (Int32.of_int i)] in
             let rec bind i = function
               | [] -> t, C.load (C.var id2)
               | v :: vs ->
-                  s#insert (Istore (v s, f i s));
+                  s#insert_op Istore [|v s; f i s|] [||];
                   bind (i+1) vs
             in
             bind 0 (List.rev vs)
@@ -653,60 +656,60 @@ and exp env s e =
       let id = fresh () in
       let s2 = new builder in
       let t2, e2 = exp env s2 e2 in
-      s2#insert (Istore (e2 s2, id));
+      s2#insert_op Istore [|e2 s2; id|] [||];
       let s3 = new builder in
       let e3 = typ_exp env s3 e3 t2 in
-      s3#insert (Istore (e3 s3, id));
-      s#insert (Iifthenelse (e1 s, s2#extract, s3#extract));
+      s3#insert_op Istore [|e3 s3; id|] [||];
+      s#insert (Iifthenelse (s2#extract, s3#extract)) [|e1 s|] [||];
       t2, C.load (C.var id)
   | Ewhile (e1, e2) ->
       let s2 = new builder in
       void_exp env s2 e2;
       let s3 = new builder in
-      s3#insert (Iexit 0);
+      s3#insert (Iexit 0) [||] [||];
       let sbody = new builder in
-      sbody#insert (Iifthenelse (int_exp env sbody e1 sbody, s2#extract, s3#extract));
+      sbody#insert (Iifthenelse (s2#extract, s3#extract)) [|int_exp env sbody e1 sbody|] [||];
       let scatch = new builder in
-      scatch#insert (Iloop (sbody#extract));
-      s#insert (Icatch (scatch#extract));
+      scatch#insert (Iloop (sbody#extract)) [||] [||];
+      s#insert (Icatch (scatch#extract)) [||] [||];
       void_ty, C.constint 0l
   | Efor (i, x, y, z) ->
       let x = int_exp env s x in
       let y = int_exp env s y in
       let env, i = add_var i ~immutable:true int_ty env in
-      s#insert (Ialloca (i.id, Tint 32));
-      s#insert (Istore (x s, i.id));
+      s#insert_op (Ialloca (Tint 32)) [||] [|i.id|];
+      s#insert_op Istore [|x s; i.id|] [||];
       let sbody = new builder in
       void_exp env sbody z;
-      sbody#insert (Istore (C.addint (C.constint 1l) (C.load (C.var i.id)) sbody, i.id));
+      sbody#insert_op Istore [|C.addint (C.constint 1l) (C.load (C.var i.id)) sbody; i.id|] [||];
       let sexit = new builder in
-      sexit#insert (Iexit 0);
+      sexit#insert (Iexit 0) [||] [||];
       let stest = new builder in
       let cond = C.compint Cleq (C.load (C.var i.id)) y stest in
-      stest#insert (Iifthenelse (cond, sbody#extract, sexit#extract));
+      stest#insert (Iifthenelse (sbody#extract, sexit#extract)) [|cond|] [||];
       let scatch = new builder in
-      scatch#insert (Iloop (stest#extract));
-      s#insert (Icatch (scatch#extract));
+      scatch#insert (Iloop (stest#extract)) [||] [||];
+      s#insert (Icatch (scatch#extract)) [||] [||];
       void_ty, C.constint 0l
   | Ebreak ->
       if env.in_loop then begin
-        s#insert (Iexit 0);
+        s#insert (Iexit 0) [||] [||];
         any_ty, C.constint 0l
       end else
         error e.epos "illegal use of 'break'"
   | Elet (Dvar (x, None, y), z) ->
       let ty, y = exp env s y in
       let env, x = add_var x ty env in
-      s#insert (Ialloca (x.id, transl_typ ty));
-      s#insert (Istore (y s, x.id));
+      s#insert_op (Ialloca (transl_typ ty)) [||] [|x.id|];
+      s#insert_op Istore [|y s; x.id|] [||];
       exp env s z
   | Elet (Dvar (x, Some t, {edesc = Enil}), z) ->
       let t = find_type t env in
       begin match t with
       | {tdesc = {contents = RECORD _}} ->
           let env, x = add_var x t env in
-          s#insert (Ialloca (x.id, transl_typ t));
-          s#insert (Istore (C.null (transl_typ t) s, x.id));
+          s#insert_op (Ialloca (transl_typ t)) [||] [|x.id|];
+          s#insert_op Istore [|C.null (transl_typ t) s; x.id|] [||];
           exp env s z
       | _ ->
           error e.epos "expected record type, found '%s'" t.tname
@@ -715,8 +718,8 @@ and exp env s e =
       let ty = find_type t env in
       let y = typ_exp env s y ty in
       let env, x = add_var x ty env in
-      s#insert (Ialloca (x.id, transl_typ ty));
-      s#insert (Istore (y s, x.id));
+      s#insert_op (Ialloca (transl_typ ty)) [||] [|x.id|];
+      s#insert_op Istore [|y s; x.id|] [||];
       exp env s z
   | Elet (Dtypes tys, e) ->
       let env = let_type env tys in
@@ -755,6 +758,6 @@ let program e =
   let env = {tenv = base_tenv; venv = base_venv; in_loop = false} in
   let s = new builder in
   let _ = exp env s e in
-  s#insert (Ireturn (Some (C.constint 0l s)));
+  s#insert (Ireturn true) [|C.constint 0l s|] [||];
   let body = s#extract in
-  {name = "__tiger_main"; args = []; signature = ([], Tint 32); body} :: !fundecls
+  {name = "__tiger_main"; args = [||]; signature = ([||], Tint 32); body} :: !fundecls
