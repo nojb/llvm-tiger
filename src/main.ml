@@ -20,27 +20,7 @@
    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
    SOFTWARE. *)
 
-(* let opt_level = ref 0 *)
 let emit_asm = ref false
-
-(* let opt m =
-  if !optimize then begin
-    let fpm = Llvm.PassManager.create_function m in
-    Llvm_scalar_opts.add_memory_to_register_promotion fpm;
-    Llvm_scalar_opts.add_constant_propagation fpm;
-    Llvm_scalar_opts.add_sccp fpm;
-    Llvm_scalar_opts.add_gvn fpm;
-    Llvm_scalar_opts.add_reassociation fpm;
-    Llvm_scalar_opts.add_instruction_combination fpm;
-    Llvm_scalar_opts.add_dead_store_elimination fpm;
-    Llvm_scalar_opts.add_aggressive_dce fpm;
-    Llvm_scalar_opts.add_cfg_simplification fpm;
-    ignore (Llvm.PassManager.initialize fpm);
-    Llvm.iter_functions (fun f ->
-      ignore (Llvm.PassManager.run_function f fpm)) m;
-    ignore (Llvm.PassManager.finalize fpm);
-    Llvm.PassManager.dispose fpm
-  end *)
 
 let compile_stdin () =
   try
@@ -103,6 +83,5 @@ let _ =
   Arg.parse [
     (* "-O", Arg.Set_int opt_level, "\t\tOptimisation level used by llc"; *)
     "-S", Arg.Set emit_asm, "\t\tEmit asm assembly in .s file";
-    (* "-emit-llvm", Arg.Set emit_llvm, "\temit LLVM assembly in .ll file"; *)
     "-stdin", Arg.Unit compile_stdin, "\tread input from stdin"
   ] ignore (* compile_file *) "llvm-tigerc compiler 0.1"

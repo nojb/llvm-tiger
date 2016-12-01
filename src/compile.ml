@@ -102,7 +102,7 @@ let find_var id env =
 
 let add_var (x : pos_string) ?(immutable = false) t env =
   let vi = {id = fresh (); vtype = t; vimm = immutable} in
-  {env with venv = M.add x.s (Variable vi) env.venv}, vi
+  {env with venv = M.add x.s (Variable vi) env.venv}
 
 let mem_var x env =
   try
@@ -278,12 +278,11 @@ let rec tr_function_body env fundef =
   let ts, t = fi.fsign in
   let env, args =
     List.fold_left2 (fun (env, args) (x, _) t ->
-        let env, v = add_var x t env in
-        env, (x.s, v) :: args
+        let env = add_var x t env in
+        env, x.s :: args
       ) (env, []) fundef.fn_args ts
   in
   let body = typ_exp {env with in_loop = false} fundef.fn_body t in
-  let args = List.map fst args in
   fi.fname, {name = fi.fname; args = List.rev args; body}
 
 and let_funs env fundefs e =
@@ -566,7 +565,7 @@ and exp env e =
   | Efor (i, x, y, z) ->
       let x = int_exp env x in
       let y = int_exp env y in
-      let env, iv = add_var i ~immutable:true int_ty env in
+      let env = add_var i ~immutable:true int_ty env in
       let iend = gentmp "for" in
       let z = void_exp env z in
       let body = Llet (i.s, x, Llet (iend, y, Lcatch (Lloop (Lifthenelse (Lprim (Pintcomp Cle, [Lvar i.s; Lvar iend]), z, Lexit 0))))) in
@@ -578,14 +577,14 @@ and exp env e =
         error e.epos "illegal use of 'break'"
   | Elet (Dvar (x, None, y), z) ->
       let ty, y = exp env y in
-      let env, xv = add_var x ty env in
+      let env = add_var x ty env in
       let t, z = exp env z in
       t, Llet (x.s, y, z)
   | Elet (Dvar (x, Some t, {edesc = Enil}), z) ->
       let t = find_type t env in
       begin match t with
       | {tdesc = {contents = RECORD _}} ->
-          let env, xv = add_var x t env in
+          let env = add_var x t env in
           let t, z = exp env z in
           t, Llet (x.s, Lconst 0L, z)
       | _ ->
@@ -594,7 +593,7 @@ and exp env e =
   | Elet (Dvar (x, Some t, y), z) ->
       let ty = find_type t env in
       let y = typ_exp env y ty in
-      let env, xv = add_var x ty env in
+      let env = add_var x ty env in
       let t, z = exp env z in
       t, Llet (x.s, y, z)
   | Elet (Dtypes tys, e) ->
