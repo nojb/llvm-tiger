@@ -1,3 +1,11 @@
+type comparison =
+  | Ceq
+  | Cne
+  | Clt
+  | Cle
+  | Cgt
+  | Cge
+
 type memory_chunk =
   | Byte_unsigned
   | Byte_signed
@@ -32,7 +40,8 @@ type expression =
   | Cifthenelse of expression * expression * expression
   | Cswitch of expression * int array * expression array
   | Cloop of expression
-  | Cexit of int * expression list
+  | Ccatch of expression
+  | Cexit of int
 
 type fundecl =
   {

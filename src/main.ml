@@ -21,7 +21,6 @@
    SOFTWARE. *)
 
 (* let opt_level = ref 0 *)
-let emit_llvm = ref false
 let emit_asm = ref false
 
 (* let opt m =
@@ -48,11 +47,9 @@ let compile_stdin () =
     let lexbuf = Lexing.from_channel stdin in
     lexbuf.Lexing.lex_curr_p <- {lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>"};
     let p = Compile.program (Parser.program Lexer.token lexbuf) in
-    List.iter (Irep.print_fundecl Format.err_formatter) p;
-    let m = Llvm.create_module (Llvm.global_context ()) "" in
-    Irep.transl_program m p;
-    Llvm.dump_module m;
-    Llvm.dispose_module m
+    ()
+    (* List.iter (Irep.print_fundecl Format.err_formatter) p; *)
+    (* Irep.transl_program m p; *)
   with
     Error.Error (p, msg) -> Error.report_error p msg
 
@@ -106,6 +103,6 @@ let _ =
   Arg.parse [
     (* "-O", Arg.Set_int opt_level, "\t\tOptimisation level used by llc"; *)
     "-S", Arg.Set emit_asm, "\t\tEmit asm assembly in .s file";
-    "-emit-llvm", Arg.Set emit_llvm, "\temit LLVM assembly in .ll file";
+    (* "-emit-llvm", Arg.Set emit_llvm, "\temit LLVM assembly in .ll file"; *)
     "-stdin", Arg.Unit compile_stdin, "\tread input from stdin"
   ] ignore (* compile_file *) "llvm-tigerc compiler 0.1"
