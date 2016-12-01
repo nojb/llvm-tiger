@@ -49,6 +49,7 @@ and type_expr =
 let void_ty = {tdesc = ref VOID; tname = "void"}
 let int_ty = {tdesc = ref INT; tname = "int"}
 let string_ty = {tdesc = ref STRING; tname = "string"}
+let any_ty () = {tname = "<any>"; tdesc = ref (REF (ref None))}
 
 type var_info =
   {
@@ -467,7 +468,7 @@ and exp env e ty =
       in
       bind [] (xs, ts)
   | Eseq (e1, e2) ->
-      let l1 = exp env e1 {tname = ""; tdesc = ref (REF (ref None))} in
+      let l1 = exp env e1 (any_ty ()) in
       let l2 = exp env e2 ty in
       Lsequence (l1, l2)
   (* | Emakearray (x, y, {edesc = Enil}) -> *)
@@ -548,7 +549,10 @@ and exp env e ty =
       else
         error e.epos "illegal use of 'break'"
   | Elet (Dvar (x, None, y), z) ->
-      let t, y = exp0 env y in
+      let r = ref None in
+      let t = {tname = "foo"; tdesc = ref (REF r)} in
+      let y = exp env y t in
+      let t = match r.contents with Some t -> t | None -> assert false in
       let env = add_var x t env in
       let z = exp env z ty in
       Llet (x.s, y, z)
@@ -562,9 +566,6 @@ and exp env e ty =
       exp (let_type env tys) e ty
   | Elet (Dfuns funs, e) ->
       let_funs env funs e ty
-
-and exp0 env e =
-  assert false
 
 let base_tenv =
   M.add "int" int_ty (M.add "string" string_ty M.empty)
@@ -594,5 +595,4 @@ let base_venv =
 
 let program e =
   let env = {tenv = base_tenv; venv = base_venv; in_loop = false} in
-  let _, e = exp0 env e in
-  e
+  exp env e (any_ty ())
