@@ -57,3 +57,43 @@ and lfunction =
     args: ident list;
     body: lambda;
   }
+
+open Format
+
+let rec print ppf = function
+  | Lvar id ->
+      pp_print_string ppf id
+  | Lconst n ->
+      fprintf ppf "%Ld" n
+  | Lapply (f, args) ->
+      let aux ppf = List.iter (fprintf ppf "@ %a" print) args in
+      fprintf ppf "@[<2>(%s%t)@]" f aux
+  | Llet (v, e1, e2) ->
+      fprintf ppf "@[<2>(let %s@ %a@ %a)@]" v print e1 print e2
+  | Lletrec (funs, e) ->
+      let aux ppf args = List.iteri (fun i arg -> if i > 0 then fprintf ppf "@ "; pp_print_string ppf arg) args in
+      let aux ppf =
+        List.iter (fun (_, {name; args; body}) ->
+            fprintf ppf "@ @[<2>(%s@ @[<2>(%a)@]@ %a)@]" name aux args print body
+          ) funs
+      in
+      fprintf ppf "@[<2>(letrec%t@ %a)@]" aux print e
+  | Lprim (_, args) ->
+      let aux ppf = List.iter (fprintf ppf "@ %a" print) args in
+      fprintf ppf "@[<2>(PRIM%t)@]" aux
+  | Lexit n ->
+      fprintf ppf "@[<2>(exit@ %d)@]" n
+  | Lcatch e ->
+      fprintf ppf "@[<2>(catch@ %a)@]" print e
+  | Lifthenelse (e1, e2, e3) ->
+      fprintf ppf "@[<2>(if@ %a@ %a@ %a)@]" print e1 print e2 print e3
+  | Lsequence (e1, e2) ->
+      let rec aux ppf = function
+        | Lsequence (e1, e2) -> fprintf ppf "%a@ %a" aux e1 aux e2
+        | e -> print ppf e
+      in
+      fprintf ppf "@[<2>(seq@ %a@ %a)@]" aux e1 aux e2
+  | Lloop e ->
+      fprintf ppf "@[<2>(loop@ %a)@]" print e
+  | Lassign (v, e) ->
+      fprintf ppf "@[<2>(assign@ %s@ %a)@]" v print e

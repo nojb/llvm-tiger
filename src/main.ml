@@ -47,7 +47,7 @@ let compile_stdin () =
     let lexbuf = Lexing.from_channel stdin in
     lexbuf.Lexing.lex_curr_p <- {lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>"};
     let p = Compile.program (Parser.program Lexer.token lexbuf) in
-    ()
+    Format.eprintf "@[%a@]@." Irep.print p
     (* List.iter (Irep.print_fundecl Format.err_formatter) p; *)
     (* Irep.transl_program m p; *)
   with
