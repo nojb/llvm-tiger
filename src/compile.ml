@@ -202,33 +202,6 @@ let check_unique_type_names xts =
   in
   bind xts
 
-(* let check_type env (x, _) = *)
-(*   let visited = ref [] in *)
-(*   let rec loop thru_record t = *)
-(*     if List.memq t !visited then *)
-(*       if not thru_record then *)
-(*         error x.p "type declaration cycle does not pass through record type" *)
-(*     else begin *)
-(*       visited := t :: !visited; *)
-(*       match t with *)
-(*       | VOID *)
-(*       | INT *)
-(*       | STRING -> () *)
-(*       | ARRAY t -> *)
-(*           loop thru_record t *)
-(*       | RECORD (_, xts) -> *)
-(*           List.iter (fun (_, t) -> loop true t) xts *)
-(*       | NAME y -> *)
-(*           begin try *)
-(*             loop thru_record (M.find y env.tenv) *)
-(*           with *)
-(*             Not_found -> error x.p "unbound type '%s'" y *)
-(*             (\* FIXME x.p != position of y in general *\) *)
-(*           end *)
-(*     end *)
-(*   in *)
-(*   loop false (M.find x.s env.tenv) *)
-
 let let_type env tys =
   check_unique_type_names tys;
   declare_types env tys
@@ -348,12 +321,12 @@ and exp env e ty =
       begin match base_type ty with
         | RECORD _ ->
             Lconst 0L
+        | REF {contents = None} ->
+            error e.epos
+              "'nil' should be used in a context where its type can be determined"
         | _ ->
             error e.epos "expected record type, found '%s'" (print_type ty)
       end
-      (* error e.epos *)
-      (*   "'nil' should be used in a context where \ *)
-      (*    its type can be determined" *)
   | Evar v ->
       var env v ty
   | Ebinop (x, Op_add, y) ->
