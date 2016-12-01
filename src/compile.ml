@@ -1,4 +1,4 @@
- (* The MIT License (MIT)
+(* The MIT License (MIT)
 
    Copyright (c) 2013-2016 Nicolas Ojeda Bar <n.oje.bar@gmail.com>
 
@@ -212,7 +212,7 @@ let check_unique_fundef_names fundefs =
     | fundef :: fundefs ->
         let matches =
           List.filter (fun fundef' -> fundef.fn_name.s = fundef'.fn_name.s)
-          fundefs
+            fundefs
         in
         if List.length matches > 0 then
           let fundef' = List.hd matches in
@@ -319,13 +319,13 @@ and exp env e ty =
       error e.epos "String literals not implemented"
   | Enil ->
       begin match base_type ty with
-        | RECORD _ ->
-            Lconst 0L
-        | REF {contents = None} ->
-            error e.epos
-              "'nil' should be used in a context where its type can be determined"
-        | _ ->
-            error e.epos "expected record type, found '%s'" (print_type ty)
+      | RECORD _ ->
+          Lconst 0L
+      | REF {contents = None} ->
+          error e.epos
+            "'nil' should be used in a context where its type can be determined"
+      | _ ->
+          error e.epos "expected record type, found '%s'" (print_type ty)
       end
   | Evar v ->
       var env v ty
@@ -484,10 +484,10 @@ and exp env e ty =
               let e = exp env e t in
               bind (e :: vs) (xts, ts)
             else
-              if List.exists (fun (x', _) -> x.s = x') ts then
-                error x.p "field '%s' is in the wrong other" x.s
-              else
-                error x.p "unknown field '%s'" x.s
+            if List.exists (fun (x', _) -> x.s = x') ts then
+              error x.p "field '%s' is in the wrong other" x.s
+            else
+              error x.p "unknown field '%s'" x.s
         | [], _ ->
             error e.epos "some fields missing from initialisation"
         | _, [] ->
