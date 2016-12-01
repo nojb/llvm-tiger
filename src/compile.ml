@@ -98,12 +98,10 @@ let add_var (x : pos_string) ?(immutable = false) t env =
   {env with venv = M.add x.s (Variable vi) env.venv}
 
 let mem_var x env =
-  try
-    match M.find x env.venv with
-    | Variable _ -> true
-    | Function _ -> false
-  with Not_found ->
-    false
+  match M.find x env.venv with
+  | Variable _ -> true
+  | Function _ -> false
+  | exception Not_found -> false
 
 let add_fun x uid atyps rtyp env =
   let fi =
@@ -116,12 +114,10 @@ let add_fun x uid atyps rtyp env =
   {env with venv = M.add x.s (Function fi) env.venv}
 
 let mem_user_fun x env =
-  try
-    match M.find x env.venv with
-    | Function fi -> fi.f_user
-    | Variable _ -> false
-  with Not_found ->
-    false
+  match M.find x env.venv with
+  | Function fi -> fi.f_user
+  | Variable _ -> false
+  | exception Not_found -> false
 
 let find_fun x env =
   try
@@ -140,11 +136,13 @@ let find_type x env =
 let add_type x t env =
   {env with tenv = M.add x.s t env.tenv}
 
-let print_type = function
+let rec print_type = function
   | INT -> "int"
   | VOID -> "void"
   | STRING -> "string"
-  | _ -> "<a type>"
+  | RECORD (s, _) | ARRAY (s, _) -> s
+  | REF {contents = Some t} -> print_type t
+  | REF {contents = None} -> "<a type>"
 
 let find_array_type x env =
   match base_type (find_type x env) with
