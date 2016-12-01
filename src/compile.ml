@@ -179,10 +179,10 @@ let declare_types env xts =
           let ty = find_type y env in
           unify_ty pos tx ty
       | Tarray y ->
-          let name = assert false in
+          let name = x.s in
           unify_ty pos tx (ARRAY (name, find_type y env))
       | Trecord xs ->
-          let name = assert false in
+          let name = x.s in
           unify_ty pos tx (RECORD (name, List.map (fun (x, t) -> x.s, find_type t env) xs))
     ) xts;
   env
