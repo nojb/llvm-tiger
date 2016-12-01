@@ -515,7 +515,15 @@ and exp env e ty =
       let iend = gentmp "for" in
       let z = exp env z void_ty in
       unify_ty void_ty ty;
-      let body = Llet (i.s, x, Llet (iend, y, Lcatch (Lloop (Lifthenelse (Lprim (Pintcomp Cle, [Lvar i.s; Lvar iend]), z, Lexit 0))))) in
+      let body =
+        Llet
+          (i.s, x, Llet
+             (iend, y, Lcatch
+                (Lloop
+                   (Lifthenelse
+                      (Lprim (Pintcomp Cle, [Lvar i.s; Lvar iend]),
+                       Lsequence (z, Lassign (i.s, Lprim (Paddint, [Lvar i.s; Lconst 1L]))), Lexit 0)))))
+      in
       Lsequence (body, Lconst 0L)
   | Ebreak ->
       if env.in_loop then

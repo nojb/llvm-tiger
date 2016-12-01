@@ -23,6 +23,9 @@
 type comparison =
   | Cle
 
+let string_of_comparison = function
+  | Cle -> "<"
+
 type primitive =
   | Paddint
   | Psubint
@@ -34,6 +37,18 @@ type primitive =
   | Parrayset
   | Pintcomp of comparison
   | Pccall of string
+
+let string_of_primitive = function
+  | Paddint -> "+"
+  | Psubint -> "-"
+  | Pmulint -> "*"
+  | Pdivint -> "/"
+  | Pgetfield n -> Printf.sprintf "getf %d" n
+  | Psetfield n -> Printf.sprintf "setf %d" n
+  | Parrayref -> "arrayref"
+  | Parrayset -> "arrayset"
+  | Pintcomp cmp -> string_of_comparison cmp
+  | Pccall s -> Printf.sprintf "ccall %S" s
 
 type ident = string
 
@@ -69,7 +84,11 @@ let rec print ppf = function
       let aux ppf = List.iter (fprintf ppf "@ %a" print) args in
       fprintf ppf "@[<2>(%s%t)@]" f aux
   | Llet (v, e1, e2) ->
-      fprintf ppf "@[<2>(let %s@ %a@ %a)@]" v print e1 print e2
+      let rec aux ppf = function
+        | Llet (v, e1, e2) -> fprintf ppf "%s@ %a@ %a" v print e1 aux e2
+        | e -> print ppf e
+      in
+      fprintf ppf "@[<2>(let %s@ %a@ %a)@]" v print e1 aux e2
   | Lletrec (funs, e) ->
       let aux ppf args = List.iteri (fun i arg -> if i > 0 then fprintf ppf "@ "; pp_print_string ppf arg) args in
       let aux ppf =
@@ -77,10 +96,10 @@ let rec print ppf = function
             fprintf ppf "@ @[<2>(%s@ @[<2>(%a)@]@ %a)@]" name aux args print body
           ) funs
       in
-      fprintf ppf "@[<2>(letrec%t@ %a)@]" aux print e
-  | Lprim (_, args) ->
+      fprintf ppf "@[<hv2>(letrec%t@ %a)@]" aux print e
+  | Lprim (prim, args) ->
       let aux ppf = List.iter (fprintf ppf "@ %a" print) args in
-      fprintf ppf "@[<2>(PRIM%t)@]" aux
+      fprintf ppf "@[<2>(%s%t)@]" (string_of_primitive prim) aux
   | Lexit n ->
       fprintf ppf "@[<2>(exit@ %d)@]" n
   | Lcatch e ->
@@ -92,7 +111,7 @@ let rec print ppf = function
         | Lsequence (e1, e2) -> fprintf ppf "%a@ %a" aux e1 aux e2
         | e -> print ppf e
       in
-      fprintf ppf "@[<2>(seq@ %a@ %a)@]" aux e1 aux e2
+      fprintf ppf "@[<hv2>(seq@ %a@ %a)@]" aux e1 aux e2
   | Lloop e ->
       fprintf ppf "@[<2>(loop@ %a)@]" print e
   | Lassign (v, e) ->
