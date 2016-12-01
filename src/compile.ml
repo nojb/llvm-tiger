@@ -173,7 +173,7 @@ let declare_types env xts =
   in
   List.iter (fun (x, t) ->
       let tx = find_type x env in
-      let pos = assert false in
+      let pos = x.p in
       match t with
       | Tname y ->
           let ty = find_type y env in
