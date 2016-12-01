@@ -420,6 +420,7 @@ and exp env e ty =
   (*           (describe_type tx))) *)
   | Eassign (v, e) ->
       let v = assign env v e in
+      unify_ty void_ty ty;
       Lsequence (v, Lconst 0L)
   | Ecall (x, xs) ->
       let fi = find_fun x env in
