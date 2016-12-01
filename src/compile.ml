@@ -164,8 +164,12 @@ let find_record_field env t (x : pos_string) =
   loop 0 xts
 
 let unify_ty pos ty1 ty2 =
-  if not (type_equal ty1 ty2) then
-    error pos "type mismatch: expected type '%s', instead found '%s'" (print_type ty1) (print_type ty2)
+  match ty1, ty2 with
+  | REF ({contents = None} as t), _ -> t := Some ty2
+  | _, REF ({contents = None} as t) -> t := Some ty1
+  | _ ->
+      if not (type_equal ty1 ty2) then
+        error pos "type mismatch: expected type '%s', instead found '%s'" (print_type ty1) (print_type ty2)
 
 let declare_types env xts =
   let env =
