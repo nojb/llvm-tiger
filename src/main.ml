@@ -102,10 +102,20 @@ let command fmt =
 (*   | Failure s -> *)
 (*       Printf.eprintf ">> Fatal error: %s\n%!" s *)
 
-let _ =
-  Arg.parse [
+let spec =
+  [
     (* "-O", Arg.Set_int opt_level, "\t\tOptimisation level used by llc"; *)
-    "-S", Arg.Set emit_asm, "\t\tEmit asm assembly in .s file";
-    "-emit-llvm", Arg.Set emit_llvm, "\temit LLVM assembly in .ll file";
-    "-stdin", Arg.Unit compile_stdin, "\tread input from stdin"
-  ] ignore (* compile_file *) "llvm-tigerc compiler 0.1"
+    "-S", Arg.Set emit_asm, " Emit asm assembly in .s file";
+    "-emit-llvm", Arg.Set emit_llvm, " Emit LLVM assembly in .ll file";
+    "-stdin", Arg.Unit compile_stdin, " Read input from stdin"
+  ]
+
+let main () =
+  Arg.parse (Arg.align spec) ignore (* compile_file *) "llvm-tigerc compiler 0.1"
+
+let () =
+  try
+    main ()
+  with e ->
+    Printf.eprintf "ERROR: %s\n%!" (Printexc.to_string e);
+    exit 1
