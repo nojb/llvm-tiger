@@ -40,7 +40,7 @@ type operation =
   | Pmulint
   | Pdivint
   | Pgep
-  | Pload
+  | Pload of ty
   | Pcmpint of comparison
   | Ialloca of ty
   | Istore
@@ -84,6 +84,7 @@ let rec print_typ ppf ty =
   | Tarray (t, n) -> fprintf ppf "a%i%a" n print_typ t
   | Tnamed s -> fprintf ppf "%s" s
   | Tvoid -> fprintf ppf "void"
+  | Tstruct _ -> assert false
 
 let print_args ppf arg =
   let open Format in
@@ -92,7 +93,7 @@ let print_args ppf arg =
     fprintf ppf "x%i" arg.(i)
   done
 
-let print_operation ppf op arg res =
+let print_operation ppf op arg _res =
   let open Format in
   match op with
   | Pconstint n ->
@@ -107,7 +108,7 @@ let print_operation ppf op arg res =
       fprintf ppf "x%i / x%i" arg.(0) arg.(1)
   | Pgep ->
       fprintf ppf "gep x%i, ..." arg.(0)
-  | Pload ->
+  | Pload _ ->
       fprintf ppf "!x%i" arg.(0)
   | Pcmpint _ ->
       fprintf ppf "cmp"
@@ -164,7 +165,7 @@ let print_fundecl ppf f =
 
 open Llvm
 
-module IdentMap = Map.Make (struct type t = ident let compare = Pervasives.compare end)
+module IdentMap = Map.Make (struct type t = ident let compare = Stdlib.compare end)
 
 let rec transl_ty m ty =
   let c = module_context m in
@@ -177,12 +178,12 @@ let rec transl_ty m ty =
       struct_type c (Array.map (transl_ty m) tys)
   | Tnamed name ->
       named_struct_type c name
-  | Tpointer base ->
-      pointer_type (transl_ty m base)
+  | Tpointer _ ->
+      pointer_type (module_context m)
   | Tint width ->
       integer_type c width
 
-let transl_operation env m b op arg =
+let transl_operation _env m b op arg =
   match op with
   | Pconstint n ->
       let c = module_context m in
@@ -195,27 +196,30 @@ let transl_operation env m b op arg =
       [|build_mul arg.(0) arg.(1) "" b|]
   | Pdivint ->
       [|build_sdiv arg.(0) arg.(1) "" b|]
-  | Pload ->
-      [|build_load arg.(0) "" b|]
+  | Pload ty ->
+      [|build_load (transl_ty m ty) arg.(0) "" b|]
   | Pgep ->
-      [|build_gep arg.(0) (Array.sub arg 1 (Array.length arg - 1)) "" b|]
+      assert false
+      (* [|build_gep _ arg.(0) (Array.sub arg 1 (Array.length arg - 1)) "" b|] *)
   | Ialloca (ty) ->
       [|build_alloca (transl_ty m ty) "" b|]
   | Istore ->
       ignore (build_store arg.(0) arg.(1) b);
       [||]
-  | Iapply (f) ->
-      let f =
+  | Iapply f ->
+      let _f =
         match lookup_function f m with
         | None -> assert false
         | Some f -> f
       in
-      [|build_call f arg "" b|]
+      assert false
+      (* [|build_call _ f arg "" b|] *)
   | Iexternal (f, (tys, ty)) ->
-      let f =
+      let _f =
         declare_function f (function_type (transl_ty m ty) (Array.map (transl_ty m) tys)) m
       in
-      [|build_call f arg "" b|]
+      assert false
+      (* [|build_call _ f arg "" b|] *)
   | _ ->
       assert false
 

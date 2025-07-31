@@ -25,7 +25,7 @@ let emit_llvm = ref false
 let emit_asm = ref false
 
 (* let opt m =
-  if !optimize then begin
+   if !optimize then begin
     let fpm = Llvm.PassManager.create_function m in
     Llvm_scalar_opts.add_memory_to_register_promotion fpm;
     Llvm_scalar_opts.add_constant_propagation fpm;
@@ -41,7 +41,7 @@ let emit_asm = ref false
       ignore (Llvm.PassManager.run_function f fpm)) m;
     ignore (Llvm.PassManager.finalize fpm);
     Llvm.PassManager.dispose fpm
-  end *)
+   end *)
 
 let compile_stdin () =
   try
@@ -56,13 +56,13 @@ let compile_stdin () =
   with
     Error.Error (p, msg) -> Error.report_error p msg
 
-let basename name =
+let _basename name =
   if Filename.check_suffix name ".tig" then
     Filename.chop_suffix name ".tig"
   else
     name
 
-let command fmt =
+let _command fmt =
   Printf.ksprintf (fun cmd ->
       let code = Sys.command cmd in
       if code <> 0 then

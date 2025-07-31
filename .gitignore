@@ -1,7 +1,2 @@
-.DS_Store
+_opam
 _build
-a.out
-*.native
-*.bc
-*.top
-*.byte

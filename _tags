@@ -1,2 +1,0 @@
-true: debug
-true: package(llvm), package(llvm.bitwriter)
