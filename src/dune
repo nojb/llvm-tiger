@@ -1,5 +1,6 @@
 (ocamllex lexer)
 (ocamlyacc parser)
 (executable
+ (public_name tigerc)
  (name main)
  (libraries llvm))
