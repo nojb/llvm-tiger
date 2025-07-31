@@ -1,31 +1,9 @@
-(* The MIT License (MIT)
-
-   Copyright (c) 2013-2016 Nicolas Ojeda Bar <n.oje.bar@gmail.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a copy
-   of this software and associated documentation files (the "Software"), to deal
-   in the Software without restriction, including without limitation the rights
-   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-   copies of the Software, and to permit persons to whom the Software is
-   furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-   SOFTWARE. *)
-
-type cmp_op =
+type comparison =
   | Ceq | Cle | Cge | Cne | Clt | Cgt
 
 type bin =
   | Op_add | Op_sub | Op_mul | Op_div
-  | Op_cmp of cmp_op
+  | Op_cmp of comparison
 
 type pos_string =
   { s: string;
@@ -78,6 +56,12 @@ and fundef =
     fn_args: (pos_string * pos_string) list;
     fn_body: exp }
 
+type program =
+  {
+    name: string;
+    body: exp;
+  }
+
 module S = Set.Make (String)
 
 let remove_list l s =
@@ -109,8 +93,8 @@ let rec fv e =
   | Elet (Dfuns fundefs, e) ->
       S.union (fv e)
         (union_list (List.map (fun fundef ->
-          remove_list (List.map (fun (x, _) -> x.s) fundef.fn_args)
-            (fv fundef.fn_body)) fundefs))
+             remove_list (List.map (fun (x, _) -> x.s) fundef.fn_args)
+               (fv fundef.fn_body)) fundefs))
   | Elet (Dtypes _, e) -> fv e
 
 and fv_var v =

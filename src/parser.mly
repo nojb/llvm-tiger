@@ -33,7 +33,7 @@ let mkvar i d =
 %token <string> STRING
 %token EOF
 
-%type <Tabs.exp> program
+%type <Tabs.program> program
 %start program
 
 %left THEN
@@ -51,7 +51,7 @@ let mkvar i d =
 
 program:
   exp EOF
-  { $1 }
+  { { name = ""; body = $1 } }
   | error
   { raise (Error (Parsing.symbol_start_pos (), "parse error")) }
   ;

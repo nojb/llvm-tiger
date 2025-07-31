@@ -47,10 +47,9 @@ let compile_stdin () =
   try
     let lexbuf = Lexing.from_channel stdin in
     lexbuf.Lexing.lex_curr_p <- {lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>"};
-    let p = Compile.program (Parser.program Lexer.token lexbuf) in
-    List.iter (Irep.print_fundecl Format.err_formatter) p;
-    let m = Llvm.create_module (Llvm.global_context ()) "" in
-    Irep.transl_program m p;
+    let c = Llvm.global_context () in
+    let m = Irep.transl_program c (Compile.program (Typecheck.program (Parser.program Lexer.token lexbuf))) in
+    (* List.iter (Irep.print_fundecl Format.err_formatter) p; *)
     Llvm.dump_module m;
     Llvm.dispose_module m
   with

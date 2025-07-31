@@ -1,31 +1,11 @@
-(* The MIT License (MIT)
-
-   Copyright (c) 2013-2016 Nicolas Ojeda Bar <n.oje.bar@gmail.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a copy
-   of this software and associated documentation files (the "Software"), to deal
-   in the Software without restriction, including without limitation the rights
-   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-   copies of the Software, and to permit persons to whom the Software is
-   furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-   SOFTWARE. *)
+open Llvm
 
 type ty =
   | Tvoid
   | Tstruct of ty array
   | Tarray of ty * int
   | Tnamed of string
-  | Tpointer of ty
+  | Tpointer
   | Tint of int
 
 type comparison =
@@ -40,132 +20,119 @@ type operation =
   | Pmulint
   | Pdivint
   | Pgep
-  | Pload of ty
   | Pcmpint of comparison
   | Ialloca of ty
-  | Istore
   | Iapply of string
   | Iexternal of string * signature
 
 type ident = int
 
-type instruction_desc =
-  | Iop of operation
-  | Iifthenelse of instruction * instruction
-  | Iloop of instruction
-  | Icatch of instruction
-  | Iexit of int
-  | Ireturn of bool
-  | Iend
+type label = int
 
-and instruction =
-  { desc: instruction_desc;
-    arg: ident array;
-    res: ident array;
-    next: instruction }
+module IdentMap = Map.Make(Int)
+module LabelMap = Map.Make(Int)
 
-let rec dummy_instr =
-  { desc = Iend;
-    arg = [||];
-    res = [||];
-    next = dummy_instr }
+type instruction =
+  | Iop of operation * ident list * ident * instruction
+  | Iload of ty * ident * ident * instruction
+  | Istore of ident * ident * instruction
+  | Iifthenelse of ident * label * label
+  | Igoto of label
+  | Ireturn of ident option
 
-let end_instr () =
-  { desc = Iend;
-    arg = [||];
-    res = [||];
-    next = dummy_instr }
+type program =
+  {
+    name: string;
+    vars: unit IdentMap.t;
+    code: instruction LabelMap.t;
+    entrypoint: instruction;
+  }
 
 let rec print_typ ppf ty =
   let open Format in
   match ty with
   | Tint w -> fprintf ppf "i%i" w
-  | Tpointer t -> fprintf ppf "p%a" print_typ t
+  | Tpointer -> fprintf ppf "ptr"
   | Tarray (t, n) -> fprintf ppf "a%i%a" n print_typ t
   | Tnamed s -> fprintf ppf "%s" s
   | Tvoid -> fprintf ppf "void"
   | Tstruct _ -> assert false
 
-let print_args ppf arg =
+let print_args ppf args =
   let open Format in
-  for i = 0 to Array.length arg - 1 do
-    if i > 0 then fprintf ppf ", ";
-    fprintf ppf "x%i" arg.(i)
-  done
+  List.iteri (fun i arg ->
+      if i > 0 then fprintf ppf ", ";
+      fprintf ppf "x%i" arg
+    ) args
 
-let print_operation ppf op arg _res =
+let print_operation ppf op args _res =
   let open Format in
-  match op with
-  | Pconstint n ->
+  match op, args with
+  | Pconstint n, _ ->
       fprintf ppf "%li" n
-  | Paddint ->
-      fprintf ppf "x%i + x%i" arg.(0) arg.(1)
-  | Psubint ->
-      fprintf ppf "x%i - x%i" arg.(0) arg.(1)
-  | Pmulint ->
-      fprintf ppf "x%i * x%i" arg.(0) arg.(1)
-  | Pdivint ->
-      fprintf ppf "x%i / x%i" arg.(0) arg.(1)
-  | Pgep ->
-      fprintf ppf "gep x%i, ..." arg.(0)
-  | Pload _ ->
-      fprintf ppf "!x%i" arg.(0)
-  | Pcmpint _ ->
+  | Paddint, [arg1; arg2] ->
+      fprintf ppf "x%i + x%i" arg1 arg2
+  | Psubint, [arg1; arg2] ->
+      fprintf ppf "x%i - x%i" arg1 arg2
+  | Pmulint, [arg1; arg2] ->
+      fprintf ppf "x%i * x%i" arg1 arg2
+  | Pdivint, [x1; x2] ->
+      fprintf ppf "x%i / x%i" x1 x2
+  | Pgep, [x] ->
+      fprintf ppf "gep x%i, ..." x
+  | Pcmpint _, _ ->
       fprintf ppf "cmp"
-  | Ialloca ty ->
-      fprintf ppf "x%i = alloca %a" arg.(0) print_typ ty
-  | Istore ->
-      fprintf ppf "x%i := x%i" arg.(0) arg.(1)
-  | Iapply (f)
-  | Iexternal (f, _) ->
-      fprintf ppf "x%i = %s(%a)" arg.(0) f print_args arg
+  | Ialloca ty, [x] ->
+      fprintf ppf "x%i = alloca %a" x print_typ ty
+  | Iapply (f), [x]
+  | Iexternal (f, _), [x] ->
+      fprintf ppf "x%i = %s(%a)" x f print_args args
+  | _ ->
+      assert false
 
 let rec print_instruction ppf i =
   let open Format in
-  begin match i.desc with
-    | Iop op ->
-        print_operation ppf op i.arg i.res
-    | Iifthenelse (ifso, ifnot) ->
-        fprintf ppf "@[<v 2>if x%i then@,%a" i.arg.(0) print_instruction ifso;
-        fprintf ppf "@;<0 -2>else@,%a" print_instruction ifnot;
-        fprintf ppf "@;<0 -2>endif@]"
-    | Iloop body ->
-        fprintf ppf "@[<v 2>loop@,%a" print_instruction body;
-        fprintf ppf "@;<0 -2>endloop@]"
-    | Icatch body ->
-        fprintf ppf "@[<v 2>catch@,%a" print_instruction body;
-        fprintf ppf "@;<0 -2>endcatch@]"
-    | Iexit i ->
-        fprintf ppf "exit %i" i
-    | Ireturn false ->
-        fprintf ppf "ret"
-    | Ireturn true ->
-        fprintf ppf "ret x%i" i.arg.(0)
-    | Iend ->
-        ()
-  end;
-  match i.next.desc with
-  | Iend ->
-      ()
-  | _ ->
-      fprintf ppf "@,%a" print_instruction i.next
+  let next =
+    match i with
+    | Iop (op, args, res, next) ->
+        print_operation ppf op args res;
+        Some next
+    | Iload (_ty, arg, res, next) ->
+        fprintf ppf "x%i = !x%i" res arg;
+        Some next
+    | Istore (src, dst, next) ->
+        fprintf ppf "x%i := x%i" dst src;
+        Some next
+    | Iifthenelse (cond, ifso, ifnot) ->
+        fprintf ppf "if x%i then goto L%i else goto L%i" cond ifso ifnot;
+        None
+    | Igoto lbl ->
+        fprintf ppf "goto L%i" lbl;
+        None
+    | Ireturn None ->
+        fprintf ppf "ret";
+        None
+    | Ireturn (Some arg) ->
+        fprintf ppf "ret x%i" arg;
+        None
+  in
+  match next with
+  | None -> ()
+  | Some next -> fprintf ppf "@,%a" print_instruction next
 
 let print_instruction ppf i =
   Format.fprintf ppf "@[<v>%a@]@." print_instruction i
 
 type fundecl =
   { name: string;
-    args: ident array;
+    args: ident list;
     signature: signature;
-    body: instruction }
+    code: instruction LabelMap.t;
+    entrypoint: instruction }
 
 let print_fundecl ppf f =
   let open Format in
-  fprintf ppf "@[<v>%s(%a):@,%a@]@." f.name print_args f.args print_instruction f.body
-
-open Llvm
-
-module IdentMap = Map.Make (struct type t = ident let compare = Stdlib.compare end)
+  fprintf ppf "@[<v>%s(%a):@,%a@]@." f.name print_args f.args print_instruction f.entrypoint
 
 let rec transl_ty m ty =
   let c = module_context m in
@@ -178,97 +145,70 @@ let rec transl_ty m ty =
       struct_type c (Array.map (transl_ty m) tys)
   | Tnamed name ->
       named_struct_type c name
-  | Tpointer _ ->
+  | Tpointer ->
       pointer_type (module_context m)
   | Tint width ->
       integer_type c width
 
-let transl_operation _env m b op arg =
-  match op with
-  | Pconstint n ->
+let transl_operation m b op args =
+  match op, args with
+  | Pconstint n, [] ->
       let c = module_context m in
-      [|const_of_int64 (i32_type c) (Int64.of_int32 n) false|]
-  | Paddint ->
-      [|build_add arg.(0) arg.(1) "" b|]
-  | Psubint ->
-      [|build_sub arg.(0) arg.(1) "" b|]
-  | Pmulint ->
-      [|build_mul arg.(0) arg.(1) "" b|]
-  | Pdivint ->
-      [|build_sdiv arg.(0) arg.(1) "" b|]
-  | Pload ty ->
-      [|build_load (transl_ty m ty) arg.(0) "" b|]
-  | Pgep ->
+      const_of_int64 (i32_type c) (Int64.of_int32 n) false
+  | Paddint, [arg1; arg2] ->
+      build_add arg1 arg2 "" b
+  | Psubint, [arg1; arg2] ->
+      build_sub arg1 arg2 "" b
+  | Pmulint, [arg1; arg2] ->
+      build_mul arg1 arg2 "" b
+  | Pdivint, [arg1; arg2] ->
+      build_sdiv arg1 arg2 "" b
+  | Pgep, _ ->
       assert false
-      (* [|build_gep _ arg.(0) (Array.sub arg 1 (Array.length arg - 1)) "" b|] *)
-  | Ialloca (ty) ->
-      [|build_alloca (transl_ty m ty) "" b|]
-  | Istore ->
-      ignore (build_store arg.(0) arg.(1) b);
-      [||]
-  | Iapply f ->
+  (* [|build_gep _ arg.(0) (Array.sub arg 1 (Array.length arg - 1)) "" b|] *)
+  | Ialloca ty, [] ->
+      build_alloca (transl_ty m ty) "" b
+  | Iapply f, _ ->
       let _f =
         match lookup_function f m with
         | None -> assert false
         | Some f -> f
       in
       assert false
-      (* [|build_call _ f arg "" b|] *)
-  | Iexternal (f, (tys, ty)) ->
+  (* [|build_call _ f arg "" b|] *)
+  | Iexternal (f, (tys, ty)), _ ->
       let _f =
         declare_function f (function_type (transl_ty m ty) (Array.map (transl_ty m) tys)) m
       in
       assert false
-      (* [|build_call _ f arg "" b|] *)
+  (* [|build_call _ f arg "" b|] *)
   | _ ->
       assert false
 
-let rec transl_instr env m b i lexit l =
-  match i.desc with
-  | Iop op ->
-      let arg = Array.map (fun id -> IdentMap.find id env) i.arg in
-      let res = transl_operation env m b op arg in
-      let env = ref env in
-      for n = 0 to Array.length res - 1 do
-        env := IdentMap.add i.res.(n) res.(n) !env
-      done;
-      transl_instr !env m b i.next lexit l
-  | Iifthenelse (ifso, ifnot) ->
-      let c = module_context m in
-      let f = block_parent (insertion_block b) in
-      let lnext = append_block c "" f in
-      let lifso = append_block c "" f in
-      let lifnot = append_block c "" f in
-      ignore (build_cond_br (IdentMap.find i.arg.(0) env) lifso lifnot b);
-      position_at_end lifso b;
-      transl_instr env m b ifso lexit lnext;
-      position_at_end lifnot b;
-      transl_instr env m b ifnot lexit lnext;
-      position_at_end lnext b;
-      transl_instr env m b i.next lexit l
-  | Iloop body ->
-      let c = module_context m in
-      let f = block_parent (insertion_block b) in
-      let lstart = append_block c "" f in
-      ignore (build_br lstart b);
-      position_at_end lstart b;
-      transl_instr env m b body lexit lstart
-  | Icatch body ->
-      let c = module_context m in
-      let f = block_parent (insertion_block b) in
-      let lnext = append_block c "" f in
-      transl_instr env m b body (lnext :: lexit) lnext;
-      position_at_end lnext b;
-      transl_instr env m b i.next lexit l
-  | Iexit i ->
-      ignore (build_br (List.nth lexit i) b)
-  | Iend ->
-      ignore (build_br l b)
-  | Ireturn true ->
-      ignore (build_ret (IdentMap.find i.arg.(0) env) b)
-  | Ireturn false ->
+let rec transl_instr env m b i lgoto =
+  match i with
+  | Iop (op, args, res, next) ->
+      let args = List.map (fun id -> IdentMap.find id env) args in
+      let vres = transl_operation m b op args in
+      let env = IdentMap.add res vres env in
+      transl_instr env m b next lgoto
+  | Iload (ty, arg, res, next) ->
+      let v = build_load (transl_ty m ty) (IdentMap.find arg env) "" b in
+      transl_instr (IdentMap.add res v env) m b next lgoto
+  | Istore (src, dst, next) ->
+      ignore (build_store (IdentMap.find src env) (IdentMap.find dst env) b);
+      transl_instr env m b next lgoto
+  | Iifthenelse (cond, ifso, ifnot) ->
+      let lifso = LabelMap.find ifso lgoto in
+      let lifnot = LabelMap.find ifnot lgoto in
+      ignore (build_cond_br (IdentMap.find cond env) lifso lifnot b)
+  | Igoto lbl ->
+      ignore (build_br (LabelMap.find lbl lgoto) b)
+  | Ireturn (Some arg) ->
+      ignore (build_ret (IdentMap.find arg env) b)
+  | Ireturn None ->
       ignore (build_ret_void b)
-
+(*
 let transl_fundecl_1 m f =
   let tys, ty = f.signature in
   let fty = function_type (transl_ty m ty) (Array.map (transl_ty m) tys) in
@@ -282,14 +222,22 @@ let transl_fundecl_2 m f =
   in
   let c = module_context m in
   let b = builder c in
-  let l = entry_block v in
-  position_at_end l b;
-  let env = ref IdentMap.empty in
-  for n = 0 to Array.length f.args - 1 do
-    env := IdentMap.add f.args.(n) (param v n) !env
-  done;
-  transl_instr !env m b f.body [] l
+  let _, env =
+    let aux (n, env) arg = n + 1, IdentMap.add arg (param v n) env in
+    List.fold_left aux (0, IdentMap.empty) f.args
+  in
+  let lgoto = LabelMap.map (fun _ -> append_block c "" v) f.code in
+  let transl_block block i = position_at_end block b; transl_instr env m b i lgoto in
+  transl_block (entry_block v) f.entrypoint;
+  LabelMap.iter (fun lbl i -> transl_block (LabelMap.find lbl lgoto) i) f.code *)
 
-let transl_program m l =
-  List.iter (transl_fundecl_1 m) l;
-  List.iter (transl_fundecl_2 m) l
+let transl_program c (p : program) =
+  let m = create_module c p.name in
+  let v = define_function "TIG_main" (function_type (void_type c) [||]) m in
+  let b = builder c in
+  let env = IdentMap.empty in
+  let lgoto = LabelMap.map (fun _ -> append_block c "" v) p.code in
+  let transl_block block i = position_at_end block b; transl_instr env m b i lgoto in
+  transl_block (entry_block v) p.entrypoint;
+  LabelMap.iter (fun lbl i -> transl_block (LabelMap.find lbl lgoto) i) p.code;
+  m
