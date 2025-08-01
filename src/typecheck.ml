@@ -7,6 +7,10 @@ let seq s1 s2 =
   | Sskip, s | s, Sskip -> s
   | _ -> Sseq (s1, s2)
 
+type value =
+  | Var of type_id * string
+  | Fun of (type_id list * type_id option) * string
+
 module M = Map.Make(String)
 
 type env =
@@ -14,7 +18,7 @@ type env =
     vars: (string, type_id) Hashtbl.t;
     funs: (string, fundef) Hashtbl.t;
     cstr: (string, type_structure) Hashtbl.t;
-    venv: (type_id * string) M.t;
+    venv: value M.t;
     tenv: type_id M.t;
     loop: bool;
     cntr: int ref;
@@ -40,15 +44,26 @@ let empty_env venv tenv =
     loop = false;
     cntr = ref 0 }
 
+type error =
+  | Unbound_variable of string
+  | Wrong_arity of int * int
+
+exception Error of Lexing.position * error
+
 let find_var id env =
   match M.find_opt id.s env.venv with
-  | Some x -> x
-  | None -> error id.p "unbound variable '%s'" id.s
+  | Some (Var (tid, id)) -> tid, id
+  | Some (Fun _) | None -> raise (Error (id.p, Unbound_variable id.s))
+
+let find_fun id env =
+  match M.find_opt id.s env.venv with
+  | Some (Fun (sign, impl)) -> sign, impl
+  | Some (Var _) | None -> raise (Error (id.p, Unbound_variable id.s))
 
 let add_var env (x : pos_string) tid =
   let id = fresh env x.s in
   Hashtbl.add env.vars id tid;
-  id, {env with venv = M.add x.s (tid, id) env.venv}
+  id, {env with venv = M.add x.s (Var (tid, id)) env.venv}
 
 let add_fresh_var env tid =
   let id = fresh env "tmp" in
@@ -268,8 +283,19 @@ and expression env e : statement * (type_id * expression) option =
       let s1, ty, v = variable env v in
       let s2, e = expression' env e ty in
       seq s1 (seq s2 (Sassign (v, e))), None
-  | Ecall _ ->
-      assert false
+  | Ecall (fn, params) ->
+      let (args, res) as sign, impl = find_fun fn env in
+      let num_expected = List.length args in
+      let num_actual = List.length params in
+      if num_expected <> num_actual then raise (Error (fn.p, Wrong_arity (num_expected, num_actual)));
+      let s, params =
+        List.fold_left2 (fun (s, el) arg param -> let s', e' = expression' env param arg in seq s s', e' :: el)
+          (Sskip, []) args params
+      in
+      begin match res with
+      | None -> seq s (Scall (impl, List.rev params, sign)), None
+      | Some _ -> assert false
+      end
   | Eseq (e1, e2) ->
       let s1, _ = expression env e1 in
       let s2, e2 = expression env e2 in
@@ -331,6 +357,11 @@ and expression env e : statement * (type_id * expression) option =
 let base_tenv =
   M.add "int" Tint (M.add "string" Tstring M.empty)
 
+let stdlib =
+  [
+    "printi", [Tint], None, "TIG_printi";
+  ]
+
 (* let stdlib =
    [
     "print" , [Tstring], None;
@@ -347,9 +378,8 @@ let base_tenv =
    ] *)
 
 let base_venv =
-  M.empty
-(* let f venv (name, args, res) = M.add name (Function (args, res)) venv in
-   List.fold_left f M.empty stdlib *)
+  let f venv (name, args, res, impl) = M.add name (Fun ((args, res), impl)) venv in
+  List.fold_left f M.empty stdlib
 
 let program (p : Tabs.program) =
   let env = empty_env base_venv base_tenv in

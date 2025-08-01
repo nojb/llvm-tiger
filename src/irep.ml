@@ -56,7 +56,6 @@ type instruction =
 type program =
   {
     name: string;
-    vars: unit Ident.Map.t;
     code: instruction Label.Map.t;
     entrypoint: instruction;
   }
@@ -192,12 +191,10 @@ let transl_operation m b op args =
       in
       assert false
   (* [|build_call _ f arg "" b|] *)
-  | Iexternal (f, (tys, ty)), _ ->
-      let _f =
-        declare_function f (function_type (transl_ty m ty) (Array.map (transl_ty m) tys)) m
-      in
-      assert false
-  (* [|build_call _ f arg "" b|] *)
+  | Iexternal (f, (tys, ty)), args ->
+      let lltype = function_type (transl_ty m ty) (Array.map (transl_ty m) tys) in
+      let f = declare_function f lltype m in
+      build_call lltype f (Array.of_list args) "" b
   | _ ->
       assert false
 

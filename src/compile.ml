@@ -164,8 +164,19 @@ and statement env lexit s next =
       variable env v @@ fun rv ->
       expression env e @@ fun re ->
       Istore (re, rv, next)
-  | Scall _ ->
-      assert false
+  | Scall (s, el, sign) ->
+      let rec loop rl = function
+        | [] ->
+            let r = new_reg env in
+            let sign =
+              let (args, res) = sign in
+              Array.of_list (List.map type_id args), match res with None -> Tvoid | Some t -> type_id t
+            in
+            Iop (Iexternal (s, sign), List.rev rl, r, next)
+        | e :: el ->
+            expression env e @@ fun r -> loop (r :: rl) el
+      in
+      loop [] el
   | Sreturn (Some e) ->
       expression env e @@ fun r ->
       Ireturn (Some r)
@@ -180,8 +191,8 @@ let program (p : Typing.program) =
     !vars
   in
   let env = { next_reg; next_label = Label.create (); blocks = Label.Map.empty; vars } in
-  let entrypoint = statement env None p.p_body (Ireturn None) in
-  (* List.fold_right (fun v next -> Iop (Ialloca ty, [], v, next)) vars (statement env 0 p.p_body (Ireturn None))
-     in *)
-  let vars = assert false in
-  {name = p.p_name; vars; code = env.blocks; entrypoint}
+  let entrypoint =
+    Hashtbl.fold (fun name tid next -> Iop (Ialloca (type_id tid), [], M.find name vars, next)) p.p_vars
+      (statement env None p.p_body (Ireturn None))
+  in
+  {name = p.p_name; code = env.blocks; entrypoint}

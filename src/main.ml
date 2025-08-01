@@ -1,29 +1,3 @@
-(* The MIT License (MIT)
-
-   Copyright (c) 2013-2016 Nicolas Ojeda Bar <n.oje.bar@gmail.com>
-
-   Permission is hereby granted, free of charge, to any person obtaining a copy
-   of this software and associated documentation files (the "Software"), to deal
-   in the Software without restriction, including without limitation the rights
-   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-   copies of the Software, and to permit persons to whom the Software is
-   furnished to do so, subject to the following conditions:
-
-   The above copyright notice and this permission notice shall be included in
-   all copies or substantial portions of the Software.
-
-   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-   SOFTWARE. *)
-
-(* let opt_level = ref 0 *)
-let emit_llvm = ref false
-let emit_asm = ref false
-
 (* let opt m =
    if !optimize then begin
     let fpm = Llvm.PassManager.create_function m in
@@ -43,9 +17,9 @@ let emit_asm = ref false
     Llvm.PassManager.dispose fpm
    end *)
 
-let compile_stdin () =
+let compile_channel ic =
   try
-    let lexbuf = Lexing.from_channel stdin in
+    let lexbuf = Lexing.from_channel ic in
     lexbuf.Lexing.lex_curr_p <- {lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>"};
     let m =
       lexbuf
@@ -54,24 +28,10 @@ let compile_stdin () =
       |> Compile.program
       |> Irep.transl_program
     in
-    (* List.iter (Irep.print_fundecl Format.err_formatter) p; *)
     Llvm.dump_module m;
     Llvm.dispose_module m
-  with
-    Error.Error (p, msg) -> Error.report_error p msg
-
-let _basename name =
-  if Filename.check_suffix name ".tig" then
-    Filename.chop_suffix name ".tig"
-  else
-    name
-
-let _command fmt =
-  Printf.ksprintf (fun cmd ->
-      let code = Sys.command cmd in
-      if code <> 0 then
-        Printf.ksprintf failwith "command %S failed with code %d" cmd code
-    ) fmt
+  with Error.Error (p, msg) ->
+    Error.report_error p msg
 
 (* let compile_file name = *)
 (*   let base  = basename name in *)
@@ -108,10 +68,7 @@ let _command fmt =
 
 let spec =
   [
-    (* "-O", Arg.Set_int opt_level, "\t\tOptimisation level used by llc"; *)
-    "-S", Arg.Set emit_asm, " Emit asm assembly in .s file";
-    "-emit-llvm", Arg.Set emit_llvm, " Emit LLVM assembly in .ll file";
-    "-stdin", Arg.Unit compile_stdin, " Read input from stdin"
+    "-stdin", Arg.Unit (fun () -> compile_channel stdin), " Read input from stdin"
   ]
 
 let main () =
@@ -120,6 +77,11 @@ let main () =
 let () =
   try
     main ()
-  with e ->
-    Printf.eprintf "ERROR: %s\n%!" (Printexc.to_string e);
-    exit 1
+  with
+  | Failure s | Sys_error s ->
+      Printf.eprintf "ERROR: %s\n%!" s;
+      exit 1
+  | exn ->
+      Printf.eprintf "UNEXPECTED ERROR: %s\n%!" (Printexc.to_string exn);
+      Printexc.print_backtrace stderr;
+      exit 2

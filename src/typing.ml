@@ -14,6 +14,9 @@ and type_id =
   | Tstring
   | Tconstr of string
 
+type signature =
+  type_id list * type_id option
+
 type variable =
   | Vsimple of string
   | Vsubscript of variable * expression
@@ -37,7 +40,7 @@ and statement =
   | Sifthenelse of expression * statement * statement
   | Sseq of statement * statement
   | Sassign of variable * expression
-  | Scall of string * expression list
+  | Scall of string * expression list * signature
   | Sreturn of expression option
 
 and fundef =
