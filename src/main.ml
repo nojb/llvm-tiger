@@ -1,78 +1,70 @@
-(* let opt m =
-   if !optimize then begin
-    let fpm = Llvm.PassManager.create_function m in
-    Llvm_scalar_opts.add_memory_to_register_promotion fpm;
-    Llvm_scalar_opts.add_constant_propagation fpm;
-    Llvm_scalar_opts.add_sccp fpm;
-    Llvm_scalar_opts.add_gvn fpm;
-    Llvm_scalar_opts.add_reassociation fpm;
-    Llvm_scalar_opts.add_instruction_combination fpm;
-    Llvm_scalar_opts.add_dead_store_elimination fpm;
-    Llvm_scalar_opts.add_aggressive_dce fpm;
-    Llvm_scalar_opts.add_cfg_simplification fpm;
-    ignore (Llvm.PassManager.initialize fpm);
-    Llvm.iter_functions (fun f ->
-      ignore (Llvm.PassManager.run_function f fpm)) m;
-    ignore (Llvm.PassManager.finalize fpm);
-    Llvm.PassManager.dispose fpm
-   end *)
+let dump_llvm = ref false
 
-let compile_channel ic =
+let () =
+  Llvm_all_backends.initialize ()
+
+let opt m =
+  if true then m
+  else
+    let triple = Llvm_target.Target.default_triple () in
+    let target = Llvm_target.Target.by_triple triple in
+    let target_machine = Llvm_target.TargetMachine.create ~triple target in
+    let options = Llvm_passbuilder.create_passbuilder_options () in
+    let res = Llvm_passbuilder.run_passes m "mem2reg" target_machine options in
+    Llvm_passbuilder.dispose_passbuilder_options options;
+    match res with
+    | Ok () -> m
+    | Error s -> failwith s
+
+let lexbuf_from_file fn =
+  let lexbuf = Lexing.from_string (In_channel.with_open_bin fn In_channel.input_all) in
+  lexbuf.Lexing.lex_curr_p <- {lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>"};
+  lexbuf
+
+let write_bitcode_file fn m =
+  let _ = Llvm_bitwriter.write_bitcode_file m (Filename.chop_extension fn ^ ".bc") in
+  m
+
+let dump m =
+  if !dump_llvm then Llvm.dump_module m;
+  m
+
+let compile_file fn =
   try
-    let lexbuf = Lexing.from_channel ic in
-    lexbuf.Lexing.lex_curr_p <- {lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>"};
-    let m =
-      lexbuf
-      |> Parser.program Lexer.token
-      |> Typecheck.program
-      |> Compile.program
-      |> Irep.transl_program
-    in
-    Llvm.dump_module m;
-    Llvm.dispose_module m
+    fn
+    |> lexbuf_from_file
+    |> Parser.program Lexer.token
+    |> Typecheck.program
+    |> Compile.program
+    |> Irep.transl_program
+    |> opt
+    |> dump
+    |> write_bitcode_file fn
+    |> Llvm.dispose_module
   with Error.Error (p, msg) ->
     Error.report_error p msg
 
-(* let compile_file name = *)
-(*   let base  = basename name in *)
-(*   let basebase = Filename.basename base in *)
-(*   let f     = open_in name in *)
-(*   try *)
-(*     try *)
-(*       let lexbuf = Lexing.from_channel f in *)
-(*       lexbuf.Lexing.lex_curr_p <- *)
-(*         { lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = name }; *)
-(*       let m = Compile.program (Parser.program Lexer.token lexbuf) in *)
-(*       close_in f; *)
-(*       let outname, outchan = Filename.open_temp_file ~mode:[Open_binary] basebase ".bc" in *)
-(*       let outbase = Filename.chop_suffix outname ".bc" in *)
-(*       ignore (Llvm_bitwriter.output_bitcode outchan m); *)
-(*       close_out outchan; *)
-(*       Llvm.dispose_module m; *)
-(*       if !emit_llvm then *)
-(*         command "llvm-dis %s -o %s.ll" outname base; *)
-(*       if !emit_asm then *)
-(*         command "clang %s -o %s.s" outname base; *)
-(*       if not !emit_llvm && not !emit_asm then begin *)
-(*         command "llc %s" outname; *)
-(*         command "clang %s.s tiger_stdlib.c tiger_gc.c" outbase *)
-(*       end *)
-(*     with e -> *)
-(*       close_in f; *)
-(*       raise e *)
-(*   with *)
-(*   | Error.Error (p, msg) -> *)
-(*       Error.report_error p msg *)
-(*   | Failure s -> *)
-(*       Printf.eprintf ">> Fatal error: %s\n%!" s *)
+let format_file fn =
+  let lexbuf = lexbuf_from_file fn in
+  let ast = Parser.program Lexer.token lexbuf in
+  Format.printf "%a@." Fmt.expression ast.body
 
-let spec =
-  [
-    "-stdin", Arg.Unit (fun () -> compile_channel stdin), " Read input from stdin"
-  ]
+type mode =
+  | Fmt
+  | Compile
+
+let mode = ref None
+
+let anonymous s =
+  match !mode, s with
+  | None, "fmt" -> mode := Some Fmt
+  | None, ("c" | "compile") -> mode := Some Compile
+  | (None | Some Compile), s -> compile_file s
+  | Some Fmt, s -> format_file s
 
 let main () =
-  Arg.parse (Arg.align spec) ignore (* compile_file *) "llvm-tigerc compiler 0.1"
+  let spec = [ "-dllvm", Arg.Set dump_llvm, " Dump LLVM representation" ] in
+  Arg.parse (Arg.align spec) anonymous "tigerc 0.1"
 
 let () =
   try

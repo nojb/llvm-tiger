@@ -61,7 +61,7 @@ type program =
     name: string;
     body: exp;
   }
-
+(*
 module S = Set.Make (String)
 
 let remove_list l s =
@@ -101,4 +101,4 @@ and fv_var v =
   match v.vdesc with
   | Vsimple x -> S.singleton x.s
   | Vsubscript (v, e) -> S.union (fv_var v) (fv e)
-  | Vfield (v, _) -> fv_var v
+  | Vfield (v, _) -> fv_var v *)

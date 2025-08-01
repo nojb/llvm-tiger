@@ -3,4 +3,4 @@
 (executable
  (public_name tigerc)
  (name main)
- (libraries llvm))
+ (libraries llvm llvm.target llvm.passbuilder llvm.bitwriter llvm.all_backends))
