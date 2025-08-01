@@ -64,26 +64,24 @@ module M = Map.Make(String)
 
 type env =
   {
-    mutable next_reg: ident;
-    mutable next_label: label;
-    mutable blocks: instruction LabelMap.t;
+    next_reg: Ident.state;
+    next_label: Label.state;
+    mutable blocks: instruction Label.Map.t;
     vars: ident M.t;
   }
 
 let new_reg env =
-  env.next_reg <- env.next_reg + 1;
-  env.next_reg
+  Ident.next env.next_reg
 
 let new_label env =
-  env.next_label <- env.next_label + 1;
-  env.next_label
+  Label.next env.next_label
 
 let set_label env lbl i =
-  env.blocks <- LabelMap.add lbl i env.blocks
+  env.blocks <- Label.Map.add lbl i env.blocks
 
 let label_instr env i =
   let lbl = new_label env in
-  env.blocks <- LabelMap.add lbl i env.blocks;
+  env.blocks <- Label.Map.add lbl i env.blocks;
   lbl
 
 let type_id : type_id -> ty = function
@@ -150,10 +148,10 @@ and statement env lexit s next =
   | Sloop body ->
       let lnext = label_instr env next in
       let lbody = new_label env in
-      set_label env lbody (statement env lnext body (Igoto lbody));
+      set_label env lbody (statement env (Some lnext) body (Igoto lbody));
       Igoto lbody
   | Sbreak ->
-      Igoto lexit
+      Igoto (Option.get lexit)
   | Sifthenelse (e1, s2, s3) ->
       let lnext = label_instr env next in
       let lyes = label_instr env (statement env lexit s2 (Igoto lnext)) in
@@ -175,15 +173,15 @@ and statement env lexit s next =
       Ireturn None
 
 let program (p : Typing.program) =
-  let next_reg = ref 0 in
+  let next_reg = Ident.create () in
   let vars =
     let vars = ref M.empty in
-    Hashtbl.iter (fun s _ -> incr next_reg; vars := M.add s !next_reg !vars) p.p_vars;
+    Hashtbl.iter (fun s _ -> vars := M.add s (Ident.next next_reg) !vars) p.p_vars;
     !vars
   in
-  let env = { next_reg = !next_reg; next_label = 0; blocks = LabelMap.empty; vars } in
-  let entrypoint = statement env 0 p.p_body (Ireturn None) in
-    (* List.fold_right (fun v next -> Iop (Ialloca ty, [], v, next)) vars (statement env 0 p.p_body (Ireturn None))
-  in *)
+  let env = { next_reg; next_label = Label.create (); blocks = Label.Map.empty; vars } in
+  let entrypoint = statement env None p.p_body (Ireturn None) in
+  (* List.fold_right (fun v next -> Iop (Ialloca ty, [], v, next)) vars (statement env 0 p.p_body (Ireturn None))
+     in *)
   let vars = assert false in
   {name = p.p_name; vars; code = env.blocks; entrypoint}

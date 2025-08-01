@@ -25,12 +25,25 @@ type operation =
   | Iapply of string
   | Iexternal of string * signature
 
-type ident = int
+module Label = struct
+  type t = int
+  type state = int ref
+  let create () = ref 0
+  let next state = incr state; !state
+  module Map = Map.Make(Int)
+end
 
-type label = int
+module Ident = struct
+  type t = int
+  type state = int ref
+  let create () = ref 0
+  let next state = incr state; !state
+  module Map = Map.Make(Int)
+end
 
-module IdentMap = Map.Make(Int)
-module LabelMap = Map.Make(Int)
+type ident = Ident.t
+
+type label = Label.t
 
 type instruction =
   | Iop of operation * ident list * ident * instruction
@@ -43,8 +56,8 @@ type instruction =
 type program =
   {
     name: string;
-    vars: unit IdentMap.t;
-    code: instruction LabelMap.t;
+    vars: unit Ident.Map.t;
+    code: instruction Label.Map.t;
     entrypoint: instruction;
   }
 
@@ -120,19 +133,22 @@ let rec print_instruction ppf i =
   | None -> ()
   | Some next -> fprintf ppf "@,%a" print_instruction next
 
-let print_instruction ppf i =
+let _print_instruction ppf i =
   Format.fprintf ppf "@[<v>%a@]@." print_instruction i
 
+  (*
 type fundecl =
-  { name: string;
+  {
+    name: string;
     args: ident list;
     signature: signature;
-    code: instruction LabelMap.t;
-    entrypoint: instruction }
+    code: instruction Label.Map.t;
+    entrypoint: instruction;
+  }
 
 let print_fundecl ppf f =
   let open Format in
-  fprintf ppf "@[<v>%s(%a):@,%a@]@." f.name print_args f.args print_instruction f.entrypoint
+  fprintf ppf "@[<v>%s(%a):@,%a@]@." f.name print_args f.args print_instruction f.entrypoint *)
 
 let rec transl_ty m ty =
   let c = module_context m in
@@ -188,24 +204,24 @@ let transl_operation m b op args =
 let rec transl_instr env m b i lgoto =
   match i with
   | Iop (op, args, res, next) ->
-      let args = List.map (fun id -> IdentMap.find id env) args in
+      let args = List.map (fun id -> Ident.Map.find id env) args in
       let vres = transl_operation m b op args in
-      let env = IdentMap.add res vres env in
+      let env = Ident.Map.add res vres env in
       transl_instr env m b next lgoto
   | Iload (ty, arg, res, next) ->
-      let v = build_load (transl_ty m ty) (IdentMap.find arg env) "" b in
-      transl_instr (IdentMap.add res v env) m b next lgoto
+      let v = build_load (transl_ty m ty) (Ident.Map.find arg env) "" b in
+      transl_instr (Ident.Map.add res v env) m b next lgoto
   | Istore (src, dst, next) ->
-      ignore (build_store (IdentMap.find src env) (IdentMap.find dst env) b);
+      ignore (build_store (Ident.Map.find src env) (Ident.Map.find dst env) b);
       transl_instr env m b next lgoto
   | Iifthenelse (cond, ifso, ifnot) ->
-      let lifso = LabelMap.find ifso lgoto in
-      let lifnot = LabelMap.find ifnot lgoto in
-      ignore (build_cond_br (IdentMap.find cond env) lifso lifnot b)
+      let lifso = Label.Map.find ifso lgoto in
+      let lifnot = Label.Map.find ifnot lgoto in
+      ignore (build_cond_br (Ident.Map.find cond env) lifso lifnot b)
   | Igoto lbl ->
-      ignore (build_br (LabelMap.find lbl lgoto) b)
+      ignore (build_br (Label.Map.find lbl lgoto) b)
   | Ireturn (Some arg) ->
-      ignore (build_ret (IdentMap.find arg env) b)
+      ignore (build_ret (Ident.Map.find arg env) b)
   | Ireturn None ->
       ignore (build_ret_void b)
 (*
@@ -223,21 +239,22 @@ let transl_fundecl_2 m f =
   let c = module_context m in
   let b = builder c in
   let _, env =
-    let aux (n, env) arg = n + 1, IdentMap.add arg (param v n) env in
-    List.fold_left aux (0, IdentMap.empty) f.args
+    let aux (n, env) arg = n + 1, Ident.Map.add arg (param v n) env in
+    List.fold_left aux (0, Ident.Map.empty) f.args
   in
-  let lgoto = LabelMap.map (fun _ -> append_block c "" v) f.code in
+  let lgoto = Label.Map.map (fun _ -> append_block c "" v) f.code in
   let transl_block block i = position_at_end block b; transl_instr env m b i lgoto in
   transl_block (entry_block v) f.entrypoint;
-  LabelMap.iter (fun lbl i -> transl_block (LabelMap.find lbl lgoto) i) f.code *)
+  Label.Map.iter (fun lbl i -> transl_block (Label.Map.find lbl lgoto) i) f.code *)
 
-let transl_program c (p : program) =
+let transl_program (p : program) =
+  let c = global_context () in
   let m = create_module c p.name in
   let v = define_function "TIG_main" (function_type (void_type c) [||]) m in
   let b = builder c in
-  let env = IdentMap.empty in
-  let lgoto = LabelMap.map (fun _ -> append_block c "" v) p.code in
+  let env = Ident.Map.empty in
+  let lgoto = Label.Map.map (fun _ -> append_block c "" v) p.code in
   let transl_block block i = position_at_end block b; transl_instr env m b i lgoto in
   transl_block (entry_block v) p.entrypoint;
-  LabelMap.iter (fun lbl i -> transl_block (LabelMap.find lbl lgoto) i) p.code;
+  Label.Map.iter (fun lbl i -> transl_block (Label.Map.find lbl lgoto) i) p.code;
   m
