@@ -11,14 +11,14 @@ type value =
   | Var of type_id * Typing.ident
   | Fun of (type_id list * type_id option) * string
 
-module M = Map.Make(String)
+module StringMap = Map.Make(String)
 
 type env =
   {
     vars: (Typing.ident, type_id) Hashtbl.t;
     cstr: (Typing.ident, type_structure) Hashtbl.t;
-    venv: value M.t;
-    tenv: type_id M.t;
+    venv: value StringMap.t;
+    tenv: type_id StringMap.t;
     loop: bool;
     next_var: Ident.state;
   }
@@ -40,24 +40,31 @@ let empty_env venv tenv =
 
 type error =
   | Unbound_variable of string
+  | Unknown_function of string
+  | Unknown_type_name of string
   | Wrong_arity of int * int
 
 exception Error of Lexing.position * error
 
 let find_var id env =
-  match M.find_opt id.desc env.venv with
+  match StringMap.find_opt id.desc env.venv with
   | Some (Var (tid, id)) -> tid, id
   | Some (Fun _) | None -> raise (Error (id.loc, Unbound_variable id.desc))
 
 let find_fun id env =
-  match M.find_opt id.desc env.venv with
+  match StringMap.find_opt id.desc env.venv with
   | Some (Fun (sign, impl)) -> sign, impl
-  | Some (Var _) | None -> raise (Error (id.loc, Unbound_variable id.desc))
+  | Some (Var _) | None -> raise (Error (id.loc, Unknown_function id.desc))
+
+let find_type env id =
+  match StringMap.find_opt id.desc env.tenv with
+  | Some tid -> tid
+  | None -> raise (Error (id.loc, Unknown_type_name id.desc))
 
 let add_var env (x : ident) tid =
   let id = Ident.create env.next_var x.desc in
   Hashtbl.add env.vars id tid;
-  Typing.Vsimple id, {env with venv = M.add x.desc (Var (tid, id)) env.venv}
+  Typing.Vsimple id, {env with venv = StringMap.add x.desc (Var (tid, id)) env.venv}
 
 let add_fresh_var env tid =
   let id = Ident.create env.next_var "tmp" in
@@ -133,7 +140,7 @@ let add_types env xts =
       Hashtbl.add visited name' ();
       match (List.find_map (fun (x, ty) -> if x.desc = name' then Some ty else None) xts : typ option) with
       | None ->
-          begin match M.find_opt name' env.tenv with
+          begin match StringMap.find_opt name' env.tenv with
           | None -> failwith "type not found"
           | Some tid -> tid
           end
@@ -147,7 +154,7 @@ let add_types env xts =
       | Some Tname s ->
           loop visited s.desc
     in
-    M.add name (loop (Hashtbl.create 0) name) tenv'
+    StringMap.add name (loop (Hashtbl.create 0) name) tenv'
   in
   {env with tenv = List.fold_left f env.tenv xts}
 
@@ -205,9 +212,10 @@ and declarations env ds : statement * env =
       let sinit, tid', einit =
         match xty with
         | None -> expression'' env init
-        | Some _ ->
-            assert false
-            (* expression' env init xty *)
+        | Some sty ->
+            let ty = find_type env sty in
+            let s, e = expression' env init ty in
+            s, ty, e
       in
       let var, env = add_var env x tid' in
       let s', env = declarations env ds in
@@ -359,7 +367,11 @@ and expression env e : statement * (type_id * expression) option =
       seq s1 s2, e
 
 let base_tenv =
-  M.add "int" Tint (M.add "string" Tstring M.empty)
+  StringMap.of_list
+    [
+      "int", Tint;
+      "string", Tstring;
+    ]
 
 let stdlib =
   [
@@ -382,8 +394,8 @@ let stdlib =
    ] *)
 
 let base_venv =
-  let f venv (name, args, res, impl) = M.add name (Fun ((args, res), impl)) venv in
-  List.fold_left f M.empty stdlib
+  let f venv (name, args, res, impl) = StringMap.add name (Fun ((args, res), impl)) venv in
+  List.fold_left f StringMap.empty stdlib
 
 let program (p : Tabs.program) =
   let env = empty_env base_venv base_tenv in
