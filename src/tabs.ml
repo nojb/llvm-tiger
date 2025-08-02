@@ -39,15 +39,15 @@ and exp_desc =
   | Ewhile of exp * exp
   | Efor of pos_string * exp * exp * exp
   | Ebreak
-  | Elet of dec * exp
+  | Elet of dec list * exp
 
 and exp =
   { edesc: exp_desc;
     epos: Lexing.position }
 
 and dec =
-  | Dtypes of (pos_string * typ) list
-  | Dfuns of fundef list
+  | Dtype of pos_string * typ
+  | Dfun of fundef
   | Dvar of pos_string * pos_string option * exp
 
 and fundef =

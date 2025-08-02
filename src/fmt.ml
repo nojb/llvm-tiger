@@ -57,12 +57,6 @@ and expression ppf e =
       assert false
   | Ebreak ->
       pp_print_string ppf "break"
-  | Elet (d, e) ->
-      let rec loop ds e =
-        match e.edesc with
-        | Elet (d, e) -> loop (d :: ds) e
-        | _ -> List.rev ds, e
-      in
-      let ds, e = loop [d] e in
+  | Elet (ds, e) ->
       let declarations = pp_print_list ~pp_sep:pp_print_cut declaration in
       fprintf ppf "@[let @[<v>%a@] in@ %a@ end@]" declarations ds expression e

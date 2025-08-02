@@ -106,7 +106,7 @@ exp:
 | WHILE exp DO exp                    { mkexp 1 (Ewhile ($2, $4)) }
 | FOR ident COLONEQ exp TO exp DO exp { mkexp 1 (Efor ($2, $4, $6, $8)) }
 | BREAK                               { mkexp 1 Ebreak }
-| LET decs IN expseq END              { List.fold_right (fun (p, d) e -> {edesc = Elet (d, e); epos = p}) $2 $4 }
+| LET list(dec) IN expseq END         { mkexp 1 (Elet ($2, $4)) }
 ;
 
 var:
@@ -115,48 +115,18 @@ var:
 | var DOT ident         { mkvar 2 (Vfield ($1, $3)) }
 ;
 
-decs:
-  vardec decs_vtf               { (pos 1, $1) :: $2 }
-| nonempty_list(typdec) decs_vf { (pos 1, Dtypes $1) :: $2 }
-| nonempty_list(fundec) decs_vt { (pos 1, Dfuns $1) :: $2 }
-;
-
-decs_vtf:
-  /* empty */                   { [] }
-| vardec decs_vtf               { (pos 1, $1) :: $2 }
-| nonempty_list(typdec) decs_vf { (pos 1, Dtypes $1) :: $2 }
-| nonempty_list(fundec) decs_vt { (pos 1, Dfuns $1) :: $2 }
-;
-
-decs_vf:
-  /* empty */                   { [] }
-| vardec decs_vtf               { (pos 1, $1) :: $2 }
-| nonempty_list(fundec) decs_vt { (pos 1, Dfuns $1) :: $2 }
-;
-
-decs_vt:
-  /* empty */                   { [] }
-| vardec decs_vtf               { (pos 1, $1) :: $2 }
-| nonempty_list(typdec) decs_vf { (pos 1, Dtypes $1) :: $2 }
-;
-
-vardec:
+dec:
   VAR ident option(preceded(COLON, ident)) COLONEQ exp { Dvar ($2, $3, $5) }
-;
-
-typdec:
-  TYPE ident EQ typ { ($2, $4) }
+| TYPE ident EQ typ                                    { Dtype ($2, $4) }
+| FUNCTION ident
+  LPAREN separated_list(COMMA, separated_pair(ident, COLON, ident)) RPAREN
+  option(preceded(COLON, ident)) EQ exp
+  { Dfun {fn_name = $2; fn_args = $4; fn_rtyp = $6; fn_body = $8} }
 ;
 
 typ:
   ident          { Tname $1 }
 | ARRAY OF ident { Tarray $3 }
-| LCURLY separated_list(COMMA, separated_pair(ident, COLON, ident)) RCURLY { Trecord ($2) }
+| LCURLY separated_list(COMMA, separated_pair(ident, COLON, ident)) RCURLY { Trecord $2 }
 ;
 
-fundec:
-  FUNCTION ident
-  LPAREN separated_list(COMMA, separated_pair(ident, COLON, ident)) RPAREN
-  option(preceded(COLON, ident)) EQ exp
-  { {fn_name = $2; fn_args = $4; fn_rtyp = $6; fn_body = $8} }
-;

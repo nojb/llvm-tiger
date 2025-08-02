@@ -204,6 +204,32 @@ and variable env v : statement * type_id * variable =
       in
       s, tx, Vfield (v', i)
 
+and declarations env ds : statement * env =
+  match ds with
+  | [] -> Sskip, env
+  | Dvar (x, xty, init) :: ds ->
+      let sinit, tid', einit =
+        match xty with
+        | None -> expression'' env init
+        | Some _ ->
+            assert false
+            (* expression' env init xty *)
+      in
+      let id, env = add_var env x tid' in
+      let s', env = declarations env ds in
+      seq sinit (seq (Sassign (Vsimple id, einit)) s'), env
+  | Dtype (s, ty) :: ds ->
+      let rec loop accu = function
+        | [] -> List.rev accu, []
+        | Dtype (s, ty) :: ds -> loop ((s, ty) :: accu) ds
+        | (Dvar _ | Dfun _) :: _ as ds -> List.rev accu, ds
+      in
+      let tys, ds = loop [s, ty] ds in
+      declarations (add_types env tys) ds
+  | Dfun _ :: _ ->
+      assert false
+(* expression' (add_funs env funs) e ty *)
+
 and expression' env e (ty : type_id) : statement * expression =
   match e.edesc with
   | Enil ->
@@ -219,22 +245,10 @@ and expression' env e (ty : type_id) : statement * expression =
       let r = add_fresh_var env ty in
       let v = Vsimple r in
       seq s1 (Sifthenelse (e1, seq s2 (Sassign (v, e2)), seq s3 (Sassign (v, e3)))), Evar (ty, v)
-  | Elet (Dvar (x, xty, init), body) ->
-      let sinit, tid', einit =
-        match xty with
-        | None -> expression'' env init
-        | Some _ ->
-            assert false
-            (* expression' env init xty *)
-      in
-      let id, env = add_var env x tid' in
-      let sbody, ebody = expression' env body ty in
-      seq sinit (seq (Sassign (Vsimple id, einit)) sbody), ebody
-  | Elet (Dtypes tys, e) ->
-      expression' (add_types env tys) e ty
-  | Elet (Dfuns _, _) ->
-      assert false
-  (* expression' (add_funs env funs) e ty *)
+  | Elet (ds, e) ->
+      let s1, env = declarations env ds in
+      let s2, e = expression' env e ty in
+      seq s1 s2, e
   | _ ->
       let s, e = expression env e in
       match e with
@@ -337,22 +351,10 @@ and expression env e : statement * (type_id * expression) option =
   | Ebreak ->
       if not env.loop then error e.epos "illegal use of 'break'";
       Sbreak, None
-  | Elet (Dvar (x, ty, init), body) ->
-      let sinit, ty, einit =
-        match ty with
-        | None -> expression'' env init
-        | Some _ ->
-            assert false
-            (* expression' env init ty *)
-      in
-      let x, env = add_var env x ty in
-      let sbody, ebody = expression env body in
-      seq sinit (seq (Sassign (Vsimple x, einit)) sbody), ebody
-  | Elet (Dtypes tys, body) ->
-      expression (add_types env tys) body
-  | Elet (Dfuns _, _) ->
-      assert false
-(* expression (add_funs env fns) body *)
+  | Elet (ds, e) ->
+      let s1, env = declarations env ds in
+      let s2, e = expression env e in
+      seq s1 s2, e
 
 let base_tenv =
   M.add "int" Tint (M.add "string" Tstring M.empty)
