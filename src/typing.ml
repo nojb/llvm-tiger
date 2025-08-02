@@ -52,7 +52,7 @@ and expression =
   | Ebinop of expression * binary_operation * expression
   | Ecall of string * expression list
   | Earray of ident * expression * expression
-  | Erecord of ident * (string * expression) list
+  | Erecord of ident * expression list
 
 and statement =
   | Sskip
