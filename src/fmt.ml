@@ -19,7 +19,6 @@ and variable ppf v =
 
 and expression ppf e =
   match e.edesc with
-  | Eunit -> pp_print_string ppf "()"
   | Eint n -> pp_print_string ppf (Int32.to_string n)
   | Estring s -> fprintf ppf "%S" s
   | Enil -> pp_print_string ppf "nil"
@@ -31,25 +30,15 @@ and expression ppf e =
   | Ecall (s, el) ->
       let arguments = pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ",@ ") expression in
       fprintf ppf "@[%s(%a)@]" s.s arguments el
-  | Eseq _ ->
-      let rec loop e el =
-        match e.edesc, el with
-        | Eseq (e1, e2), _ ->
-            loop e1 (e2 :: el)
-        | _, [] ->
-            expression ppf e
-        | _, e' :: el ->
-            fprintf ppf "%a;@ " expression e;
-            loop e' el
-      in
-      fprintf ppf "@[(";
-      loop e [];
-      fprintf ppf ")@]"
+  | Eseq el ->
+      fprintf ppf "@[(%a)@]" (pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ";@ ") expression) el
   | Emakearray (ty, e1, e2) ->
       fprintf ppf "@[<2>%s[%a] of@ %a@]" ty.s expression e1 expression e2
   | Emakerecord _ ->
       assert false
-  | Eif (e1, e2, e3) ->
+  | Eif (e1, e2, None) ->
+      fprintf ppf "@[if@ %a@ then@ %a]" expression e1 expression e2
+  | Eif (e1, e2, Some e3) ->
       fprintf ppf "@[if@ %a@ then@ %a@ else@ %a@]" expression e1 expression e2 expression e3
   | Ewhile (e1, e2) ->
       fprintf ppf "@[while@ %a@ do@ %a@]" expression e1 expression e2

@@ -24,7 +24,6 @@ and var =
     vpos: Lexing.position }
 
 and exp_desc =
-  | Eunit
   | Eint of int32
   | Estring of string
   | Enil
@@ -32,10 +31,10 @@ and exp_desc =
   | Ebinop of exp * bin * exp
   | Eassign of var * exp
   | Ecall of  pos_string * exp list
-  | Eseq of exp * exp
+  | Eseq of exp list
   | Emakearray of pos_string * exp * exp
   | Emakerecord of pos_string * (pos_string * exp) list
-  | Eif of exp * exp * exp
+  | Eif of exp * exp * exp option
   | Ewhile of exp * exp
   | Efor of pos_string * exp * exp * exp
   | Ebreak

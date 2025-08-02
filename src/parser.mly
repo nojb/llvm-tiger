@@ -55,13 +55,7 @@ program:
 ;
 
 expseq:
-  /* empty */ { mkexp 1 Eunit }
-| expseq_tail { $1 }
-;
-
-expseq_tail:
-  exp                  { $1 }
-| exp SEMI expseq_tail { mkexp 1 (Eseq ($1, $3)) }
+  separated_list(SEMI, exp) { $1 }
 ;
 
 ident:
@@ -86,12 +80,12 @@ exp:
 | STRING                   { mkexp 1 (Estring $1) }
 | NIL                      { mkexp 1 Enil }
 | MINUS exp %prec unary_op { mkexp 1 (Ebinop (mkexp 1 (Eint 0l), Op_sub, $2)) }
-| exp LAND exp             { mkexp 2 (Eif ($1, $3, mkexp 3 (Eint 0l))) }
-| exp LOR exp              { mkexp 2 (Eif ($1, mkexp 3 (Eint 1l), $3)) }
+| exp LAND exp             { mkexp 2 (Eif ($1, $3, Some (mkexp 3 (Eint 0l)))) }
+| exp LOR exp              { mkexp 2 (Eif ($1, mkexp 3 (Eint 1l), Some $3)) }
 | exp binary_operation exp { mkexp 2 (Ebinop ($1, $2, $3)) }
 | ident LPAREN separated_list(COMMA, exp) RPAREN
   { mkexp 1 (Ecall ($1, $3)) }
-| LPAREN expseq RPAREN     { $2 }
+| LPAREN expseq RPAREN     { mkexp 2 (Eseq $2) }
 | ident LCURLY separated_list(COMMA, separated_pair(ident, EQ, exp)) RCURLY
   { mkexp 1 (Emakerecord ($1, $3)) }
 | var                                 { mkexp 1 (Evar $1) }
@@ -101,12 +95,11 @@ exp:
     | Vsimple x -> mkexp 1 (Emakearray (x, $3, $6))
     | _ -> assert false
   }
-| IF exp THEN exp                     { mkexp 1 (Eif ($2, $4, {edesc = Eunit; epos = Parsing.symbol_end_pos ()})) }
-| IF exp THEN exp ELSE exp            { mkexp 1 (Eif ($2, $4, $6)) }
+| IF exp THEN exp option(preceded(ELSE, exp)) { mkexp 1 (Eif ($2, $4, $5)) }
 | WHILE exp DO exp                    { mkexp 1 (Ewhile ($2, $4)) }
 | FOR ident COLONEQ exp TO exp DO exp { mkexp 1 (Efor ($2, $4, $6, $8)) }
 | BREAK                               { mkexp 1 Ebreak }
-| LET list(dec) IN expseq END         { mkexp 1 (Elet ($2, $4)) }
+| LET list(dec) IN expseq END         { mkexp 1 (Elet ($2, mkexp 4 (Eseq $4))) }
 ;
 
 var:

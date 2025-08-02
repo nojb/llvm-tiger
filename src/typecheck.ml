@@ -234,11 +234,18 @@ and expression' env e (ty : type_id) : statement * expression =
   match e.edesc with
   | Enil ->
       assert false
-  | Eseq (e1, e2) ->
-      let s1, _ = expression env e1 in
-      let s2, e2 = expression' env e2 ty in
-      seq s1 s2, e2
-  | Eif (e1, e2, e3) ->
+  | Eseq el ->
+      let rec loop = function
+        | [] -> failwith "type error"
+        | [e] ->
+            expression' env e ty
+        | e :: el ->
+            let s1, _ = expression env e in
+            let s2, e2 = loop el in
+            seq s1 s2, e2
+      in
+      loop el
+  | Eif (e1, e2, Some e3) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression' env e2 ty in
       let s3, e3 = expression' env e3 ty in
@@ -262,8 +269,6 @@ and expression'' env e : statement * type_id * expression =
 
 and expression env e : statement * (type_id * expression) option =
   match e.edesc with
-  | Eunit ->
-      Sskip, None
   | Eint n ->
       Sskip, Some (Tint, Eint n)
   | Estring s ->
@@ -310,10 +315,11 @@ and expression env e : statement * (type_id * expression) option =
       | None -> seq s (Scall (impl, List.rev params, sign)), None
       | Some _ -> assert false
       end
-  | Eseq (e1, e2) ->
-      let s1, _ = expression env e1 in
-      let s2, e2 = expression env e2 in
-      seq s1 s2, e2
+  | Eseq el ->
+      List.fold_left (fun (s, _) e ->
+          let s', e = expression env e in
+          seq s s', e
+        ) (Sskip, None) el
   | Emakearray _
   (* let s1, size = expression' env size Tint in
      let s2, init = expression env init in
@@ -323,7 +329,11 @@ and expression env e : statement * (type_id * expression) option =
   | Eif (e1, e2, e3) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression env e2 in
-      let s3, e3 = expression env e3 in
+      let s3, e3 =
+        match e3 with
+        | None -> Sskip, None
+        | Some e3 -> expression env e3
+      in
       begin match e2, e3 with
       | None, None -> seq s1 (Sifthenelse (e1, s2, s3)), None
       | Some _, None | None, Some _ -> failwith "type error"
