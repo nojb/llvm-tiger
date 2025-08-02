@@ -1,24 +1,28 @@
 let dump_llvm = ref false
+let opt_level = ref 1
 
 let () =
   Llvm_all_backends.initialize ()
 
 let opt m =
-  if true then m
-  else
+  if !opt_level <= 0 then m
+  else begin
+    let passes = ["mem2reg"] in
+    let passes = if !opt_level >= 2 then "gvn" :: passes else passes in
     let triple = Llvm_target.Target.default_triple () in
     let target = Llvm_target.Target.by_triple triple in
     let target_machine = Llvm_target.TargetMachine.create ~triple target in
     let options = Llvm_passbuilder.create_passbuilder_options () in
-    let res = Llvm_passbuilder.run_passes m "mem2reg" target_machine options in
+    let res = Llvm_passbuilder.run_passes m (String.concat "," passes) target_machine options in
     Llvm_passbuilder.dispose_passbuilder_options options;
     match res with
     | Ok () -> m
     | Error s -> failwith s
+  end
 
 let lexbuf_from_file fn =
   let lexbuf = Lexing.from_string (In_channel.with_open_bin fn In_channel.input_all) in
-  lexbuf.Lexing.lex_curr_p <- {lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = "<stdin>"};
+  lexbuf.Lexing.lex_curr_p <- {lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = fn};
   lexbuf
 
 let write_bitcode_file fn m =
@@ -63,7 +67,14 @@ let anonymous s =
   | Some Fmt, s -> format_file s
 
 let main () =
-  let spec = [ "-dllvm", Arg.Set dump_llvm, " Dump LLVM representation" ] in
+  let spec =
+    [
+      "-dllvm", Arg.Set dump_llvm, " Dump LLVM representation";
+      "-O0", Arg.Unit (fun () -> opt_level := 0), " Disable all optimizations";
+      "-O1", Arg.Unit (fun () -> opt_level := 1), " Minimal optimizations (default)";
+      "-O2", Arg.Unit (fun () -> opt_level := 2), " Further optimmizations";
+    ]
+  in
   Arg.parse (Arg.align spec) anonymous "tigerc 0.1"
 
 let () =

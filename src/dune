@@ -1,6 +1,13 @@
 (ocamllex lexer)
-(ocamlyacc parser)
+
+(menhir (modules parser))
+
 (executable
  (public_name tigerc)
  (name main)
- (libraries llvm llvm.target llvm.passbuilder llvm.bitwriter llvm.all_backends))
+ (libraries
+  llvm
+  llvm.target
+  llvm.passbuilder
+  llvm.bitwriter
+  llvm.all_backends))
