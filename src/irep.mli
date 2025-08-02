@@ -22,7 +22,7 @@ type operation =
   | Iapply of string
   | Iexternal of string * signature
 
-module Ident: sig
+module Reg: sig
   type t
   type state
   val create: unit -> state
@@ -38,16 +38,16 @@ module Label: sig
   module Map: Map.S with type key = t
 end
 
-type ident = Ident.t
+type reg = Reg.t
 type label = Label.t
 
 type instruction =
-  | Iop of operation * ident list * ident * instruction
-  | Iload of ty * ident * ident * instruction
-  | Istore of ident * ident * instruction
-  | Iifthenelse of ident * label * label
+  | Iop of operation * reg list * reg * instruction
+  | Iload of ty * reg * reg * instruction
+  | Istore of reg * reg * instruction
+  | Iifthenelse of reg * label * label
   | Igoto of label
-  | Ireturn of ident option
+  | Ireturn of reg option
 
 type program =
   {

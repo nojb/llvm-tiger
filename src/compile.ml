@@ -64,14 +64,14 @@ module M = Map.Make(String)
 
 type env =
   {
-    next_reg: Ident.state;
+    next_reg: Reg.state;
     next_label: Label.state;
     mutable blocks: instruction Label.Map.t;
-    vars: ident M.t;
+    vars: reg M.t;
   }
 
 let new_reg env =
-  Ident.next env.next_reg
+  Reg.next env.next_reg
 
 let new_label env =
   Label.next env.next_label
@@ -105,7 +105,7 @@ let rec variable env v next =
   | Vup _ ->
       assert false
 
-and expression env (e : expression) (next : ident -> instruction) =
+and expression env (e : expression) (next : reg -> instruction) =
   match e with
   | Eint n ->
       let rd = new_reg env in
@@ -184,10 +184,10 @@ and statement env lexit s next =
       Ireturn None
 
 let program (p : Typing.program) =
-  let next_reg = Ident.create () in
+  let next_reg = Reg.create () in
   let vars =
     let vars = ref M.empty in
-    Hashtbl.iter (fun s _ -> vars := M.add s (Ident.next next_reg) !vars) p.p_vars;
+    Hashtbl.iter (fun s _ -> vars := M.add s (Reg.next next_reg) !vars) p.p_vars;
     !vars
   in
   let env = { next_reg; next_label = Label.create (); blocks = Label.Map.empty; vars } in
