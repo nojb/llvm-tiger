@@ -8,17 +8,17 @@ let string_of_binary_operation = function
 let rec declaration ppf d =
   match d with
   | Dvar (s, _, e) ->
-      fprintf ppf "@[<2>var %s := %a@]" s.s expression e
+      fprintf ppf "@[<2>var %s := %a@]" s.desc expression e
   | _ ->
       assert false
 
 and variable ppf v =
-  match v.vdesc with
-  | Vsimple s -> pp_print_string ppf s.s
+  match v.desc with
+  | Vsimple s -> pp_print_string ppf s.desc
   | _ -> assert false
 
 and expression ppf e =
-  match e.edesc with
+  match e.desc with
   | Eint n -> pp_print_string ppf (Int32.to_string n)
   | Estring s -> fprintf ppf "%S" s
   | Enil -> pp_print_string ppf "nil"
@@ -29,11 +29,11 @@ and expression ppf e =
       fprintf ppf "@[<2>%a := %a@]" variable v expression e
   | Ecall (s, el) ->
       let arguments = pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ",@ ") expression in
-      fprintf ppf "@[%s(%a)@]" s.s arguments el
+      fprintf ppf "@[%s(%a)@]" s.desc arguments el
   | Eseq el ->
       fprintf ppf "@[(%a)@]" (pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ";@ ") expression) el
   | Emakearray (ty, e1, e2) ->
-      fprintf ppf "@[<2>%s[%a] of@ %a@]" ty.s expression e1 expression e2
+      fprintf ppf "@[<2>%s[%a] of@ %a@]" ty.desc expression e1 expression e2
   | Emakerecord _ ->
       assert false
   | Eif (e1, e2, None) ->

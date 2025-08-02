@@ -1,15 +1,5 @@
 %{
-open Error
 open Tabs
-
-let pos i =
-  Parsing.rhs_start_pos i
-
-let mkexp i d =
-  {edesc = d; epos = Parsing.rhs_start_pos i}
-
-let mkvar i d =
-  {vdesc = d; vpos = Parsing.rhs_start_pos i}
 %}
 
 %token ARRAY OF
@@ -33,8 +23,7 @@ let mkvar i d =
 %token <string> STRING
 %token EOF
 
-%type <Tabs.program> program
-%start program
+%start <Tabs.program> program
 
 %left THEN
 %left ELSE
@@ -49,21 +38,14 @@ let mkvar i d =
 
 %%
 
-program:
-  exp EOF { {name = ""; body = $1} }
-| error   { raise (Error (Parsing.symbol_start_pos (), "parse error")) }
+program: exp EOF { {name = ""; body = $1} }
 ;
 
-expseq:
-  separated_list(SEMI, exp) { $1 }
-;
-
-ident:
-  IDENT { {s = $1; p = pos 1} }
+%inline ident: loc(IDENT) { $1 }
 ;
 
 %inline binary_operation:
-  PLUS  { Op_add }
+| PLUS  { Op_add }
 | TIMES { Op_mul }
 | MINUS { Op_sub }
 | SLASH { Op_div }
@@ -75,41 +57,49 @@ ident:
 | GT    { Op_cmp Cgt }
 ;
 
-exp:
-  INT32                    { mkexp 1 (Eint $1) }
-| STRING                   { mkexp 1 (Estring $1) }
-| NIL                      { mkexp 1 Enil }
-| MINUS exp %prec unary_op { mkexp 1 (Ebinop (mkexp 1 (Eint 0l), Op_sub, $2)) }
-| exp LAND exp             { mkexp 2 (Eif ($1, $3, Some (mkexp 3 (Eint 0l)))) }
-| exp LOR exp              { mkexp 2 (Eif ($1, mkexp 3 (Eint 1l), Some $3)) }
-| exp binary_operation exp { mkexp 2 (Ebinop ($1, $2, $3)) }
-| ident LPAREN separated_list(COMMA, exp) RPAREN
-  { mkexp 1 (Ecall ($1, $3)) }
-| LPAREN expseq RPAREN     { mkexp 2 (Eseq $2) }
-| ident LCURLY separated_list(COMMA, separated_pair(ident, EQ, exp)) RCURLY
-  { mkexp 1 (Emakerecord ($1, $3)) }
-| var                                 { mkexp 1 (Evar $1) }
-| var COLONEQ exp                     { mkexp 2 (Eassign ($1, $3)) }
-| var LBRACK exp RBRACK OF exp
-  { match $1.vdesc with
-    | Vsimple x -> mkexp 1 (Emakearray (x, $3, $6))
-    | _ -> assert false
-  }
-| IF exp THEN exp option(preceded(ELSE, exp)) { mkexp 1 (Eif ($2, $4, $5)) }
-| WHILE exp DO exp                    { mkexp 1 (Ewhile ($2, $4)) }
-| FOR ident COLONEQ exp TO exp DO exp { mkexp 1 (Efor ($2, $4, $6, $8)) }
-| BREAK                               { mkexp 1 Ebreak }
-| LET list(dec) IN expseq END         { mkexp 1 (Elet ($2, mkexp 4 (Eseq $4))) }
+%inline loc(X): X { {desc = $1; loc = $symbolstartpos} }
 ;
 
-var:
-  ident                 { mkvar 1 (Vsimple $1) }
-| var LBRACK exp RBRACK { mkvar 2 (Vsubscript ($1, $3)) }
-| var DOT ident         { mkvar 2 (Vfield ($1, $3)) }
+%inline exp: loc(exp_) { $1 }
+;
+
+exp_:
+| INT32                                               { Eint $1 }
+| STRING                                              { Estring $1 }
+| NIL                                                 { Enil }
+| MINUS exp %prec unary_op                            { Ebinop ({desc = Eint 0l; loc = $2.loc}, Op_sub, $2) }
+| exp LAND exp                                        { Eif ($1, $3, Some {desc = Eint 0l; loc = $1.loc}) }
+| exp LOR exp                                         { Eif ($1, {desc = Eint 1l; loc = $1.loc}, Some $3) }
+| exp binary_operation exp                            { Ebinop ($1, $2, $3) }
+| ident LPAREN separated_list(COMMA, exp) RPAREN      { Ecall ($1, $3) }
+| LPAREN separated_list(SEMI, exp) RPAREN             { Eseq $2 }
+| ident LCURLY separated_list(COMMA, separated_pair(ident, EQ, exp)) RCURLY
+  { Emakerecord ($1, $3) }
+| var                                                 { Evar $1 }
+| var COLONEQ exp                                     { Eassign ($1, $3) }
+| var LBRACK exp RBRACK OF exp
+  { match $1.desc with
+    | Vsimple x -> Emakearray (x, $3, $6)
+    | _ -> assert false
+  }
+| IF exp THEN exp ioption(preceded(ELSE, exp))        { Eif ($2, $4, $5) }
+| WHILE exp DO exp                                    { Ewhile ($2, $4) }
+| FOR ident COLONEQ exp TO exp DO exp                 { Efor ($2, $4, $6, $8) }
+| BREAK                                               { Ebreak }
+| LET list(dec) IN loc(separated_list(SEMI, exp)) END { Elet ($2, {$4 with desc = Eseq $4.desc}) }
+;
+
+%inline var: loc(var_) { $1 }
+;
+
+var_:
+| ident                 { Vsimple $1 }
+| var LBRACK exp RBRACK { Vsubscript ($1, $3) }
+| var DOT ident         { Vfield ($1, $3) }
 ;
 
 dec:
-  VAR ident option(preceded(COLON, ident)) COLONEQ exp { Dvar ($2, $3, $5) }
+| VAR ident option(preceded(COLON, ident)) COLONEQ exp { Dvar ($2, $3, $5) }
 | TYPE ident EQ typ                                    { Dtype ($2, $4) }
 | FUNCTION ident
   LPAREN separated_list(COMMA, separated_pair(ident, COLON, ident)) RPAREN
@@ -118,8 +108,8 @@ dec:
 ;
 
 typ:
-  ident          { Tname $1 }
-| ARRAY OF ident { Tarray $3 }
+| ident                                                                    { Tname $1 }
+| ARRAY OF ident                                                           { Tarray $3 }
 | LCURLY separated_list(COMMA, separated_pair(ident, COLON, ident)) RCURLY { Trecord $2 }
 ;
 

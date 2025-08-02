@@ -54,7 +54,6 @@ and program =
   {
     p_name: string;
     p_cstr: (string, type_structure) Hashtbl.t;
-    p_funs: (string, fundef) Hashtbl.t;
     p_vars: (string, type_id) Hashtbl.t;
     p_body: statement;
   }

@@ -1,6 +1,6 @@
 open Error
-open Tabs
 open Typing
+open Tabs
 
 let seq s1 s2 =
   match s1, s2 with
@@ -16,7 +16,6 @@ module M = Map.Make(String)
 type env =
   {
     vars: (string, type_id) Hashtbl.t;
-    funs: (string, fundef) Hashtbl.t;
     cstr: (string, type_structure) Hashtbl.t;
     venv: value M.t;
     tenv: type_id M.t;
@@ -37,7 +36,6 @@ let type_eq tid1 tid2 =
 
 let empty_env venv tenv =
   { vars = Hashtbl.create 0;
-    funs = Hashtbl.create 0;
     cstr = Hashtbl.create 0;
     venv;
     tenv;
@@ -51,24 +49,24 @@ type error =
 exception Error of Lexing.position * error
 
 let find_var id env =
-  match M.find_opt id.s env.venv with
+  match M.find_opt id.desc env.venv with
   | Some (Var (tid, id)) -> tid, id
-  | Some (Fun _) | None -> raise (Error (id.p, Unbound_variable id.s))
+  | Some (Fun _) | None -> raise (Error (id.loc, Unbound_variable id.desc))
 
 let find_fun id env =
-  match M.find_opt id.s env.venv with
+  match M.find_opt id.desc env.venv with
   | Some (Fun (sign, impl)) -> sign, impl
-  | Some (Var _) | None -> raise (Error (id.p, Unbound_variable id.s))
+  | Some (Var _) | None -> raise (Error (id.loc, Unbound_variable id.desc))
 
-let add_var env (x : pos_string) tid =
-  let id = fresh env x.s in
+let add_var env (x : ident) tid =
+  let id = fresh env x.desc in
   Hashtbl.add env.vars id tid;
-  id, {env with venv = M.add x.s (Var (tid, id)) env.venv}
+  Typing.Vsimple id, {env with venv = M.add x.desc (Var (tid, id)) env.venv}
 
 let add_fresh_var env tid =
   let id = fresh env "tmp" in
   Hashtbl.add env.vars id tid;
-  id
+  Typing.Vsimple id
 
 (* let mem_var x env =
    try
@@ -123,7 +121,7 @@ let has_duplicate (type a) (f : a -> 'b) (l : a list) =
 let check_unique f xts s =
   match has_duplicate f xts with
   | None -> ()
-  | Some (x, _) -> error x.p "duplicate %s: %s" s x.s
+  | Some (x, _) -> error x.loc "duplicate %s: %s" s x.desc
 
 let add_types env xts =
   check_unique fst xts "type name";
@@ -133,25 +131,25 @@ let add_types env xts =
     Tconstr s
   in
   let f tenv' (name, _ty) =
-    let name = name.s in
+    let name = name.desc in
     let rec loop visited name' =
       if Hashtbl.mem visited name' then failwith "recursive loop";
       Hashtbl.add visited name' ();
-      match (List.find_map (fun (x, ty) -> if x.s = name' then Some ty else None) xts : typ option) with
+      match (List.find_map (fun (x, ty) -> if x.desc = name' then Some ty else None) xts : typ option) with
       | None ->
           begin match M.find_opt name' env.tenv with
           | None -> failwith "type not found"
           | Some tid -> tid
           end
       | Some Tarray elt ->
-          add_constr name (Tarray (loop (Hashtbl.create 0) elt.s))
+          add_constr name (Tarray (loop (Hashtbl.create 0) elt.desc))
       | Some Trecord fields ->
           let fields =
-            List.map (fun (x, ty) -> x.s, loop (Hashtbl.create 0) ty.s) fields
+            List.map (fun (x, ty) -> x.desc, loop (Hashtbl.create 0) ty.desc) fields
           in
           add_constr name (Trecord fields)
       | Some Tname s ->
-          loop visited s.s
+          loop visited s.desc
     in
     M.add name (loop (Hashtbl.create 0) name) tenv'
   in
@@ -164,7 +162,7 @@ let rec statement env e =
   | Some _ -> failwith "type error"
 
 and variable env v : statement * type_id * variable =
-  match v.vdesc with
+  match v.desc with
   | Vsimple x ->
       let tid, id = find_var x env in
       Sskip, tid, Vsimple id
@@ -175,10 +173,10 @@ and variable env v : statement * type_id * variable =
         | Tconstr tid ->
             begin match Hashtbl.find env.cstr tid with
             | Tarray tid -> tid
-            | Trecord _ -> error v.vpos "expected variable of array type"
+            | Trecord _ -> error v.loc "expected variable of array type"
             end
         | _ ->
-            error v.vpos "expected variable of array type"
+            error v.loc "expected variable of array type"
       in
       let s2, x = expression' env x Tint in
       seq s1 s2, t', Vsubscript (v', x)
@@ -189,15 +187,15 @@ and variable env v : statement * type_id * variable =
         | Tconstr tid ->
             begin match Hashtbl.find env.cstr tid with
             | Trecord fields -> fields
-            | Tarray _ -> error v.vpos "expected variable of record type"
+            | Tarray _ -> error v.loc "expected variable of record type"
             end
         | _ ->
-            error v.vpos "expected variable of record type"
+            error v.loc "expected variable of record type"
       in
       let i, tx =
         let rec loop i = function
-          | [] -> error x.p "record type does not contain field"
-          | (x', t') :: _xs when x' = x.s -> i, t'
+          | [] -> error x.loc "record type does not contain field"
+          | (x', t') :: _xs when x' = x.desc -> i, t'
           | _ :: xs -> loop (i+1) xs
         in
         loop 0 xts
@@ -215,9 +213,9 @@ and declarations env ds : statement * env =
             assert false
             (* expression' env init xty *)
       in
-      let id, env = add_var env x tid' in
+      let var, env = add_var env x tid' in
       let s', env = declarations env ds in
-      seq sinit (seq (Sassign (Vsimple id, einit)) s'), env
+      seq sinit (seq (Sassign (var, einit)) s'), env
   | Dtype (s, ty) :: ds ->
       let rec loop accu = function
         | [] -> List.rev accu, []
@@ -231,7 +229,7 @@ and declarations env ds : statement * env =
 (* expression' (add_funs env funs) e ty *)
 
 and expression' env e (ty : type_id) : statement * expression =
-  match e.edesc with
+  match e.desc with
   | Enil ->
       assert false
   | Eseq el ->
@@ -249,8 +247,7 @@ and expression' env e (ty : type_id) : statement * expression =
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression' env e2 ty in
       let s3, e3 = expression' env e3 ty in
-      let r = add_fresh_var env ty in
-      let v = Vsimple r in
+      let v = add_fresh_var env ty in
       seq s1 (Sifthenelse (e1, seq s2 (Sassign (v, e2)), seq s3 (Sassign (v, e3)))), Evar (ty, v)
   | Elet (ds, e) ->
       let s1, env = declarations env ds in
@@ -268,13 +265,13 @@ and expression'' env e : statement * type_id * expression =
   | _, None -> failwith "type error"
 
 and expression env e : statement * (type_id * expression) option =
-  match e.edesc with
+  match e.desc with
   | Eint n ->
       Sskip, Some (Tint, Eint n)
   | Estring s ->
       Sskip, Some (Tstring, Estring s)
   | Enil ->
-      error e.epos
+      error e.loc
         "'nil' should be used in a context where \
          its type can be determined"
   | Evar v ->
@@ -306,7 +303,7 @@ and expression env e : statement * (type_id * expression) option =
       let (args, res) as sign, impl = find_fun fn env in
       let num_expected = List.length args in
       let num_actual = List.length params in
-      if num_expected <> num_actual then raise (Error (fn.p, Wrong_arity (num_expected, num_actual)));
+      if num_expected <> num_actual then raise (Error (fn.loc, Wrong_arity (num_expected, num_actual)));
       let s, params =
         List.fold_left2 (fun (s, el) arg param -> let s', e' = expression' env param arg in seq s s', e' :: el)
           (Sskip, []) args params
@@ -339,8 +336,7 @@ and expression env e : statement * (type_id * expression) option =
       | Some _, None | None, Some _ -> failwith "type error"
       | Some (t2, e2), Some (t3, e3) ->
           if not (type_eq t2 t3) then failwith "type error";
-          let r = add_fresh_var env t2 in
-          let v = Vsimple r in
+          let v = add_fresh_var env t2 in
           seq s1 (Sifthenelse (e1, seq s2 (Sassign (v, e2)), seq s3 (Sassign (v, e3)))), Some (t2, Evar (t2, v))
       end
   | Ewhile (e1, e2) ->
@@ -354,12 +350,12 @@ and expression env e : statement * (type_id * expression) option =
       let s3 = statement env e3 in
       let loop =
         Sloop (Sifthenelse
-                 (Ebinop(e2, Op_cmp Clt, Evar (Tint, Vsimple i)),
-                  Sbreak, seq s3 (Sassign (Vsimple i, Ebinop (Evar (Tint, Vsimple i), Op_add, Eint 1l)))))
+                 (Ebinop(e2, Op_cmp Clt, Evar (Tint, i)),
+                  Sbreak, seq s3 (Sassign (i, Ebinop (Evar (Tint, i), Op_add, Eint 1l)))))
       in
-      seq s1 (seq s2 (seq (Sassign (Vsimple i, e1)) loop)), None
+      seq s1 (seq s2 (seq (Sassign (i, e1)) loop)), None
   | Ebreak ->
-      if not env.loop then error e.epos "illegal use of 'break'";
+      if not env.loop then error e.loc "illegal use of 'break'";
       Sbreak, None
   | Elet (ds, e) ->
       let s1, env = declarations env ds in
@@ -396,4 +392,4 @@ let base_venv =
 let program (p : Tabs.program) =
   let env = empty_env base_venv base_tenv in
   let body = statement env p.body in
-  {p_name = p.name; p_cstr = env.cstr; p_funs = env.funs; p_vars = env.vars; p_body = body}
+  {p_name = p.name; p_cstr = env.cstr; p_vars = env.vars; p_body = body}

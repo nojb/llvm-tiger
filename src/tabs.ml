@@ -1,3 +1,9 @@
+type 'a loc =
+  {
+    desc: 'a;
+    loc: Lexing.position;
+  }
+
 type comparison =
   | Ceq | Cle | Cge | Cne | Clt | Cgt
 
@@ -5,54 +11,51 @@ type bin =
   | Op_add | Op_sub | Op_mul | Op_div
   | Op_cmp of comparison
 
-type pos_string =
-  { s: string;
-    p: Lexing.position }
+type ident =
+  string loc
 
 type typ =
-  | Tname of pos_string
-  | Tarray of pos_string
-  | Trecord of (pos_string * pos_string) list
+  | Tname of ident
+  | Tarray of ident
+  | Trecord of (ident * ident) list
 
-type var_desc =
-  | Vsimple of pos_string
+type var =
+  var_ loc
+
+and var_ =
+  | Vsimple of ident
   | Vsubscript of var * exp
-  | Vfield of var * pos_string
+  | Vfield of var * ident
 
-and var =
-  { vdesc: var_desc;
-    vpos: Lexing.position }
+and exp =
+  exp_ loc
 
-and exp_desc =
+and exp_ =
   | Eint of int32
   | Estring of string
   | Enil
   | Evar of var
   | Ebinop of exp * bin * exp
   | Eassign of var * exp
-  | Ecall of  pos_string * exp list
+  | Ecall of  ident * exp list
   | Eseq of exp list
-  | Emakearray of pos_string * exp * exp
-  | Emakerecord of pos_string * (pos_string * exp) list
+  | Emakearray of ident * exp * exp
+  | Emakerecord of ident * (ident * exp) list
   | Eif of exp * exp * exp option
   | Ewhile of exp * exp
-  | Efor of pos_string * exp * exp * exp
+  | Efor of ident * exp * exp * exp
   | Ebreak
   | Elet of dec list * exp
 
-and exp =
-  { edesc: exp_desc;
-    epos: Lexing.position }
-
 and dec =
-  | Dtype of pos_string * typ
+  | Dtype of ident * typ
   | Dfun of fundef
-  | Dvar of pos_string * pos_string option * exp
+  | Dvar of ident * ident option * exp
 
 and fundef =
-  { fn_name: pos_string;
-    fn_rtyp: pos_string option;
-    fn_args: (pos_string * pos_string) list;
+  { fn_name: ident;
+    fn_rtyp: ident option;
+    fn_args: (ident * ident) list;
     fn_body: exp }
 
 type program =
