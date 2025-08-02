@@ -8,30 +8,26 @@ let seq s1 s2 =
   | _ -> Sseq (s1, s2)
 
 type value =
-  | Var of type_id * string
+  | Var of type_id * Typing.ident
   | Fun of (type_id list * type_id option) * string
 
 module M = Map.Make(String)
 
 type env =
   {
-    vars: (string, type_id) Hashtbl.t;
-    cstr: (string, type_structure) Hashtbl.t;
+    vars: (Typing.ident, type_id) Hashtbl.t;
+    cstr: (Typing.ident, type_structure) Hashtbl.t;
     venv: value M.t;
     tenv: type_id M.t;
     loop: bool;
-    cntr: int ref;
+    next_var: Ident.state;
   }
-
-let fresh env s =
-  incr env.cntr;
-  Printf.sprintf "%s.%i" s !(env.cntr)
 
 let type_eq tid1 tid2 =
   match tid1, tid2 with
   | Tint, Tint
   | Tstring, Tstring -> true
-  | Tconstr s1, Tconstr s2 -> String.equal s1 s2
+  | Tconstr s1, Tconstr s2 -> Ident.equal s1 s2
   | _ -> false
 
 let empty_env venv tenv =
@@ -40,7 +36,7 @@ let empty_env venv tenv =
     venv;
     tenv;
     loop = false;
-    cntr = ref 0 }
+    next_var = Ident.new_state () }
 
 type error =
   | Unbound_variable of string
@@ -59,12 +55,12 @@ let find_fun id env =
   | Some (Var _) | None -> raise (Error (id.loc, Unbound_variable id.desc))
 
 let add_var env (x : ident) tid =
-  let id = fresh env x.desc in
+  let id = Ident.create env.next_var x.desc in
   Hashtbl.add env.vars id tid;
   Typing.Vsimple id, {env with venv = M.add x.desc (Var (tid, id)) env.venv}
 
 let add_fresh_var env tid =
-  let id = fresh env "tmp" in
+  let id = Ident.create env.next_var "tmp" in
   Hashtbl.add env.vars id tid;
   Typing.Vsimple id
 
@@ -126,7 +122,7 @@ let check_unique f xts s =
 let add_types env xts =
   check_unique fst xts "type name";
   let add_constr name (cstr : type_structure) =
-    let s = fresh env name in
+    let s = Ident.create env.next_var name in
     Hashtbl.add env.cstr s cstr;
     Tconstr s
   in

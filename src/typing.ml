@@ -5,6 +5,27 @@ type binary_operation =
   | Op_add | Op_sub | Op_mul | Op_div
   | Op_cmp of comparison
 
+module Ident: sig
+  type t
+  type state
+  val new_state: unit -> state
+  val create: state -> string -> t
+  val name: t -> string
+  val equal: t -> t -> bool
+  module Map: Map.S with type key = t
+end = struct
+  type t = { name: string; id: int }
+  type state = int ref
+  let new_state () = ref 0
+  let create r name = incr r; { name; id = !r }
+  let name { name; id } = Printf.sprintf "%s/%i" name id
+  let compare t1 t2 = Int.compare t1.id t2.id
+  let equal t1 t2 = Int.equal t1.id t2.id
+  module Map = Map.Make(struct type nonrec t = t let compare = compare end)
+end
+
+type ident = Ident.t
+
 type type_structure =
   | Tarray of type_id
   | Trecord of (string * type_id) list
@@ -12,13 +33,13 @@ type type_structure =
 and type_id =
   | Tint
   | Tstring
-  | Tconstr of string
+  | Tconstr of ident
 
 type signature =
   type_id list * type_id option
 
 type variable =
-  | Vsimple of string
+  | Vsimple of ident
   | Vsubscript of variable * expression
   | Vfield of variable * int
   | Vup of int * int
@@ -30,8 +51,8 @@ and expression =
   | Evar of type_id * variable
   | Ebinop of expression * binary_operation * expression
   | Ecall of string * expression list
-  | Earray of string * expression * expression
-  | Erecord of string * (string * expression) list
+  | Earray of ident * expression * expression
+  | Erecord of ident * (string * expression) list
 
 and statement =
   | Sskip
@@ -44,16 +65,16 @@ and statement =
   | Sreturn of expression option
 
 and fundef =
-  { fn_name: string;
+  { fn_name: ident;
     fn_rtyp: type_id option;
-    fn_args: (string * type_id) list;
-    fn_vars: (string * type_id) list;
+    fn_args: (ident * type_id) list;
+    fn_vars: (ident * type_id) list;
     fn_body: statement }
 
 and program =
   {
     p_name: string;
-    p_cstr: (string, type_structure) Hashtbl.t;
-    p_vars: (string, type_id) Hashtbl.t;
+    p_cstr: (ident, type_structure) Hashtbl.t;
+    p_vars: (ident, type_id) Hashtbl.t;
     p_body: statement;
   }

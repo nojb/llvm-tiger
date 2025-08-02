@@ -67,8 +67,11 @@ type env =
     next_reg: Reg.state;
     next_label: Label.state;
     mutable blocks: instruction Label.Map.t;
-    vars: reg M.t;
+    vars: reg Ident.Map.t;
   }
+
+let reg_of_var env id =
+  Ident.Map.find id env.vars
 
 let new_reg env =
   Reg.next env.next_reg
@@ -91,7 +94,7 @@ let type_id : type_id -> ty = function
 let rec variable env v next =
   match v with
   | Vsimple x ->
-      next (M.find x env.vars)
+      next (reg_of_var env x)
   | Vsubscript (v, e) ->
       variable env v @@ fun r1 ->
       expression env e @@ fun r2 ->
@@ -186,13 +189,13 @@ and statement env lexit s next =
 let program (p : Typing.program) =
   let next_reg = Reg.create () in
   let vars =
-    let vars = ref M.empty in
-    Hashtbl.iter (fun s _ -> vars := M.add s (Reg.next next_reg) !vars) p.p_vars;
+    let vars = ref Ident.Map.empty in
+    Hashtbl.iter (fun s _ -> vars := Ident.Map.add s (Reg.next next_reg) !vars) p.p_vars;
     !vars
   in
   let env = { next_reg; next_label = Label.create (); blocks = Label.Map.empty; vars } in
   let entrypoint =
-    Hashtbl.fold (fun name tid next -> Iop (Ialloca (type_id tid), [], M.find name vars, next)) p.p_vars
+    Hashtbl.fold (fun name tid next -> Iop (Ialloca (type_id tid), [], Ident.Map.find name vars, next)) p.p_vars
       (statement env None p.p_body (Ireturn None))
   in
   {name = p.p_name; code = env.blocks; entrypoint}
