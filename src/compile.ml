@@ -143,7 +143,8 @@ and expression env (e : expression) (next : reg -> instruction) =
       expression env e1 @@ fun r1 ->
       expression env e2 @@ fun r2 ->
       let rd = new_reg env in
-      Iop (Pcmpint c, [r1; r2], rd, next rd)
+      let rd' = new_reg env in
+      Iop (Pcmpint c, [r1; r2], rd, Iop (Pzext, [rd], rd', next rd'))
   | Earray _
   | Erecord _ ->
       assert false
@@ -166,7 +167,7 @@ and statement env lexit s next =
       expression env e1 @@ fun r1 ->
       let r2 = new_reg env in
       let r = new_reg env in
-      Iop (Pconstint 0l, [], r2, Iop (Pcmpint Tabs.Cne, [r1; r2], r, Iifthenelse (r1, lyes, lnay)))
+      Iop (Pconstint 0l, [], r2, Iop (Pcmpint Tabs.Cne, [r1; r2], r, Iifthenelse (r, lyes, lnay)))
   | Sseq (s1, s2) ->
       statement env lexit s1 (statement env lexit s2 next)
   | Sassign (v, e) ->

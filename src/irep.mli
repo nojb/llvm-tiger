@@ -16,6 +16,7 @@ type operation =
   | Pdivint
   | Pgep
   | Pcmpint of Tabs.comparison
+  | Pzext
   | Ialloca of ty
   | Iapply of string
   | Iexternal of string * signature
@@ -34,6 +35,7 @@ module Label: sig
   val create: unit -> state
   val next: state -> t
   module Map: Map.S with type key = t
+  module Tbl: Hashtbl.S with type key = t
 end
 
 type reg = Reg.t

@@ -11,7 +11,7 @@ let opt m =
   if !opt_level <= 0 then m
   else begin
     let passes = ["mem2reg"] in
-    let passes = if !opt_level >= 2 then "gvn" :: passes else passes in
+    let passes = if !opt_level >= 2 then "gvn" :: "adce" :: passes else passes in
     let triple = Llvm_target.Target.default_triple () in
     let target = Llvm_target.Target.by_triple triple in
     let target_machine = Llvm_target.TargetMachine.create ~triple target in

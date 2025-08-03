@@ -18,6 +18,7 @@ type operation =
   | Pdivint
   | Pgep
   | Pcmpint of Tabs.comparison
+  | Pzext
   | Ialloca of ty
   | Iapply of string
   | Iexternal of string * signature
@@ -36,6 +37,7 @@ module Label = struct
   let create () = ref 0
   let next state = incr state; !state
   module Map = Map.Make(Int)
+  module Tbl = Hashtbl.Make(Int)
 end
 
 type reg = Reg.t
@@ -182,6 +184,8 @@ let transl_operation m b op args =
         | Clt -> Icmp.Slt | Cge -> Icmp.Sge | Cgt -> Icmp.Sgt
       in
       build_icmp c r1 r2 "" b
+  | Pzext, [r] ->
+      build_zext r (i32_type (module_context m)) "" b
   | Pgep, _ ->
       assert false
   (* [|build_gep _ arg.(0) (Array.sub arg 1 (Array.length arg - 1)) "" b|] *)
@@ -202,30 +206,60 @@ let transl_operation m b op args =
   | _ ->
       assert false
 
-let rec transl_instr env m b i lgoto =
+type env =
+  {
+    f: llvalue;
+    code: instruction Label.Map.t;
+    blocks: llbasicblock Label.Tbl.t;
+    regs: llvalue Reg.Map.t;
+  }
+
+let add_var env reg v =
+  {env with regs = Reg.Map.add reg v env.regs}
+
+let find_var env reg =
+  Reg.Map.find reg env.regs
+
+let find_code env lbl =
+  Label.Map.find lbl env.code
+
+let rec transl_instr env m b i =
   match i with
   | Iop (op, args, res, next) ->
-      let args = List.map (fun id -> Reg.Map.find id env) args in
+      let args = List.map (find_var env) args in
       let vres = transl_operation m b op args in
-      let env = Reg.Map.add res vres env in
-      transl_instr env m b next lgoto
+      transl_instr (add_var env res vres) m b next
   | Iload (ty, arg, res, next) ->
-      let v = build_load (transl_ty m ty) (Reg.Map.find arg env) "" b in
-      transl_instr (Reg.Map.add res v env) m b next lgoto
+      let v = build_load (transl_ty m ty) (find_var env arg) "" b in
+      transl_instr (add_var env res v) m b next
   | Istore (src, dst, next) ->
-      ignore (build_store (Reg.Map.find src env) (Reg.Map.find dst env) b);
-      transl_instr env m b next lgoto
+      ignore (build_store (find_var env src) (find_var env dst) b);
+      transl_instr env m b next
   | Iifthenelse (cond, ifso, ifnot) ->
-      let lifso = Label.Map.find ifso lgoto in
-      let lifnot = Label.Map.find ifnot lgoto in
-      ignore (build_cond_br (Reg.Map.find cond env) lifso lifnot b)
+      let bbyay = transl_block env m ifso in
+      let bbnay = transl_block env m ifnot in
+      ignore (build_cond_br (find_var env cond) bbyay bbnay b)
   | Igoto lbl ->
-      ignore (build_br (Label.Map.find lbl lgoto) b)
+      let bb = transl_block env m lbl in
+      ignore (build_br bb b)
   | Ireturn (Some arg) ->
-      ignore (build_ret (Reg.Map.find arg env) b)
+      ignore (build_ret (find_var env arg) b)
   | Ireturn None ->
       ignore (build_ret_void b)
-(*
+
+and transl_block env m lbl =
+  match Label.Tbl.find_opt env.blocks lbl with
+  | Some bb -> bb
+  | None ->
+      let c = module_context m in
+      let bb = append_block c "" env.f in
+      Label.Tbl.add env.blocks lbl bb;
+      let b = builder c in
+      position_at_end bb b;
+      transl_instr env m b (find_code env lbl);
+      bb
+
+      (*
 let transl_fundecl_1 m f =
   let tys, ty = f.signature in
   let fty = function_type (transl_ty m ty) (Array.map (transl_ty m) tys) in
@@ -251,11 +285,9 @@ let transl_fundecl_2 m f =
 let transl_program (p : program) =
   let c = global_context () in
   let m = create_module c p.name in
-  let v = define_function "TIG_main" (function_type (void_type c) [||]) m in
+  let f = define_function "TIG_main" (function_type (void_type c) [||]) m in
+  let env = {f; code = p.code; blocks = Label.Tbl.create 0; regs = Reg.Map.empty} in
   let b = builder c in
-  let env = Reg.Map.empty in
-  let lgoto = Label.Map.map (fun _ -> append_block c "" v) p.code in
-  let transl_block block i = position_at_end block b; transl_instr env m b i lgoto in
-  transl_block (entry_block v) p.entrypoint;
-  Label.Map.iter (fun lbl i -> transl_block (Label.Map.find lbl lgoto) i) p.code;
+  position_at_end (entry_block f) b;
+  transl_instr env m b p.entrypoint;
   m
