@@ -8,8 +8,6 @@ type ty =
 
 type signature = ty array * ty
 
-type comparison = Cleq
-
 type operation =
   | Pconstint of int32
   | Paddint
@@ -17,7 +15,7 @@ type operation =
   | Pmulint
   | Pdivint
   | Pgep
-  | Pcmpint of comparison
+  | Pcmpint of Tabs.comparison
   | Ialloca of ty
   | Iapply of string
   | Iexternal of string * signature

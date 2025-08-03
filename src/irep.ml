@@ -8,9 +8,6 @@ type ty =
   | Tpointer
   | Tint of int
 
-type comparison =
-  | Cleq
-
 type signature = ty array * ty
 
 type operation =
@@ -20,7 +17,7 @@ type operation =
   | Pmulint
   | Pdivint
   | Pgep
-  | Pcmpint of comparison
+  | Pcmpint of Tabs.comparison
   | Ialloca of ty
   | Iapply of string
   | Iexternal of string * signature
@@ -178,6 +175,13 @@ let transl_operation m b op args =
       build_mul arg1 arg2 "" b
   | Pdivint, [arg1; arg2] ->
       build_sdiv arg1 arg2 "" b
+  | Pcmpint c, [r1; r2] ->
+      let c =
+        match c with
+        | Ceq -> Icmp.Eq | Cne -> Icmp.Ne | Cle -> Icmp.Sle
+        | Clt -> Icmp.Slt | Cge -> Icmp.Sge | Cgt -> Icmp.Sgt
+      in
+      build_icmp c r1 r2 "" b
   | Pgep, _ ->
       assert false
   (* [|build_gep _ arg.(0) (Array.sub arg 1 (Array.length arg - 1)) "" b|] *)

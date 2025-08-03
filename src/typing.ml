@@ -1,10 +1,3 @@
-type comparison =
-  | Ceq | Cle | Cge | Cne | Clt | Cgt
-
-type binary_operation =
-  | Op_add | Op_sub | Op_mul | Op_div
-  | Op_cmp of comparison
-
 module Ident: sig
   type t
   type state
@@ -49,7 +42,7 @@ and expression =
   | Estring of string
   | Enil
   | Evar of type_id * variable
-  | Ebinop of expression * binary_operation * expression
+  | Ebinop of expression * Tabs.bin * expression
   | Ecall of string * expression list
   | Earray of ident * expression * expression
   | Erecord of ident * expression list

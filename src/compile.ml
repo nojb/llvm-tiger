@@ -139,7 +139,11 @@ and expression env (e : expression) (next : reg -> instruction) =
       expression env e2 @@ fun r2 ->
       let rd = new_reg env in
       Iop (Pdivint, [r1; r2], rd, next rd)
-  | Ebinop _
+  | Ebinop (e1, Op_cmp c, e2) ->
+      expression env e1 @@ fun r1 ->
+      expression env e2 @@ fun r2 ->
+      let rd = new_reg env in
+      Iop (Pcmpint c, [r1; r2], rd, next rd)
   | Earray _
   | Erecord _ ->
       assert false
@@ -160,7 +164,9 @@ and statement env lexit s next =
       let lyes = label_instr env (statement env lexit s2 (Igoto lnext)) in
       let lnay = label_instr env (statement env lexit s3 (Igoto lnext)) in
       expression env e1 @@ fun r1 ->
-      Iifthenelse (r1, lyes, lnay)
+      let r2 = new_reg env in
+      let r = new_reg env in
+      Iop (Pconstint 0l, [], r2, Iop (Pcmpint Tabs.Cne, [r1; r2], r, Iifthenelse (r1, lyes, lnay)))
   | Sseq (s1, s2) ->
       statement env lexit s1 (statement env lexit s2 next)
   | Sassign (v, e) ->

@@ -297,8 +297,10 @@ and expression env e : statement * (type_id * expression) option =
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression' env e2 Tint in
       seq s1 s2, Some (Tint, Ebinop (e1, Op_div, e2))
-  | Ebinop _ ->
-      failwith "not implemented"
+  | Ebinop (e1, Op_cmp c, e2) ->
+      let s1, e1 = expression' env e1 Tint in
+      let s2, e2 = expression' env e2 Tint in
+      seq s1 s2, Some (Tint, Ebinop (e1, Op_cmp c, e2))
   | Eassign (v, e) ->
       let s1, ty, v = variable env v in
       let s2, e = expression' env e ty in

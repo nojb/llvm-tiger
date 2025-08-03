@@ -2,6 +2,9 @@ let dump_llvm = ref false
 let opt_level = ref 1
 
 let () =
+  Printexc.record_backtrace true
+
+let () =
   Llvm_all_backends.initialize ()
 
 let opt m =
