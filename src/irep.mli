@@ -24,6 +24,7 @@ type operation =
   | Iapply of string
   | Iexternal of string * signature
   | Imakearray of array_kind
+  | Imakestring of string
 
 module Reg: sig
   type t

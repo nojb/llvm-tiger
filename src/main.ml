@@ -36,11 +36,21 @@ let dump m =
   if !dump_llvm then Llvm.dump_module m;
   m
 
+exception Syntax_error of Lexing.position * Lexing.position
+
+let parse_program lexbuf =
+  try
+    Parser.program Lexer.token lexbuf
+  with Parser.Error ->
+    let start_pos = Lexing.lexeme_start_p lexbuf in
+    let end_pos = Lexing.lexeme_end_p lexbuf in
+    raise (Syntax_error (start_pos, end_pos))
+
 let compile_file fn =
   try
     fn
     |> lexbuf_from_file
-    |> Parser.program Lexer.token
+    |> parse_program
     |> Typecheck.program
     |> Compile.program
     |> Irep.transl_program
@@ -69,6 +79,8 @@ let anonymous s =
   | (None | Some Compile), s -> compile_file s
   | Some Fmt, s -> format_file s
 
+let program_name = "tc"
+
 let main () =
   let spec =
     [
@@ -85,9 +97,15 @@ let () =
     main ()
   with
   | Failure s | Sys_error s ->
-      Printf.eprintf "ERROR: %s\n%!" s;
+      Printf.eprintf "%s: error: %s\n%!" program_name s;
       exit 1
-  | exn ->
-      Printf.eprintf "UNEXPECTED ERROR: %s\n%!" (Printexc.to_string exn);
-      Printexc.print_backtrace stderr;
+  | Syntax_error (start_pos, _end_pos) ->
+      let sourcefile = start_pos.Lexing.pos_fname in
+      let lineno = start_pos.Lexing.pos_lnum in
+      let column = start_pos.Lexing.pos_cnum - start_pos.Lexing.pos_bol + 1 in
+      Printf.eprintf "%s:%i:%i: syntax error\n%!" sourcefile lineno column;
       exit 2
+  | exn ->
+      Printf.eprintf "%s: unexpected error\n\n%s\n%!" program_name (Printexc.to_string exn);
+      Printexc.print_backtrace stderr;
+      exit 3

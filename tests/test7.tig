@@ -1,0 +1,14 @@
+let
+  type t = array of int
+  var N := 500
+  var x := t [N+1] of 1
+in
+  print("PRIMES AT MOST "); printi(N); print("\n");
+  for i := 2 to N do (
+    if x[i] then (
+      printi(i); print(" ");
+      for k := i to N/i do x[i*k] := 0
+    )
+  );
+  print("\n")
+end

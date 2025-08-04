@@ -26,6 +26,7 @@ type operation =
   | Iapply of string
   | Iexternal of string * signature
   | Imakearray of array_kind
+  | Imakestring of string
 
 module Reg = struct
   type t = int
@@ -216,8 +217,13 @@ let transl_operation m b op args =
       let ty = function_type (pointer_type c) [|i32_type c; transl_ty m argty|] in
       let f = declare_function fname ty m in
       build_call ty f [|size; init|] "" b
+  | Imakestring s, [] ->
+      let c = module_context m in
+      let ty = function_type (pointer_type c) [|transl_ty m Tpointer|] in
+      let f = declare_function "TIG_makestring" ty m in
+      build_call ty f [|build_global_stringptr s "" b|] "" b
   | (Pconstint _ | Paddint | Psubint | Pmulint | Pdivint | Pcmpint _ |
-     Pzext | Pgep _ | Ialloca _ | Imakearray _), _ ->
+     Pzext | Pgep _ | Ialloca _ | Imakearray _ | Imakestring _), _ ->
       assert false
 
 type env =

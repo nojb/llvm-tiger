@@ -1,0 +1,1 @@
+let var x := 12 var y := x + x in printi(y) end

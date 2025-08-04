@@ -1,0 +1,6 @@
+let
+  type t = array of int
+  var x := t [10] of 42
+in
+  printi(x[3])
+end

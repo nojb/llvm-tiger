@@ -9,7 +9,12 @@ void TIG_printi(int n)
 
 void TIG_print(char *s)
 {
-  puts(s);
+  fputs(s, stdout);
+}
+
+char* TIG_makestring(char *s)
+{
+  return s;
 }
 
 int* TIG_makeintarray(int n, int x)

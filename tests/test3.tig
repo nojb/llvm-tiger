@@ -1,0 +1,9 @@
+let
+  var N := 100
+  var x0 := 0
+  var x1 := 1
+in
+  for i := 1 to N do
+    (let var x2 := x0 + x1 in x0 := x1; x1 := x2 end);
+  printi(x1)
+end

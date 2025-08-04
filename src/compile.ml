@@ -114,7 +114,10 @@ and expression env (e : expression) (next : reg -> instruction) =
   | Eint n ->
       let rd = new_reg env in
       Iop (Pconstint n, [], rd, next rd)
-  | Estring _ | Enil ->
+  | Estring s ->
+      let rd = new_reg env in
+      Iop (Imakestring s, [], rd, next rd)
+  | Enil ->
       assert false
   | Evar (tid, v) ->
       variable env v @@ fun rv ->

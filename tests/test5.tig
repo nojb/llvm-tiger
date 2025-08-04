@@ -1,0 +1,5 @@
+let
+  var x := 42
+in
+  if x > 12 then x := 0
+end

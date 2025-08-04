@@ -1,0 +1,6 @@
+let
+  type t = int
+  var x : t := 42
+in
+  printi(x)
+end
