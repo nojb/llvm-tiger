@@ -95,16 +95,17 @@ let rec variable env v next =
   match v with
   | Vsimple x ->
       next (reg_of_var env x)
-  | Vsubscript (v, e) ->
+  | Vsubscript (ty, v, e) ->
       variable env v @@ fun r1 ->
       expression env e @@ fun r2 ->
+      let rv = new_reg env in
       let r = new_reg env in
-      Iop (Pgep, [r1; r2], r, next r)
-  | Vfield (v, i) ->
+      Iload (Tpointer, r1, rv, Iop (Pgep (type_id ty), [rv; r2], r, next r))
+  | Vfield (ty, v, i) ->
       variable env v @@ fun rs1 ->
       let rs2 = new_reg env in
       let rd = new_reg env in
-      Iop (Pconstint (Int32.of_int i), [], rs2, Iop (Pgep, [rs1; rs2], rd, next rd))
+      Iop (Pconstint (Int32.of_int i), [], rs2, Iop (Pgep (type_id ty), [rs1; rs2], rd, next rd))
   | Vup _ ->
       assert false
 
@@ -113,7 +114,7 @@ and expression env (e : expression) (next : reg -> instruction) =
   | Eint n ->
       let rd = new_reg env in
       Iop (Pconstint n, [], rd, next rd)
-  | Estring _ | Enil | Ecall _ ->
+  | Estring _ | Enil ->
       assert false
   | Evar (tid, v) ->
       variable env v @@ fun rv ->
@@ -145,9 +146,6 @@ and expression env (e : expression) (next : reg -> instruction) =
       let rd = new_reg env in
       let rd' = new_reg env in
       Iop (Pcmpint c, [r1; r2], rd, Iop (Pzext, [rd], rd', next rd'))
-  | Earray _
-  | Erecord _ ->
-      assert false
 
 and statement env lexit s next =
   match s with
@@ -174,7 +172,7 @@ and statement env lexit s next =
       variable env v @@ fun rv ->
       expression env e @@ fun re ->
       Istore (re, rv, next)
-  | Scall (s, el, sign) ->
+  | Scall (None, s, el, sign) ->
       let rec loop rl = function
         | [] ->
             let r = new_reg env in
@@ -187,11 +185,22 @@ and statement env lexit s next =
             expression env e @@ fun r -> loop (r :: rl) el
       in
       loop [] el
+  | Scall (Some _, _, _, _) ->
+      assert false
   | Sreturn (Some e) ->
       expression env e @@ fun r ->
       Ireturn (Some r)
   | Sreturn None ->
       Ireturn None
+  | Sarray (v, size, ty, init) ->
+      expression env size @@ fun rsize ->
+      expression env init @@ fun rinit ->
+      variable env v @@ fun rv ->
+      let rd = new_reg env in
+      let kind = match ty with Tstring | Tconstr _ -> Pointer | Tint -> Int in
+      Iop (Imakearray kind, [rsize; rinit], rd, Istore (rd, rv, next))
+  | Srecord _ ->
+      assert false
 
 let program (p : Typing.program) =
   let next_reg = Reg.create () in

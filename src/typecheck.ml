@@ -182,7 +182,7 @@ and variable env v : statement * type_id * variable =
             error v.loc "expected variable of array type"
       in
       let s2, x = expression' env x Tint in
-      seq s1 s2, t', Vsubscript (v', x)
+      seq s1 s2, t', Vsubscript (t', v', x)
   | Vfield (v, x) ->
       let s, ty, v' = variable env v in
       let xts =
@@ -203,7 +203,7 @@ and variable env v : statement * type_id * variable =
         in
         loop 0 xts
       in
-      s, tx, Vfield (v', i)
+      s, tx, Vfield (tx, v', i)
 
 and declarations env ds : statement * env =
   match ds with
@@ -315,7 +315,7 @@ and expression env e : statement * (type_id * expression) option =
           (Sskip, []) args params
       in
       begin match res with
-      | None -> seq s (Scall (impl, List.rev params, sign)), None
+      | None -> seq s (Scall (None, impl, List.rev params, sign)), None
       | Some _ -> assert false
       end
   | Eseq el ->
@@ -323,11 +323,21 @@ and expression env e : statement * (type_id * expression) option =
           let s', e = expression env e in
           seq s s', e
         ) (Sskip, None) el
-  | Emakearray _
-  (* let s1, size = expression' env size Tint in
-     let s2, init = expression env init in
-     seq s1 s2, Some (x, Earray (x, size, init)) *)
-  | Emakerecord _ ->
+  | Earray (ty, e1, e2) ->
+      let ty, elty =
+        match find_type env ty with
+        | Tconstr id as ty ->
+            begin match Hashtbl.find env.cstr id with
+            | Tarray tid -> ty, tid
+            | Trecord _ -> assert false
+            end
+        | _ -> assert false
+      in
+      let s1, size = expression' env e1 Tint in
+      let s2, init = expression' env e2 elty in
+      let v = add_fresh_var env ty in
+      seq s1 (seq s2 (Sarray (v, size, elty, init))), Some (ty, Evar (ty, v))
+  | Erecord _ ->
       assert false
   | Eif (e1, e2, e3) ->
       let s1, e1 = expression' env e1 Tint in
@@ -378,6 +388,7 @@ let base_tenv =
 let stdlib =
   [
     "printi", [Tint], None, "TIG_printi";
+    "print", [Tstring], None, "TIG_print";
   ]
 
 (* let stdlib =

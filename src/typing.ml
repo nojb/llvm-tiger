@@ -33,8 +33,8 @@ type signature =
 
 type variable =
   | Vsimple of ident
-  | Vsubscript of variable * expression
-  | Vfield of variable * int
+  | Vsubscript of type_id * variable * expression
+  | Vfield of type_id * variable * int
   | Vup of int * int
 
 and expression =
@@ -43,9 +43,6 @@ and expression =
   | Enil
   | Evar of type_id * variable
   | Ebinop of expression * Tabs.bin * expression
-  | Ecall of string * expression list
-  | Earray of ident * expression * expression
-  | Erecord of ident * expression list
 
 and statement =
   | Sskip
@@ -54,8 +51,10 @@ and statement =
   | Sifthenelse of expression * statement * statement
   | Sseq of statement * statement
   | Sassign of variable * expression
-  | Scall of string * expression list * signature
+  | Scall of variable option * string * expression list * signature
   | Sreturn of expression option
+  | Sarray of variable * expression * type_id * expression
+  | Srecord of variable * (type_id * expression) list
 
 and fundef =
   { fn_name: ident;

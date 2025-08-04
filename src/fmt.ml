@@ -32,9 +32,9 @@ and expression ppf e =
       fprintf ppf "@[%s(%a)@]" s.desc arguments el
   | Eseq el ->
       fprintf ppf "@[(%a)@]" (pp_print_list ~pp_sep:(fun ppf () -> fprintf ppf ";@ ") expression) el
-  | Emakearray (ty, e1, e2) ->
+  | Earray (ty, e1, e2) ->
       fprintf ppf "@[<2>%s[%a] of@ %a@]" ty.desc expression e1 expression e2
-  | Emakerecord _ ->
+  | Erecord _ ->
       assert false
   | Eif (e1, e2, None) ->
       fprintf ppf "@[if@ %a@ then@ %a]" expression e1 expression e2

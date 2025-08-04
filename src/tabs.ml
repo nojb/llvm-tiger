@@ -39,8 +39,8 @@ and exp_ =
   | Eassign of var * exp
   | Ecall of  ident * exp list
   | Eseq of exp list
-  | Emakearray of ident * exp * exp
-  | Emakerecord of ident * (ident * exp) list
+  | Earray of ident * exp * exp
+  | Erecord of ident * (ident * exp) list
   | Eif of exp * exp * exp option
   | Ewhile of exp * exp
   | Efor of ident * exp * exp * exp

@@ -10,18 +10,22 @@ type ty =
 
 type signature = ty array * ty
 
+type array_kind =
+  | Int | Pointer
+
 type operation =
   | Pconstint of int32
   | Paddint
   | Psubint
   | Pmulint
   | Pdivint
-  | Pgep
+  | Pgep of ty
   | Pcmpint of Tabs.comparison
   | Pzext
   | Ialloca of ty
   | Iapply of string
   | Iexternal of string * signature
+  | Imakearray of array_kind
 
 module Reg = struct
   type t = int
@@ -89,7 +93,7 @@ let print_operation ppf op args _res =
       fprintf ppf "x%i * x%i" arg1 arg2
   | Pdivint, [x1; x2] ->
       fprintf ppf "x%i / x%i" x1 x2
-  | Pgep, [x] ->
+  | Pgep _, [x] ->
       fprintf ppf "gep x%i, ..." x
   | Pcmpint _, _ ->
       fprintf ppf "cmp"
@@ -186,9 +190,8 @@ let transl_operation m b op args =
       build_icmp c r1 r2 "" b
   | Pzext, [r] ->
       build_zext r (i32_type (module_context m)) "" b
-  | Pgep, _ ->
-      assert false
-  (* [|build_gep _ arg.(0) (Array.sub arg 1 (Array.length arg - 1)) "" b|] *)
+  | Pgep ty, (r0 :: rl) ->
+      build_gep (transl_ty m ty) r0 (Array.of_list rl) "" b
   | Ialloca ty, [] ->
       build_alloca (transl_ty m ty) "" b
   | Iapply f, _ ->
@@ -203,7 +206,18 @@ let transl_operation m b op args =
       let lltype = function_type (transl_ty m ty) (Array.map (transl_ty m) tys) in
       let f = declare_function f lltype m in
       build_call lltype f (Array.of_list args) "" b
-  | _ ->
+  | Imakearray ty, [size; init] ->
+      let fname, argty =
+        match ty with
+        | Int -> "TIG_makeintarray", Tint 32
+        | Pointer -> "TIG_makeptrarray", Tpointer
+      in
+      let c = module_context m in
+      let ty = function_type (pointer_type c) [|i32_type c; transl_ty m argty|] in
+      let f = declare_function fname ty m in
+      build_call ty f [|size; init|] "" b
+  | (Pconstint _ | Paddint | Psubint | Pmulint | Pdivint | Pcmpint _ |
+     Pzext | Pgep _ | Ialloca _ | Imakearray _), _ ->
       assert false
 
 type env =

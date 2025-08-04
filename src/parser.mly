@@ -74,19 +74,19 @@ exp_:
 | ident LPAREN separated_list(COMMA, exp) RPAREN      { Ecall ($1, $3) }
 | LPAREN separated_list(SEMI, exp) RPAREN             { Eseq $2 }
 | ident LCURLY separated_list(COMMA, separated_pair(ident, EQ, exp)) RCURLY
-  { Emakerecord ($1, $3) }
+  { Erecord ($1, $3) }
 | var                                                 { Evar $1 }
 | var COLONEQ exp                                     { Eassign ($1, $3) }
 | var LBRACK exp RBRACK OF exp
   { match $1.desc with
-    | Vsimple x -> Emakearray (x, $3, $6)
+    | Vsimple x -> Earray (x, $3, $6)
     | _ -> assert false
   }
 | IF exp THEN exp ioption(preceded(ELSE, exp))        { Eif ($2, $4, $5) }
 | WHILE exp DO exp                                    { Ewhile ($2, $4) }
 | FOR ident COLONEQ exp TO exp DO exp                 { Efor ($2, $4, $6, $8) }
 | BREAK                                               { Ebreak }
-| LET list(dec) IN loc(separated_list(SEMI, exp)) END { Elet ($2, {$4 with desc = Eseq $4.desc}) }
+| LET nonempty_list(dec) IN loc(separated_list(SEMI, exp)) END { Elet ($2, {$4 with desc = Eseq $4.desc}) }
 ;
 
 %inline var: loc(var_) { $1 }

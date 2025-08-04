@@ -8,18 +8,22 @@ type ty =
 
 type signature = ty array * ty
 
+type array_kind =
+  | Int | Pointer
+
 type operation =
   | Pconstint of int32
   | Paddint
   | Psubint
   | Pmulint
   | Pdivint
-  | Pgep
+  | Pgep of ty
   | Pcmpint of Tabs.comparison
   | Pzext
   | Ialloca of ty
   | Iapply of string
   | Iexternal of string * signature
+  | Imakearray of array_kind
 
 module Reg: sig
   type t
