@@ -1,5 +1,48 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdint.h>
+
+struct FrameMap {
+  int32_t NumRoots;
+  int32_t NumMeta;
+  const void *Meta[0];
+};
+
+struct StackEntry {
+  struct StackEntry *Next;
+  const struct FrameMap *Map;
+  void *Roots[0];
+};
+
+extern struct StackEntry *llvm_gc_root_chain;
+
+static void VisitGCRoots(void (*Visitor)(void **Root, const void *Meta, void *data), void *data)
+{
+  for (struct StackEntry *R = llvm_gc_root_chain; R; R = R->Next) {
+    unsigned i = 0;
+
+    // For roots [0, NumMeta), the metadata pointer is in the FrameMap.
+    for (unsigned e = R->Map->NumMeta; i != e; ++i)
+      Visitor(&R->Roots[i], R->Map->Meta[i], data);
+
+    // For roots [NumMeta, NumRoots), the metadata pointer is null.
+    for (unsigned e = R->Map->NumRoots; i != e; ++i)
+      Visitor(&R->Roots[i], NULL, data);
+  }
+}
+
+static void incr(void **Root, const void *Meta, void *count)
+{
+  int *c = (int *)count;
+  ++*c;
+}
+
+static int CountGCRoots(void)
+{
+  int count = 0;
+  VisitGCRoots(incr, &count);
+  return count;
+}
 
 void TIG_printi(int n)
 {
@@ -17,18 +60,19 @@ char* TIG_makestring(char *s)
   return s;
 }
 
-int* TIG_makeintarray(int n, int x)
+intptr_t* TIG_makeintarray(ssize_t n, intptr_t x)
 {
-  int *arr = calloc(n, 4);
+  intptr_t *arr = calloc(n, sizeof(intptr_t));
   for (int i = 0; i < n; i ++) {
     arr[i] = x;
   }
   return arr;
 }
 
-void* TIG_makerecord(int n)
+intptr_t* TIG_makerecord(ssize_t n)
 {
-  return calloc(n, 8);
+  printf("# GC roots: %d\n", CountGCRoots()); fflush(stdout);
+  return calloc(n, sizeof(intptr_t));
 }
 
 extern void TIG_main(void);

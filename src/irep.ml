@@ -14,7 +14,7 @@ type array_kind =
   | Int | Pointer
 
 type operation =
-  | Pconstint of int32
+  | Pconstint of int64
   | Pnull
   | Paddint
   | Psubint
@@ -23,7 +23,7 @@ type operation =
   | Pgep of ty
   | Pcmpint of Tabs.comparison
   | Pzext
-  | Ialloca of ty
+  | Ialloca of ty * bool
   | Iapply of string
   | Iexternal of string * signature
   | Imakearray of array_kind
@@ -66,6 +66,10 @@ type program =
     entrypoint: instruction;
   }
 
+let intptr_type c =
+  assert (Sys.word_size = 64);
+  i64_type c
+
 let rec print_typ ppf ty =
   let open Format in
   match ty with
@@ -87,7 +91,7 @@ let print_operation ppf op args _res =
   let open Format in
   match op, args with
   | Pconstint n, _ ->
-      fprintf ppf "%li" n
+      fprintf ppf "%Li" n
   | Paddint, [arg1; arg2] ->
       fprintf ppf "x%i + x%i" arg1 arg2
   | Psubint, [arg1; arg2] ->
@@ -100,7 +104,7 @@ let print_operation ppf op args _res =
       fprintf ppf "gep x%i, ..." x
   | Pcmpint _, _ ->
       fprintf ppf "cmp"
-  | Ialloca ty, [x] ->
+  | Ialloca (ty, _), [x] ->
       fprintf ppf "x%i = alloca %a" x print_typ ty
   | Iapply (f), [x]
   | Iexternal (f, _), [x] ->
@@ -171,13 +175,19 @@ let rec transl_ty m ty =
   | Tint width ->
       integer_type c width
 
+let gcroot m b v =
+  let c = module_context m in
+  let lltype = function_type (void_type c) [|pointer_type c; pointer_type c|] in
+  let f = declare_function "llvm.gcroot" lltype m in
+  ignore (build_call lltype f [|v; const_null (pointer_type c)|] "" b)
+
 let transl_operation m b op args =
   match op, args with
   | Pconstint n, [] ->
       let c = module_context m in
-      const_of_int64 (i32_type c) (Int64.of_int32 n) false
+      const_of_int64 (intptr_type c) n false
   | Pnull, [] ->
-      const_pointer_null (pointer_type (module_context m))
+      const_null (pointer_type (module_context m))
   | Paddint, [arg1; arg2] ->
       build_add arg1 arg2 "" b
   | Psubint, [arg1; arg2] ->
@@ -194,11 +204,16 @@ let transl_operation m b op args =
       in
       build_icmp c r1 r2 "" b
   | Pzext, [r] ->
-      build_zext r (i32_type (module_context m)) "" b
+      build_zext r (intptr_type (module_context m)) "" b
   | Pgep ty, (r0 :: rl) ->
       build_gep (transl_ty m ty) r0 (Array.of_list rl) "" b
-  | Ialloca ty, [] ->
-      build_alloca (transl_ty m ty) "" b
+  | Ialloca (ty, root), [] ->
+      let v = build_alloca (transl_ty m ty) "" b in
+      if root then begin
+        ignore (build_store (const_null (pointer_type (module_context m))) v b);
+        gcroot m b v;
+      end;
+      v
   | Iapply f, _ ->
       let _f =
         match lookup_function f m with
@@ -214,11 +229,11 @@ let transl_operation m b op args =
   | Imakearray ty, [size; init] ->
       let fname, argty =
         match ty with
-        | Int -> "TIG_makeintarray", Tint 32
+        | Int -> "TIG_makeintarray", Tint 64
         | Pointer -> "TIG_makeptrarray", Tpointer
       in
       let c = module_context m in
-      let ty = function_type (pointer_type c) [|i32_type c; transl_ty m argty|] in
+      let ty = function_type (pointer_type c) [|intptr_type c; transl_ty m argty|] in
       let f = declare_function fname ty m in
       build_call ty f [|size; init|] "" b
   | Imakerecord n, [] ->
@@ -316,6 +331,7 @@ let transl_program (p : program) =
   let c = global_context () in
   let m = create_module c p.name in
   let f = define_function "TIG_main" (function_type (void_type c) [||]) m in
+  set_gc (Some "shadow-stack") f;
   let env = {f; code = p.code; blocks = Label.Tbl.create 0; regs = Reg.Map.empty} in
   let b = builder c in
   position_at_end (entry_block f) b;

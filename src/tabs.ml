@@ -31,7 +31,7 @@ and exp =
   exp_ loc
 
 and exp_ =
-  | Eint of int32
+  | Eint of int64
   | Estring of string
   | Enil
   | Evar of var

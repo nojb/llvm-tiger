@@ -18,7 +18,7 @@ open Tabs
 %token LCURLY RCURLY
 %token LBRACK RBRACK
 %token LPAREN RPAREN
-%token <int32> INT32
+%token <int64> INT
 %token <string> IDENT
 %token <string> STRING
 %token EOF
@@ -64,12 +64,12 @@ program: exp EOF { {name = ""; body = $1} }
 ;
 
 exp_:
-| INT32                                               { Eint $1 }
+| INT                                                 { Eint $1 }
 | STRING                                              { Estring $1 }
 | NIL                                                 { Enil }
-| MINUS exp %prec unary_op                            { Ebinop ({desc = Eint 0l; loc = $2.loc}, Op_sub, $2) }
-| exp LAND exp                                        { Eif ($1, $3, Some {desc = Eint 0l; loc = $1.loc}) }
-| exp LOR exp                                         { Eif ($1, {desc = Eint 1l; loc = $1.loc}, Some $3) }
+| MINUS exp %prec unary_op                            { Ebinop ({desc = Eint 0L; loc = $2.loc}, Op_sub, $2) }
+| exp LAND exp                                        { Eif ($1, $3, Some {desc = Eint 0L; loc = $1.loc}) }
+| exp LOR exp                                         { Eif ($1, {desc = Eint 1L; loc = $1.loc}, Some $3) }
 | exp binary_operation exp                            { Ebinop ($1, $2, $3) }
 | ident LPAREN separated_list(COMMA, exp) RPAREN      { Ecall ($1, $3) }
 | LPAREN separated_list(SEMI, exp) RPAREN             { Eseq $2 }

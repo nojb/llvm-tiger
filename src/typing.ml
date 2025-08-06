@@ -38,7 +38,7 @@ type variable =
   | Vup of int * int
 
 and expression =
-  | Eint of int32
+  | Eint of int64
   | Estring of string
   | Enil
   | Evar of type_id * variable
@@ -54,7 +54,7 @@ and statement =
   | Scall of variable option * string * expression list * signature
   | Sreturn of expression option
   | Sarray of variable * expression * type_id * expression
-  | Srecord of variable * (type_id * expression) list
+  | Srecord of variable * type_id array * expression list
 
 and fundef =
   { fn_name: ident;

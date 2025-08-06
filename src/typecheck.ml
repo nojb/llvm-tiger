@@ -386,12 +386,12 @@ and expression env e : statement * (type_id * expression) option =
         List.fold_left2 (fun (s, el) (name, e) (name', ty) ->
             if name.desc <> name' then assert false;
             let s', e = expression' env e ty in
-            seq s s', (ty, e) :: el
+            seq s s', e :: el
           ) (Sskip, []) fl ftyl
       in
       let tfl = List.rev tfl in
       let v = add_fresh_var env ty in
-      seq s (Srecord (v, tfl)), Some (ty, Evar (ty, v))
+      seq s (Srecord (v, Array.of_list (List.map snd ftyl), tfl)), Some (ty, Evar (ty, v))
   | Eif (e1, e2, e3) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression env e2 in
@@ -420,7 +420,7 @@ and expression env e : statement * (type_id * expression) option =
       let loop =
         Sloop (Sifthenelse
                  (Ebinop(e2, Op_cmp Clt, Evar (Tint, i)),
-                  Sbreak, seq s3 (Sassign (i, Ebinop (Evar (Tint, i), Op_add, Eint 1l)))))
+                  Sbreak, seq s3 (Sassign (i, Ebinop (Evar (Tint, i), Op_add, Eint 1L)))))
       in
       seq s1 (seq s2 (seq (Sassign (i, e1)) loop)), None
   | Ebreak ->

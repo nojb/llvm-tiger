@@ -12,7 +12,7 @@ type array_kind =
   | Int | Pointer
 
 type operation =
-  | Pconstint of int32
+  | Pconstint of int64
   | Pnull
   | Paddint
   | Psubint
@@ -21,7 +21,7 @@ type operation =
   | Pgep of ty
   | Pcmpint of Tabs.comparison
   | Pzext
-  | Ialloca of ty
+  | Ialloca of ty * bool (* gcroot *)
   | Iapply of string
   | Iexternal of string * signature
   | Imakearray of array_kind

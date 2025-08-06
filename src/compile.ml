@@ -88,7 +88,7 @@ let label_instr env i =
   lbl
 
 let type_id : type_id -> ty = function
-  | Tint -> Tint 32
+  | Tint -> Tint 64
   | Tstring | Tconstr _ -> Tpointer
 
 let load env ty r next =
@@ -99,11 +99,11 @@ let op env op args next =
   let r = new_reg env in
   Iop(op, args, r, next r)
 
-let int32 env n next =
+let int64 env n next =
   op env (Pconstint n) [] next
 
 let int env n next =
-  int32 env (Int32.of_int n) next
+  int64 env (Int64.of_int n) next
 
 let null env next =
   op env Pnull [] next
@@ -129,7 +129,7 @@ let rec variable env v next =
 and expression env (e : expression) (next : reg -> instruction) =
   match e with
   | Eint n ->
-      int32 env n next
+      int64 env n next
   | Estring s ->
       op env (Imakestring s) [] next
   | Enil ->
@@ -211,24 +211,26 @@ and statement env lexit s next =
       variable env v @@ fun rv ->
       op env (Imakearray kind) [rsize; rinit] @@ fun rd ->
       Istore (rd, rv, next)
-  | Srecord (v, fl) ->
+  | Srecord (v, tyl, fl) ->
       let n = List.length fl in
+      let ty = Tstruct (Array.map type_id tyl) in
       op env (Imakerecord n) [] @@ fun rr ->
       let rec loop rl = function
         | [] ->
             variable env v @@ fun rv ->
             let _, stores =
-              List.fold_left (fun (i, next) (ty, r) ->
+              List.fold_left (fun (i, next) r ->
                   i+1,
-                  int env (n - i - 1) @@ fun ri ->
-                  op env (Pgep ty) [rr; ri] @@ fun rd ->
+                  int env (n - i - 1) @@ fun i' ->
+                  int env 0 @@ fun zero ->
+                  op env (Pgep ty) [rr; zero; i'] @@ fun rd ->
                   Istore (r, rd, next)
                 ) (0, Istore (rr, rv, next)) rl
             in
             stores
-        | (ty, e) :: fl ->
+        | e :: fl ->
             expression env e @@ fun r ->
-            loop ((type_id ty, r) :: rl) fl
+            loop (r :: rl) fl
       in
       loop [] fl
 
@@ -241,7 +243,9 @@ let program (p : Typing.program) =
   in
   let env = { next_reg; next_label = Label.create (); blocks = Label.Map.empty; vars } in
   let entrypoint =
-    Hashtbl.fold (fun name tid next -> Iop (Ialloca (type_id tid), [], Ident.Map.find name vars, next)) p.p_vars
-      (statement env None p.p_body (Ireturn None))
+    Hashtbl.fold (fun name tid next ->
+        let root = match tid with Tconstr _ | Tstring -> true | Tint -> false in
+        Iop (Ialloca (type_id tid, root), [], Ident.Map.find name vars, next)
+      ) p.p_vars (statement env None p.p_body (Ireturn None))
   in
   {name = p.p_name; code = env.blocks; entrypoint}

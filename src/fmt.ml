@@ -19,7 +19,7 @@ and variable ppf v =
 
 and expression ppf e =
   match e.desc with
-  | Eint n -> pp_print_string ppf (Int32.to_string n)
+  | Eint n -> pp_print_string ppf (Int64.to_string n)
   | Estring s -> fprintf ppf "%S" s
   | Enil -> pp_print_string ppf "nil"
   | Evar v -> variable ppf v

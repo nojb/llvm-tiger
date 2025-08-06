@@ -1,0 +1,6 @@
+let
+  type list = { hd: int, tl: list }
+  var x := list { hd = 42, tl = list { hd = 12, tl = nil } }
+in
+  printi(x.tl.hd)
+end
