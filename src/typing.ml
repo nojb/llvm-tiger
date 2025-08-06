@@ -34,7 +34,7 @@ type signature =
 type variable =
   | Vsimple of ident
   | Vsubscript of type_id * variable * expression
-  | Vfield of type_id * variable * int
+  | Vfield of type_id array * variable * int
   | Vup of int * int
 
 and expression =

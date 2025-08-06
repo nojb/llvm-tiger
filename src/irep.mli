@@ -13,6 +13,7 @@ type array_kind =
 
 type operation =
   | Pconstint of int32
+  | Pnull
   | Paddint
   | Psubint
   | Pmulint
@@ -24,6 +25,7 @@ type operation =
   | Iapply of string
   | Iexternal of string * signature
   | Imakearray of array_kind
+  | Imakerecord of int
   | Imakestring of string
 
 module Reg: sig

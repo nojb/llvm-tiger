@@ -26,6 +26,11 @@ int* TIG_makeintarray(int n, int x)
   return arr;
 }
 
+void* TIG_makerecord(int n)
+{
+  return calloc(n, 8);
+}
+
 extern void TIG_main(void);
 
 int main(int argc, char **argv)

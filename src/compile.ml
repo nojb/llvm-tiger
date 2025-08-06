@@ -91,64 +91,73 @@ let type_id : type_id -> ty = function
   | Tint -> Tint 32
   | Tstring | Tconstr _ -> Tpointer
 
+let load env ty r next =
+  let r' = new_reg env in
+  Iload (ty, r, r', next r')
+
+let op env op args next =
+  let r = new_reg env in
+  Iop(op, args, r, next r)
+
+let int32 env n next =
+  op env (Pconstint n) [] next
+
+let int env n next =
+  int32 env (Int32.of_int n) next
+
+let null env next =
+  op env Pnull [] next
+
 let rec variable env v next =
   match v with
   | Vsimple x ->
       next (reg_of_var env x)
-  | Vsubscript (ty, v, e) ->
-      variable env v @@ fun r1 ->
-      expression env e @@ fun r2 ->
-      let rv = new_reg env in
-      let r = new_reg env in
-      Iload (Tpointer, r1, rv, Iop (Pgep (type_id ty), [rv; r2], r, next r))
-  | Vfield (ty, v, i) ->
-      variable env v @@ fun rs1 ->
-      let rs2 = new_reg env in
-      let rd = new_reg env in
-      Iop (Pconstint (Int32.of_int i), [], rs2, Iop (Pgep (type_id ty), [rs1; rs2], rd, next rd))
+  | Vsubscript (ty, v, i) ->
+      variable env v @@ fun v ->
+      expression env i @@ fun i ->
+      load env Tpointer v @@ fun v ->
+      op env (Pgep (type_id ty)) [v; i] next
+  | Vfield (tyl, v, i) ->
+      variable env v @@ fun v ->
+      int env i @@ fun i ->
+      int env 0 @@ fun zero ->
+      load env Tpointer v @@ fun v ->
+      op env (Pgep (Tstruct (Array.map type_id tyl))) [v; zero; i] next
   | Vup _ ->
       assert false
 
 and expression env (e : expression) (next : reg -> instruction) =
   match e with
   | Eint n ->
-      let rd = new_reg env in
-      Iop (Pconstint n, [], rd, next rd)
+      int32 env n next
   | Estring s ->
-      let rd = new_reg env in
-      Iop (Imakestring s, [], rd, next rd)
+      op env (Imakestring s) [] next
   | Enil ->
-      assert false
+      null env next
   | Evar (tid, v) ->
       variable env v @@ fun rv ->
-      let rd = new_reg env in
-      Iload (type_id tid, rv, rd, next rd)
+      load env (type_id tid) rv next
   | Ebinop (e1, Op_add, e2) ->
       expression env e1 @@ fun r1 ->
       expression env e2 @@ fun r2 ->
-      let rd = new_reg env in
-      Iop (Paddint, [r1; r2], rd, next rd)
+      op env Paddint [r1; r2] next
   | Ebinop (e1, Op_sub, e2) ->
       expression env e1 @@ fun r1 ->
       expression env e2 @@ fun r2 ->
-      let rd = new_reg env in
-      Iop (Psubint, [r1; r2], rd, next rd)
+      op env Psubint [r1; r2] next
   | Ebinop (e1, Op_mul, e2) ->
       expression env e1 @@ fun r1 ->
       expression env e2 @@ fun r2 ->
-      let rd = new_reg env in
-      Iop (Pmulint, [r1; r2], rd, next rd)
+      op env Pmulint [r1; r2] next
   | Ebinop (e1, Op_div, e2) ->
       expression env e1 @@ fun r1 ->
       expression env e2 @@ fun r2 ->
-      let rd = new_reg env in
-      Iop (Pdivint, [r1; r2], rd, next rd)
+      op env Pdivint[r1; r2] next
   | Ebinop (e1, Op_cmp c, e2) ->
       expression env e1 @@ fun r1 ->
       expression env e2 @@ fun r2 ->
-      let rd = new_reg env in
-      let rd' = new_reg env in
-      Iop (Pcmpint c, [r1; r2], rd, Iop (Pzext, [rd], rd', next rd'))
+      op env (Pcmpint c) [r1; r2] @@ fun rd ->
+      op env Pzext [rd] next
 
 and statement env lexit s next =
   match s with
@@ -166,9 +175,9 @@ and statement env lexit s next =
       let lyes = label_instr env (statement env lexit s2 (Igoto lnext)) in
       let lnay = label_instr env (statement env lexit s3 (Igoto lnext)) in
       expression env e1 @@ fun r1 ->
-      let r2 = new_reg env in
-      let r = new_reg env in
-      Iop (Pconstint 0l, [], r2, Iop (Pcmpint Tabs.Cne, [r1; r2], r, Iifthenelse (r, lyes, lnay)))
+      int env 0 @@ fun r2 ->
+      op env (Pcmpint Tabs.Cne) [r1; r2] @@ fun r ->
+      Iifthenelse (r, lyes, lnay)
   | Sseq (s1, s2) ->
       statement env lexit s1 (statement env lexit s2 next)
   | Sassign (v, e) ->
@@ -196,14 +205,32 @@ and statement env lexit s next =
   | Sreturn None ->
       Ireturn None
   | Sarray (v, size, ty, init) ->
+      let kind = match ty with Tstring | Tconstr _ -> Pointer | Tint -> Int in
       expression env size @@ fun rsize ->
       expression env init @@ fun rinit ->
       variable env v @@ fun rv ->
-      let rd = new_reg env in
-      let kind = match ty with Tstring | Tconstr _ -> Pointer | Tint -> Int in
-      Iop (Imakearray kind, [rsize; rinit], rd, Istore (rd, rv, next))
-  | Srecord _ ->
-      assert false
+      op env (Imakearray kind) [rsize; rinit] @@ fun rd ->
+      Istore (rd, rv, next)
+  | Srecord (v, fl) ->
+      let n = List.length fl in
+      op env (Imakerecord n) [] @@ fun rr ->
+      let rec loop rl = function
+        | [] ->
+            variable env v @@ fun rv ->
+            let _, stores =
+              List.fold_left (fun (i, next) (ty, r) ->
+                  i+1,
+                  int env (n - i - 1) @@ fun ri ->
+                  op env (Pgep ty) [rr; ri] @@ fun rd ->
+                  Istore (r, rd, next)
+                ) (0, Istore (rr, rv, next)) rl
+            in
+            stores
+        | (ty, e) :: fl ->
+            expression env e @@ fun r ->
+            loop ((type_id ty, r) :: rl) fl
+      in
+      loop [] fl
 
 let program (p : Typing.program) =
   let next_reg = Reg.create () in

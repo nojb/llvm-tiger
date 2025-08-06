@@ -15,6 +15,7 @@ type array_kind =
 
 type operation =
   | Pconstint of int32
+  | Pnull
   | Paddint
   | Psubint
   | Pmulint
@@ -26,6 +27,7 @@ type operation =
   | Iapply of string
   | Iexternal of string * signature
   | Imakearray of array_kind
+  | Imakerecord of int
   | Imakestring of string
 
 module Reg = struct
@@ -174,6 +176,8 @@ let transl_operation m b op args =
   | Pconstint n, [] ->
       let c = module_context m in
       const_of_int64 (i32_type c) (Int64.of_int32 n) false
+  | Pnull, [] ->
+      const_pointer_null (pointer_type (module_context m))
   | Paddint, [arg1; arg2] ->
       build_add arg1 arg2 "" b
   | Psubint, [arg1; arg2] ->
@@ -217,13 +221,19 @@ let transl_operation m b op args =
       let ty = function_type (pointer_type c) [|i32_type c; transl_ty m argty|] in
       let f = declare_function fname ty m in
       build_call ty f [|size; init|] "" b
+  | Imakerecord n, [] ->
+      let c = module_context m in
+      let ty = function_type (pointer_type c) [|i32_type c|] in
+      let f = declare_function "TIG_makerecord" ty m in
+      build_call ty f [|const_int (i32_type c) n|] "" b
   | Imakestring s, [] ->
       let c = module_context m in
       let ty = function_type (pointer_type c) [|transl_ty m Tpointer|] in
       let f = declare_function "TIG_makestring" ty m in
       build_call ty f [|build_global_stringptr s "" b|] "" b
-  | (Pconstint _ | Paddint | Psubint | Pmulint | Pdivint | Pcmpint _ |
-     Pzext | Pgep _ | Ialloca _ | Imakearray _ | Imakestring _), _ ->
+  | (Pconstint _ | Pnull | Paddint | Psubint | Pmulint | Pdivint | Pcmpint _ |
+     Pzext | Pgep _ | Ialloca _ | Imakearray _ |
+     Imakerecord _ | Imakestring _), _ ->
       assert false
 
 type env =

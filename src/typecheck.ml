@@ -20,7 +20,7 @@ type env =
     venv: value StringMap.t;
     tenv: type_id StringMap.t;
     loop: bool;
-    next_var: Ident.state;
+    next_ident: Ident.state;
   }
 
 let type_eq tid1 tid2 =
@@ -36,7 +36,7 @@ let empty_env venv tenv =
     venv;
     tenv;
     loop = false;
-    next_var = Ident.new_state () }
+    next_ident = Ident.new_state () }
 
 type error =
   | Unbound_variable of string
@@ -62,12 +62,12 @@ let find_type env id =
   | None -> raise (Error (id.loc, Unknown_type_name id.desc))
 
 let add_var env (x : ident) tid =
-  let id = Ident.create env.next_var x.desc in
+  let id = Ident.create env.next_ident x.desc in
   Hashtbl.add env.vars id tid;
   Typing.Vsimple id, {env with venv = StringMap.add x.desc (Var (tid, id)) env.venv}
 
 let add_fresh_var env tid =
-  let id = Ident.create env.next_var "tmp" in
+  let id = Ident.create env.next_ident "tmp" in
   Hashtbl.add env.vars id tid;
   Typing.Vsimple id
 
@@ -128,35 +128,60 @@ let check_unique f xts s =
 
 let add_types env xts =
   check_unique fst xts "type name";
-  let add_constr name (cstr : type_structure) =
-    let s = Ident.create env.next_var name in
-    Hashtbl.add env.cstr s cstr;
-    Tconstr s
+  let constrs, xts' =
+    List.fold_left (fun (constrs, xts) (name, ty) ->
+        match ty with
+        | Tname s ->
+            constrs, (name, `Tname s) :: xts
+        | Tarray ty ->
+            let constr = Ident.create env.next_ident name.desc in
+            StringMap.add name.desc (Tconstr constr) constrs,
+            (name, `Tarray (constr, ty)) :: xts
+        | Trecord fl ->
+            let constr = Ident.create env.next_ident name.desc in
+            StringMap.add name.desc (Tconstr constr) constrs,
+            (name, `Trecord (constr, fl)) :: xts
+      ) (StringMap.empty, []) xts
   in
-  let f tenv' (name, _ty) =
-    let name = name.desc in
-    let rec loop visited name' =
-      if Hashtbl.mem visited name' then failwith "recursive loop";
-      Hashtbl.add visited name' ();
-      match (List.find_map (fun (x, ty) -> if x.desc = name' then Some ty else None) xts : typ option) with
+  let xts' = List.rev xts' in
+  let resolve name =
+    let visited = Hashtbl.create 0 in
+    let rec loop name =
+      if Hashtbl.mem visited name then failwith "recursive loop";
+      Hashtbl.add visited name ();
+      match List.find_map (fun (x, ty) -> if x.desc = name then Some ty else None) xts with
       | None ->
-          begin match StringMap.find_opt name' env.tenv with
+          begin match StringMap.find_opt name env.tenv with
           | None -> failwith "type not found"
           | Some tid -> tid
           end
-      | Some Tarray elt ->
-          add_constr name (Tarray (loop (Hashtbl.create 0) elt.desc))
-      | Some Trecord fields ->
-          let fields =
-            List.map (fun (x, ty) -> x.desc, loop (Hashtbl.create 0) ty.desc) fields
-          in
-          add_constr name (Trecord fields)
+      | Some (Tarray _ | Trecord _) ->
+          begin match StringMap.find_opt name constrs with
+          | Some tconstr -> tconstr
+          | None -> assert false
+          end
       | Some Tname s ->
-          loop visited s.desc
+          loop s.desc
     in
-    StringMap.add name (loop (Hashtbl.create 0) name) tenv'
+    loop name
   in
-  {env with tenv = List.fold_left f env.tenv xts}
+  let f = function
+    | `Tarray (constr, elt) ->
+        Hashtbl.replace env.cstr constr (Tarray (resolve elt.desc));
+        Tconstr constr
+    | `Trecord (constr, fields) ->
+        let fields = List.map (fun (x, ty) -> x.desc, resolve ty.desc) fields in
+        Hashtbl.replace env.cstr constr (Trecord fields);
+        Tconstr constr
+    | `Tname s ->
+        resolve s.desc
+  in
+  let tenv =
+    List.fold_left (fun tenv (name, desc) ->
+        StringMap.add name.desc (f desc) tenv
+      ) env.tenv xts'
+  in
+  {env with tenv}
 
 let rec statement env e =
   let s, e = expression env e in
@@ -203,7 +228,8 @@ and variable env v : statement * type_id * variable =
         in
         loop 0 xts
       in
-      s, tx, Vfield (tx, v', i)
+      let typ = Array.of_list (List.map snd xts) in
+      s, tx, Vfield (typ, v', i)
 
 and declarations env ds : statement * env =
   match ds with
@@ -235,7 +261,15 @@ and declarations env ds : statement * env =
 and expression' env e (ty : type_id) : statement * expression =
   match e.desc with
   | Enil ->
-      assert false
+      begin match ty with
+      | Tconstr tid ->
+          begin match Hashtbl.find env.cstr tid with
+          | Trecord _ -> Sskip, Enil
+          | Tarray _ -> assert false
+          end
+      | _ ->
+          assert false
+      end
   | Eseq el ->
       let rec loop = function
         | [] -> failwith "type error"
@@ -337,8 +371,27 @@ and expression env e : statement * (type_id * expression) option =
       let s2, init = expression' env e2 elty in
       let v = add_fresh_var env ty in
       seq s1 (seq s2 (Sarray (v, size, elty, init))), Some (ty, Evar (ty, v))
-  | Erecord _ ->
-      assert false
+  | Erecord (ty, fl) ->
+      let ty, ftyl =
+        match find_type env ty with
+        | Tconstr id as ty ->
+            begin match Hashtbl.find env.cstr id with
+            | Tarray _ -> assert false
+            | Trecord fields -> ty, fields
+            end
+        | _ -> assert false
+      in
+      if List.length ftyl <> List.length fl then assert false;
+      let s, tfl =
+        List.fold_left2 (fun (s, el) (name, e) (name', ty) ->
+            if name.desc <> name' then assert false;
+            let s', e = expression' env e ty in
+            seq s s', (ty, e) :: el
+          ) (Sskip, []) fl ftyl
+      in
+      let tfl = List.rev tfl in
+      let v = add_fresh_var env ty in
+      seq s (Srecord (v, tfl)), Some (ty, Evar (ty, v))
   | Eif (e1, e2, e3) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression env e2 in
