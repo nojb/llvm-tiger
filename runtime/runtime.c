@@ -55,11 +55,6 @@ void TIG_print(char *s)
   fputs(s, stdout);
 }
 
-char* TIG_makestring(char *s)
-{
-  return s;
-}
-
 intptr_t* TIG_makeintarray(ssize_t n, intptr_t x)
 {
   intptr_t *arr = calloc(n, sizeof(intptr_t));

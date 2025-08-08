@@ -106,7 +106,7 @@ let int env n next =
   int64 env (Int64.of_int n) next
 
 let string env s next =
-  op env (Imakestring s) [] next
+  op env (Pconststring s) [] next
 
 let null env next =
   op env Pnull [] next
