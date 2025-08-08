@@ -418,13 +418,13 @@ and expression env e : statement * (type_id * expression) option =
       end
   | Ewhile (e1, e2) ->
       let s1, e1 = expression' env e1 Tint in
-      let s2 = statement env e2 in
+      let s2 = statement {env with loop = true} e2 in
       seq s1 (Sloop (seq s1 (Sifthenelse (e1, s2, Sbreak)))), None
   | Efor (i, e1, e2, e3) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression' env e2 Tint in
       let i, env = add_var env i Tint in
-      let s3 = statement env e3 in
+      let s3 = statement {env with loop = true} e3 in
       let loop =
         Sloop (Sifthenelse
                  (Ebinop(e2, Op_cmp Clt, Evar (Tint, i)),

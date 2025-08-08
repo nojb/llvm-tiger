@@ -1,2 +1,0 @@
-let var a := 34 in while a do a := if a then (break; 1) else 3 end
-

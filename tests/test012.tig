@@ -1,0 +1,8 @@
+let
+  type arr0 = array of int
+  type arr1 = array of arr0
+  var a := arr1[10] of (arr0[43] of 3)
+in
+  a[3][5] := 123;
+  printi(a[3][5])
+end

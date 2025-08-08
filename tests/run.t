@@ -1,13 +1,19 @@
   $ tc=../src/main.exe
+  $ clang=clang-18
   $ compile() {
   >   echo; echo "*** BEGIN $1 ***"; echo
   >   cat $1
-  >   $tc -dllvm -O0 $1
+  >   if $tc -dllvm -O0 $1; then
+  >     if $clang ${1%.tig}.bc ../runtime/runtime.c -o ${1%.tig}.exe; then
+  >       echo; echo "*** OUTPUT ***"
+  >       ./${1%.tig}.exe
+  >     fi
+  >   fi
   >   echo; echo "*** END $1 ***"; echo
   > }
   $ for t in *.tig; do compile $t; done
   
-  *** BEGIN test1.tig ***
+  *** BEGIN test001.tig ***
   
   let var x := 12 var y := x + x in printi(y) end
   
@@ -26,55 +32,15 @@
   }
   
   declare void @TIG_printi(i64 %0)
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
   
-  *** END test1.tig ***
-  
-  
-  *** BEGIN test10.tig ***
-  
-  let
-    type list = { hd: int, tl: list }
-    var x : list := nil
-  in
-    printi(x.hd)
-  end
-  
-  @0 = private unnamed_addr constant [11 x i8] c"test10.tig\00", align 1
-  
-  define void @TIG_main() gc "shadow-stack" {
-  entry:
-    %0 = alloca ptr, align 8
-    store ptr null, ptr %0, align 8
-    call void @llvm.gcroot(ptr %0, ptr null)
-    store ptr null, ptr %0, align 8
-    %1 = load ptr, ptr %0, align 8
-    %2 = icmp eq ptr %1, null
-    br i1 %2, label %3, label %4
-  
-  3:                                                ; preds = %entry
-    call void @TIG_nil_error(ptr @0, i64 5, i64 10)
-    unreachable
-  
-  4:                                                ; preds = %entry
-    %5 = getelementptr { i64, ptr }, ptr %1, i64 0, i64 0
-    %6 = load i64, ptr %5, align 4
-    call void @TIG_printi(i64 %6)
-    ret void
-  }
-  
-  ; Function Attrs: nounwind
-  declare void @llvm.gcroot(ptr %0, ptr %1) #0
-  
-  declare void @TIG_nil_error(ptr %0, i64 %1, i64 %2)
-  
-  declare void @TIG_printi(i64 %0)
-  
-  attributes #0 = { nounwind }
-  
-  *** END test10.tig ***
+  *** OUTPUT ***
+  24
+  *** END test001.tig ***
   
   
-  *** BEGIN test2.tig ***
+  *** BEGIN test002.tig ***
   
   let
     type t = int
@@ -92,11 +58,15 @@
   }
   
   declare void @TIG_printi(i64 %0)
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
   
-  *** END test2.tig ***
+  *** OUTPUT ***
+  42
+  *** END test002.tig ***
   
   
-  *** BEGIN test3.tig ***
+  *** BEGIN test003.tig ***
   
   let
     var N := 100
@@ -155,11 +125,15 @@
   }
   
   declare void @TIG_printi(i64 %0)
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
   
-  *** END test3.tig ***
+  *** OUTPUT ***
+  -1869596475
+  *** END test003.tig ***
   
   
-  *** BEGIN test4.tig ***
+  *** BEGIN test004.tig ***
   
   let
     var x := 0
@@ -177,11 +151,15 @@
     store i64 %2, ptr %0, align 4
     ret void
   }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
   
-  *** END test4.tig ***
+  *** OUTPUT ***
+  
+  *** END test004.tig ***
   
   
-  *** BEGIN test5.tig ***
+  *** BEGIN test005.tig ***
   
   let
     var x := 42
@@ -208,11 +186,15 @@
   7:                                                ; preds = %entry
     br label %6
   }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
   
-  *** END test5.tig ***
+  *** OUTPUT ***
+  
+  *** END test005.tig ***
   
   
-  *** BEGIN test6.tig ***
+  *** BEGIN test006.tig ***
   
   let
     type t = array of int
@@ -248,11 +230,15 @@
   declare void @TIG_printi(i64 %0)
   
   attributes #0 = { nounwind }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
   
-  *** END test6.tig ***
+  *** OUTPUT ***
+  42
+  *** END test006.tig ***
   
   
-  *** BEGIN test7.tig ***
+  *** BEGIN test007.tig ***
   
   let
     type t = array of int
@@ -382,11 +368,17 @@
   declare void @TIG_printi(i64 %0)
   
   attributes #0 = { nounwind }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
   
-  *** END test7.tig ***
+  *** OUTPUT ***
+  PRIMES AT MOST 500
+  2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71 73 79 83 89 97 101 103 107 109 113 127 131 137 139 149 151 157 163 167 173 179 181 191 193 197 199 211 223 227 229 233 239 241 251 257 263 269 271 277 281 283 293 307 311 313 317 331 337 347 349 353 359 367 373 379 383 389 397 401 409 419 421 431 433 439 443 449 457 461 463 467 479 487 491 499 
+  
+  *** END test007.tig ***
   
   
-  *** BEGIN test8.tig ***
+  *** BEGIN test008.tig ***
   
   print("Hello, World!\n")
   @0 = private unnamed_addr constant [15 x i8] c"Hello, World!\0A\00", align 1
@@ -398,11 +390,16 @@
   }
   
   declare void @TIG_print(ptr %0)
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
   
-  *** END test8.tig ***
+  *** OUTPUT ***
+  Hello, World!
+  
+  *** END test008.tig ***
   
   
-  *** BEGIN test9.tig ***
+  *** BEGIN test009.tig ***
   
   let
     type list = { hd: int, tl: list }
@@ -411,7 +408,7 @@
     printi(x.tl.hd)
   end
   
-  @0 = private unnamed_addr constant [10 x i8] c"test9.tig\00", align 1
+  @0 = private unnamed_addr constant [12 x i8] c"test009.tig\00", align 1
   
   define void @TIG_main() gc "shadow-stack" {
   entry:
@@ -474,6 +471,386 @@
   declare void @TIG_printi(i64 %0)
   
   attributes #0 = { nounwind }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
   
-  *** END test9.tig ***
+  *** OUTPUT ***
+  # GC roots: 3
+  # GC roots: 3
+  12
+  *** END test009.tig ***
+  
+  
+  *** BEGIN test010.tig ***
+  
+  let
+    type list = { hd: int, tl: list }
+    var x : list := nil
+  in
+    printi(x.hd)
+  end
+  
+  @0 = private unnamed_addr constant [12 x i8] c"test010.tig\00", align 1
+  
+  define void @TIG_main() gc "shadow-stack" {
+  entry:
+    %0 = alloca ptr, align 8
+    store ptr null, ptr %0, align 8
+    call void @llvm.gcroot(ptr %0, ptr null)
+    store ptr null, ptr %0, align 8
+    %1 = load ptr, ptr %0, align 8
+    %2 = icmp eq ptr %1, null
+    br i1 %2, label %3, label %4
+  
+  3:                                                ; preds = %entry
+    call void @TIG_nil_error(ptr @0, i64 5, i64 10)
+    unreachable
+  
+  4:                                                ; preds = %entry
+    %5 = getelementptr { i64, ptr }, ptr %1, i64 0, i64 0
+    %6 = load i64, ptr %5, align 4
+    call void @TIG_printi(i64 %6)
+    ret void
+  }
+  
+  ; Function Attrs: nounwind
+  declare void @llvm.gcroot(ptr %0, ptr %1) #0
+  
+  declare void @TIG_nil_error(ptr %0, i64 %1, i64 %2)
+  
+  declare void @TIG_printi(i64 %0)
+  
+  attributes #0 = { nounwind }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
+  
+  *** OUTPUT ***
+  test010.tig:5:10: variable is nil
+  
+  *** END test010.tig ***
+  
+  
+  *** BEGIN test011.tig ***
+  
+  let
+    type rec = { a : int, b : rec }
+    type arr = array of rec
+    var a := arr[10] of nil
+  in
+    a[3] := nil
+  end
+  
+  define void @TIG_main() gc "shadow-stack" {
+  entry:
+    %0 = alloca ptr, align 8
+    store ptr null, ptr %0, align 8
+    call void @llvm.gcroot(ptr %0, ptr null)
+    %1 = alloca ptr, align 8
+    store ptr null, ptr %1, align 8
+    call void @llvm.gcroot(ptr %1, ptr null)
+    %2 = call ptr @TIG_makeptrarray(i64 10, ptr null)
+    store ptr %2, ptr %0, align 8
+    %3 = load ptr, ptr %0, align 8
+    store ptr %3, ptr %1, align 8
+    %4 = load ptr, ptr %1, align 8
+    %5 = getelementptr ptr, ptr %4, i64 3
+    store ptr null, ptr %5, align 8
+    ret void
+  }
+  
+  ; Function Attrs: nounwind
+  declare void @llvm.gcroot(ptr %0, ptr %1) #0
+  
+  declare ptr @TIG_makeptrarray(i64 %0, ptr %1)
+  
+  attributes #0 = { nounwind }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
+  /usr/bin/ld: /tmp/build_fb0684_dune/test011-c5a55d.o: in function `TIG_main':
+  :(.text+0x56): undefined reference to `TIG_makeptrarray'
+  clang-18: error: linker command failed with exit code 1 (use -v to see invocation)
+  
+  *** END test011.tig ***
+  
+  
+  *** BEGIN test012.tig ***
+  
+  let
+    type arr0 = array of int
+    type arr1 = array of arr0
+    var a := arr1[10] of (arr0[43] of 3)
+  in
+    a[3][5] := 123;
+    printi(a[3][5])
+  end
+  
+  define void @TIG_main() gc "shadow-stack" {
+  entry:
+    %0 = alloca ptr, align 8
+    store ptr null, ptr %0, align 8
+    call void @llvm.gcroot(ptr %0, ptr null)
+    %1 = alloca ptr, align 8
+    store ptr null, ptr %1, align 8
+    call void @llvm.gcroot(ptr %1, ptr null)
+    %2 = alloca ptr, align 8
+    store ptr null, ptr %2, align 8
+    call void @llvm.gcroot(ptr %2, ptr null)
+    %3 = call ptr @TIG_makeintarray(i64 43, i64 3)
+    store ptr %3, ptr %1, align 8
+    %4 = load ptr, ptr %1, align 8
+    %5 = call ptr @TIG_makeptrarray(i64 10, ptr %4)
+    store ptr %5, ptr %0, align 8
+    %6 = load ptr, ptr %0, align 8
+    store ptr %6, ptr %2, align 8
+    %7 = load ptr, ptr %2, align 8
+    %8 = getelementptr ptr, ptr %7, i64 3
+    %9 = load ptr, ptr %8, align 8
+    %10 = getelementptr i64, ptr %9, i64 5
+    store i64 123, ptr %10, align 4
+    %11 = load ptr, ptr %2, align 8
+    %12 = getelementptr ptr, ptr %11, i64 3
+    %13 = load ptr, ptr %12, align 8
+    %14 = getelementptr i64, ptr %13, i64 5
+    %15 = load i64, ptr %14, align 4
+    call void @TIG_printi(i64 %15)
+    ret void
+  }
+  
+  ; Function Attrs: nounwind
+  declare void @llvm.gcroot(ptr %0, ptr %1) #0
+  
+  declare ptr @TIG_makeintarray(i64 %0, i64 %1)
+  
+  declare ptr @TIG_makeptrarray(i64 %0, ptr %1)
+  
+  declare void @TIG_printi(i64 %0)
+  
+  attributes #0 = { nounwind }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
+  /usr/bin/ld: /tmp/build_fb0684_dune/test012-18c0d4.o: in function `TIG_main':
+  :(.text+0x8f): undefined reference to `TIG_makeptrarray'
+  clang-18: error: linker command failed with exit code 1 (use -v to see invocation)
+  
+  *** END test012.tig ***
+  
+  
+  *** BEGIN test013.tig ***
+  
+  let
+    var N := 50
+    type arr = array of int
+    var a := arr[N] of 0
+  in
+    for i := 0 to N-1 do
+      a[i] := i;
+    for i := 0 to N-1 do (
+      printi (a[i]); print ("\n")
+    )
+  end
+  
+  @0 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+  
+  define void @TIG_main() gc "shadow-stack" {
+  entry:
+    %0 = alloca ptr, align 8
+    store ptr null, ptr %0, align 8
+    call void @llvm.gcroot(ptr %0, ptr null)
+    %1 = alloca i64, align 8
+    %2 = alloca ptr, align 8
+    store ptr null, ptr %2, align 8
+    call void @llvm.gcroot(ptr %2, ptr null)
+    %3 = alloca i64, align 8
+    %4 = alloca i64, align 8
+    store i64 50, ptr %1, align 4
+    %5 = load i64, ptr %1, align 4
+    %6 = call ptr @TIG_makeintarray(i64 %5, i64 0)
+    store ptr %6, ptr %0, align 8
+    %7 = load ptr, ptr %0, align 8
+    store ptr %7, ptr %2, align 8
+    store i64 0, ptr %3, align 4
+    br label %8
+  
+  8:                                                ; preds = %entry, %41
+    %9 = load i64, ptr %1, align 4
+    %10 = sub i64 %9, 1
+    %11 = load i64, ptr %3, align 4
+    %12 = icmp slt i64 %10, %11
+    %13 = zext i1 %12 to i64
+    %14 = icmp ne i64 %13, 0
+    br i1 %14, label %15, label %34
+  
+  15:                                               ; preds = %8
+    br label %16
+  
+  16:                                               ; preds = %15
+    store i64 0, ptr %4, align 4
+    br label %17
+  
+  17:                                               ; preds = %16, %33
+    %18 = load i64, ptr %1, align 4
+    %19 = sub i64 %18, 1
+    %20 = load i64, ptr %4, align 4
+    %21 = icmp slt i64 %19, %20
+    %22 = zext i1 %21 to i64
+    %23 = icmp ne i64 %22, 0
+    br i1 %23, label %24, label %26
+  
+  24:                                               ; preds = %17
+    br label %25
+  
+  25:                                               ; preds = %24
+    ret void
+  
+  26:                                               ; preds = %17
+    %27 = load i64, ptr %4, align 4
+    %28 = load ptr, ptr %2, align 8
+    %29 = getelementptr i64, ptr %28, i64 %27
+    %30 = load i64, ptr %29, align 4
+    call void @TIG_printi(i64 %30)
+    call void @TIG_print(ptr @0)
+    %31 = load i64, ptr %4, align 4
+    %32 = add i64 %31, 1
+    store i64 %32, ptr %4, align 4
+    br label %33
+  
+  33:                                               ; preds = %26
+    br label %17
+  
+  34:                                               ; preds = %8
+    %35 = load i64, ptr %3, align 4
+    %36 = load ptr, ptr %2, align 8
+    %37 = getelementptr i64, ptr %36, i64 %35
+    %38 = load i64, ptr %3, align 4
+    store i64 %38, ptr %37, align 4
+    %39 = load i64, ptr %3, align 4
+    %40 = add i64 %39, 1
+    store i64 %40, ptr %3, align 4
+    br label %41
+  
+  41:                                               ; preds = %34
+    br label %8
+  }
+  
+  ; Function Attrs: nounwind
+  declare void @llvm.gcroot(ptr %0, ptr %1) #0
+  
+  declare ptr @TIG_makeintarray(i64 %0, i64 %1)
+  
+  declare void @TIG_printi(i64 %0)
+  
+  declare void @TIG_print(ptr %0)
+  
+  attributes #0 = { nounwind }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
+  
+  *** OUTPUT ***
+  0
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+  10
+  11
+  12
+  13
+  14
+  15
+  16
+  17
+  18
+  19
+  20
+  21
+  22
+  23
+  24
+  25
+  26
+  27
+  28
+  29
+  30
+  31
+  32
+  33
+  34
+  35
+  36
+  37
+  38
+  39
+  40
+  41
+  42
+  43
+  44
+  45
+  46
+  47
+  48
+  49
+  
+  *** END test013.tig ***
+  
+  
+  *** BEGIN test014.tig ***
+  
+  let
+    var a := 34
+  in
+    while a do a := if a then (break; 1) else 3
+  end
+  
+  
+  define void @TIG_main() gc "shadow-stack" {
+  entry:
+    %0 = alloca i64, align 8
+    %1 = alloca i64, align 8
+    store i64 34, ptr %1, align 4
+    br label %2
+  
+  2:                                                ; preds = %entry, %13
+    %3 = load i64, ptr %1, align 4
+    %4 = icmp ne i64 %3, 0
+    br i1 %4, label %5, label %14
+  
+  5:                                                ; preds = %2
+    %6 = load i64, ptr %1, align 4
+    %7 = icmp ne i64 %6, 0
+    br i1 %7, label %8, label %10
+  
+  8:                                                ; preds = %5
+    br label %9
+  
+  9:                                                ; preds = %14, %8
+    ret void
+  
+  10:                                               ; preds = %5
+    store i64 3, ptr %0, align 4
+    br label %11
+  
+  11:                                               ; preds = %10
+    %12 = load i64, ptr %0, align 4
+    store i64 %12, ptr %1, align 4
+    br label %13
+  
+  13:                                               ; preds = %11
+    br label %2
+  
+  14:                                               ; preds = %2
+    br label %9
+  }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
+  
+  *** OUTPUT ***
+  
+  *** END test014.tig ***
   

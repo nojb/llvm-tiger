@@ -1,2 +1,2 @@
 (cram
- (deps ../src/main.exe (glob_files *.tig)))
+ (deps ../src/main.exe (glob_files *.tig) ../runtime/runtime.c))
