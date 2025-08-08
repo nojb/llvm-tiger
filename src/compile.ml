@@ -105,8 +105,26 @@ let int64 env n next =
 let int env n next =
   int64 env (Int64.of_int n) next
 
+let string env s next =
+  op env (Imakestring s) [] next
+
 let null env next =
   op env Pnull [] next
+
+let nil_error env loc =
+  string env loc.filename @@ fun filename ->
+  int env loc.lineno @@ fun lineno ->
+  int env loc.column @@ fun column ->
+  op env
+    (Iexternal ("TIG_nil_error", ([|Tpointer; Tint 64; Tint 64|], Tvoid)))
+    [filename; lineno; column] (fun _ -> Iunreachable)
+
+let null_check env loc v next =
+  let lnext = label_instr env next in
+  let lnull = label_instr env (nil_error env loc) in
+  null env @@ fun z ->
+  op env (Pcmpint Ceq) [v; z] @@ fun c ->
+  Iifthenelse (c, lnull, lnext)
 
 let rec variable env v next =
   match v with
@@ -117,11 +135,12 @@ let rec variable env v next =
       expression env i @@ fun i ->
       load env Tpointer v @@ fun v ->
       op env (Pgep (type_id ty)) [v; i] next
-  | Vfield (tyl, v, i) ->
+  | Vfield (loc, tyl, v, i) ->
       variable env v @@ fun v ->
       int env i @@ fun i ->
       int env 0 @@ fun zero ->
       load env Tpointer v @@ fun v ->
+      null_check env loc v @@
       op env (Pgep (Tstruct (Array.map type_id tyl))) [v; zero; i] next
   | Vup _ ->
       assert false
@@ -131,7 +150,7 @@ and expression env (e : expression) (next : reg -> instruction) =
   | Eint n ->
       int64 env n next
   | Estring s ->
-      op env (Imakestring s) [] next
+      string env s next
   | Enil ->
       null env next
   | Evar (tid, v) ->

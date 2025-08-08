@@ -58,6 +58,7 @@ type instruction =
   | Iifthenelse of reg * label * label
   | Igoto of label
   | Ireturn of reg option
+  | Iunreachable
 
 type program =
   {
@@ -106,7 +107,6 @@ let print_operation ppf op args _res =
       fprintf ppf "cmp"
   | Ialloca (ty, _), [x] ->
       fprintf ppf "x%i = alloca %a" x print_typ ty
-  | Iapply (f), [x]
   | Iexternal (f, _), [x] ->
       fprintf ppf "x%i = %s(%a)" x f print_args args
   | _ ->
@@ -136,6 +136,8 @@ let rec print_instruction ppf i =
         None
     | Ireturn (Some arg) ->
         fprintf ppf "ret x%i" arg;
+        None
+    | Iunreachable ->
         None
   in
   match next with
@@ -291,6 +293,8 @@ let rec transl_instr env m b i =
       ignore (build_ret (find_var env arg) b)
   | Ireturn None ->
       ignore (build_ret_void b)
+  | Iunreachable ->
+      ignore (build_unreachable b)
 
 and transl_block env m lbl =
   match Label.Tbl.find_opt env.blocks lbl with

@@ -75,6 +75,13 @@ intptr_t* TIG_makerecord(ssize_t n)
   return calloc(n, sizeof(intptr_t));
 }
 
+void TIG_nil_error(char *filename, intptr_t lineno, intptr_t column)
+{
+  fprintf(stderr, "%s:%ld:%ld: variable is nil\n", filename, lineno, column);
+  fflush(stderr);
+  exit(2);
+}
+
 extern void TIG_main(void);
 
 int main(int argc, char **argv)

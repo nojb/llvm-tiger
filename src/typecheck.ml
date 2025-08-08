@@ -183,6 +183,13 @@ let add_types env xts =
   in
   {env with tenv}
 
+let loc_of_variable v =
+  {
+    filename = v.loc.pos_fname;
+    lineno = v.loc.pos_lnum;
+    column = v.loc.pos_cnum - v.loc.pos_bol + 1;
+  }
+
 let rec statement env e =
   let s, e = expression env e in
   match e with
@@ -229,7 +236,8 @@ and variable env v : statement * type_id * variable =
         loop 0 xts
       in
       let typ = Array.of_list (List.map snd xts) in
-      s, tx, Vfield (typ, v', i)
+      let loc = loc_of_variable v in
+      s, tx, Vfield (loc, typ, v', i)
 
 and declarations env ds : statement * env =
   match ds with

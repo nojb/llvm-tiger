@@ -31,10 +31,17 @@ and type_id =
 type signature =
   type_id list * type_id option
 
+type loc =
+  {
+    filename: string;
+    lineno: int;
+    column: int;
+  }
+
 type variable =
   | Vsimple of ident
   | Vsubscript of type_id * variable * expression
-  | Vfield of type_id array * variable * int
+  | Vfield of loc * type_id array * variable * int
   | Vup of int * int
 
 and expression =

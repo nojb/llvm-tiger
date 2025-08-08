@@ -55,6 +55,7 @@ type instruction =
   | Iifthenelse of reg * label * label
   | Igoto of label
   | Ireturn of reg option
+  | Iunreachable
 
 type program =
   {
