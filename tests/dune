@@ -1,0 +1,2 @@
+(cram
+ (deps ../src/main.exe (glob_files *.tig)))
