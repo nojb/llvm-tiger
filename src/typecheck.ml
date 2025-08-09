@@ -292,7 +292,15 @@ and expression' env e (ty : type_id) : statement * expression =
       let s, e' = expression env e in
       match e' with
       | None -> raise (Error {e with desc = Missing_value})
-      | Some (ty', e') -> if ty = ty' then s, e' else failwith "type error"
+      | Some (ty', e') ->
+          let ok =
+            match ty, ty' with
+            | Tint, Tint | Tstring, Tstring -> true
+            | Tconstr cstr1, Tconstr cstr2 -> Ident.equal cstr1 cstr2
+            | _ -> false
+          in
+          if not ok then failwith "type error";
+          s, e'
 
 and expression'' env e : statement * type_id * expression =
   match expression env e with
