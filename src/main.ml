@@ -7,14 +7,16 @@ let () =
 let () =
   Llvm_all_backends.initialize ()
 
+let target_machine =
+  let triple = Llvm_target.Target.default_triple () in
+  let target = Llvm_target.Target.by_triple triple in
+  Llvm_target.TargetMachine.create ~triple ~reloc_mode:PIC target
+
 let opt m =
   if !opt_level <= 0 then m
   else begin
     let passes = ["mem2reg"] in
     let passes = if !opt_level >= 2 then "gvn" :: "adce" :: passes else passes in
-    let triple = Llvm_target.Target.default_triple () in
-    let target = Llvm_target.Target.by_triple triple in
-    let target_machine = Llvm_target.TargetMachine.create ~triple target in
     let options = Llvm_passbuilder.create_passbuilder_options () in
     let res = Llvm_passbuilder.run_passes m (String.concat "," passes) target_machine options in
     Llvm_passbuilder.dispose_passbuilder_options options;
@@ -28,9 +30,13 @@ let lexbuf_from_file fn =
   lexbuf.Lexing.lex_curr_p <- {lexbuf.Lexing.lex_curr_p with Lexing.pos_fname = fn};
   lexbuf
 
-let write_bitcode_file fn m =
-  let _ = Llvm_bitwriter.write_bitcode_file m (Filename.chop_extension fn ^ ".bc") in
+let write_object fn m =
+  Llvm_target.TargetMachine.emit_to_file m ObjectFile (Filename.chop_extension fn ^ ".o") target_machine;
   m
+
+(* let write_bitcode_file fn m =
+   let _ = Llvm_bitwriter.write_bitcode_file m (Filename.chop_extension fn ^ ".bc") in
+   m *)
 
 let dump m =
   if !dump_llvm then Llvm.dump_module m;
@@ -55,7 +61,7 @@ let compile_file fn =
   |> Irep.transl_program
   |> opt
   |> dump
-  |> write_bitcode_file fn
+  |> write_object fn
   |> Llvm.dispose_module
 
 let format_file fn =

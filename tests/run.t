@@ -4,7 +4,7 @@
   >   echo; echo "*** BEGIN $1 ***"; echo
   >   cat $1; echo
   >   if $tc -dllvm -O0 $1; then
-  >     if $clang ${1%.tig}.bc ../runtime/runtime.c -o ${1%.tig}.exe; then
+  >     if $clang ${1%.tig}.o ../runtime/runtime.c -o ${1%.tig}.exe; then
   >       echo; echo "*** OUTPUT ***"
   >       ./${1%.tig}.exe
   >     fi
@@ -33,8 +33,6 @@
   }
   
   declare void @TIG_printi(i64 %0)
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   24
@@ -60,8 +58,6 @@
   }
   
   declare void @TIG_printi(i64 %0)
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   42
@@ -128,8 +124,6 @@
   }
   
   declare void @TIG_printi(i64 %0)
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   -1869596475
@@ -155,8 +149,6 @@
     store i64 %2, ptr %0, align 4
     ret void
   }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   
@@ -191,8 +183,6 @@
   7:                                                ; preds = %entry
     br label %6
   }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   
@@ -236,8 +226,6 @@
   declare void @TIG_printi(i64 %0)
   
   attributes #0 = { nounwind }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   42
@@ -375,8 +363,6 @@
   declare void @TIG_printi(i64 %0)
   
   attributes #0 = { nounwind }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   PRIMES AT MOST 500
@@ -398,8 +384,6 @@
   }
   
   declare void @TIG_print(ptr %0)
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   Hello, World!
@@ -480,8 +464,6 @@
   declare void @TIG_printi(i64 %0)
   
   attributes #0 = { nounwind }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   # GC roots: 3
@@ -531,8 +513,6 @@
   declare void @TIG_printi(i64 %0)
   
   attributes #0 = { nounwind }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   test010.tig:5:10: variable is nil
@@ -575,10 +555,8 @@
   declare ptr @TIG_makeptrarray(i64 %0, ptr %1)
   
   attributes #0 = { nounwind }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
-  /usr/bin/ld: /tmp/build_fdda9f_dune/test011-b8281c.o: in function `TIG_main':
-  :(.text+0x56): undefined reference to `TIG_makeptrarray'
+  /usr/bin/ld: test011.o: in function `TIG_main':
+  :(.text+0x3f): undefined reference to `TIG_makeptrarray'
   clang-18: error: linker command failed with exit code 1 (use -v to see invocation)
   
   *** END test011.tig ***
@@ -638,10 +616,8 @@
   declare void @TIG_printi(i64 %0)
   
   attributes #0 = { nounwind }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
-  /usr/bin/ld: /tmp/build_fdda9f_dune/test012-f41b94.o: in function `TIG_main':
-  :(.text+0x8f): undefined reference to `TIG_makeptrarray'
+  /usr/bin/ld: test012.o: in function `TIG_main':
+  :(.text+0x60): undefined reference to `TIG_makeptrarray'
   clang-18: error: linker command failed with exit code 1 (use -v to see invocation)
   
   *** END test012.tig ***
@@ -755,8 +731,6 @@
   declare void @TIG_print(ptr %0)
   
   attributes #0 = { nounwind }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   0
@@ -861,8 +835,6 @@
   14:                                               ; preds = %2
     br label %9
   }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   
@@ -926,8 +898,6 @@
   entry:
     ret void
   }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   
@@ -1035,8 +1005,6 @@
   declare ptr @TIG_makerecord(i32 %0)
   
   attributes #0 = { nounwind }
-  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
-  1 warning generated.
   
   *** OUTPUT ***
   # GC roots: 2
