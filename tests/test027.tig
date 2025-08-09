@@ -1,0 +1,5 @@
+let
+  var x := 42
+  var y := (x := 0)
+in
+end

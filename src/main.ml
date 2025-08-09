@@ -47,19 +47,16 @@ let parse_program lexbuf =
     raise (Syntax_error (start_pos, end_pos))
 
 let compile_file fn =
-  try
-    fn
-    |> lexbuf_from_file
-    |> parse_program
-    |> Typecheck.program
-    |> Compile.program
-    |> Irep.transl_program
-    |> opt
-    |> dump
-    |> write_bitcode_file fn
-    |> Llvm.dispose_module
-  with Error.Error (p, msg) ->
-    Error.report_error p msg
+  fn
+  |> lexbuf_from_file
+  |> parse_program
+  |> Typecheck.program
+  |> Compile.program
+  |> Irep.transl_program
+  |> opt
+  |> dump
+  |> write_bitcode_file fn
+  |> Llvm.dispose_module
 
 let format_file fn =
   let lexbuf = lexbuf_from_file fn in
@@ -105,7 +102,12 @@ let () =
       let column = start_pos.Lexing.pos_cnum - start_pos.Lexing.pos_bol + 1 in
       Printf.eprintf "%s:%i:%i: syntax error\n%!" sourcefile lineno column;
       exit 2
+  | Typecheck.Error {loc; desc} ->
+      Printf.eprintf "error: %s:%i:%i: %s\n%!"
+        loc.Lexing.pos_fname loc.Lexing.pos_lnum
+        (loc.Lexing.pos_cnum - loc.Lexing.pos_bol + 1) (Typecheck.string_of_error desc);
+      exit 3
   | exn ->
       Printf.eprintf "%s: unexpected error\n\n%s\n%!" program_name (Printexc.to_string exn);
       Printexc.print_backtrace stderr;
-      exit 3
+      exit 4

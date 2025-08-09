@@ -1,6 +1,8 @@
 {
   open Parser
 
+  exception Error of Lexing.position * string
+
   let str_buf = Buffer.create 20;;
   let keywords = Hashtbl.create 10;;
 
@@ -87,7 +89,7 @@ rule token = parse
   | eof
   { EOF }
   | _
-  { raise (Error.Error (lexbuf.Lexing.lex_curr_p, "lexer error")) }
+  { raise (Error (lexbuf.Lexing.lex_curr_p, "lexer error")) }
 
 and string = parse
   | '"'

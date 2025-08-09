@@ -1,4 +1,3 @@
-open Error
 open Typing
 open Tabs
 
@@ -23,13 +22,6 @@ type env =
     next_ident: Ident.state;
   }
 
-let type_eq tid1 tid2 =
-  match tid1, tid2 with
-  | Tint, Tint
-  | Tstring, Tstring -> true
-  | Tconstr s1, Tconstr s2 -> Ident.equal s1 s2
-  | _ -> false
-
 let empty_env venv tenv =
   { vars = Hashtbl.create 0;
     cstr = Hashtbl.create 0;
@@ -43,23 +35,67 @@ type error =
   | Unknown_function of string
   | Unknown_type_name of string
   | Wrong_arity of int * int
+  | Duplicate_type_name of string
+  | Not_a_statement
+  | Not_a_record of type_id
+  | Not_an_array of type_id
+  | Missing_field of string
+  | Illegal_nil
+  | Illegal_break
+  | Missing_value
+  | Wrong_number_of_fields of int * int
+  | Unexpected_field_name of string
 
-exception Error of Lexing.position * error
+let string_of_error = function
+  | Unbound_variable s -> Printf.sprintf "unknown variable `%s'" s
+  | Unknown_function s -> Printf.sprintf "unknown function `%s'" s
+  | Unknown_type_name s -> Printf.sprintf "unknown type name `%s'" s
+  | Wrong_arity (expected, actual) -> Printf.sprintf "wrong number of arguments: expected %i, got %i" expected actual
+  | Duplicate_type_name s -> Printf.sprintf "repeated type name `%s'" s
+  | Not_a_statement -> "this expression should not produce a value"
+  | Not_a_record _ -> "this expression does not belong to a record type"
+  | Not_an_array _ -> "this expression does not belong to an array type"
+  | Missing_field s -> Printf.sprintf "unknown record field `%s'" s
+  | Illegal_nil -> Printf.sprintf "`nil' cannot appear here"
+  | Illegal_break -> Printf.sprintf "`break' cannot appear here"
+  | Missing_value -> Printf.sprintf "value-producing expression was expected here"
+  | Wrong_number_of_fields (expected, actual) -> Printf.sprintf "wrong number of fields: expected %i, got %i" expected actual
+  | Unexpected_field_name s -> Printf.sprintf "unexpected record field name `%s'" s
+
+exception Error of error loc
 
 let find_var id env =
   match StringMap.find_opt id.desc env.venv with
   | Some (Var (tid, id)) -> tid, id
-  | Some (Fun _) | None -> raise (Error (id.loc, Unbound_variable id.desc))
+  | Some (Fun _) | None -> raise (Error {id with desc = Unbound_variable id.desc})
 
 let find_fun id env =
   match StringMap.find_opt id.desc env.venv with
   | Some (Fun (sign, impl)) -> sign, impl
-  | Some (Var _) | None -> raise (Error (id.loc, Unknown_function id.desc))
+  | Some (Var _) | None -> raise (Error {id with desc = Unknown_function id.desc})
 
 let find_type env id =
   match StringMap.find_opt id.desc env.tenv with
   | Some tid -> tid
-  | None -> raise (Error (id.loc, Unknown_type_name id.desc))
+  | None -> raise (Error {id with desc = Unknown_type_name id.desc})
+
+let get_record_type env loc = function
+  | Tconstr tid as ty ->
+      begin match Hashtbl.find env.cstr tid with
+      | Trecord fields -> fields
+      | Tarray _ -> raise (Error {loc; desc = Not_a_record ty})
+      end
+  | ty ->
+      raise (Error {loc; desc = Not_a_record ty})
+
+let get_array_type env loc = function
+  | Tconstr tid as ty ->
+      begin match Hashtbl.find env.cstr tid with
+      | Tarray tid -> tid
+      | Trecord _ -> raise (Error {loc; desc = Not_an_array ty})
+      end
+  | ty ->
+      raise (Error {loc; desc = Not_an_array ty})
 
 let add_var env (x : ident) tid =
   let id = Ident.create env.next_ident x.desc in
@@ -70,14 +106,6 @@ let add_fresh_var env tid =
   let id = Ident.create env.next_ident "tmp" in
   Hashtbl.add env.vars id tid;
   Typing.Vsimple id
-
-(* let mem_var x env =
-   try
-    match M.find x env.venv with
-    | Variable _ -> true
-    | Function _ -> false
-   with Not_found ->
-    false *)
 
 (* let add_fun x uid atyps rtyp free_vars env =
    let fi = { name = uid; sign = atyps, rtyp } in
@@ -91,24 +119,6 @@ let add_fresh_var env tid =
    with Not_found ->
     error x.p "unbound function '%s'" x.s *)
 
-(* let find_type x env =
-   try
-    M.find x.s env.tenv
-   with Not_found ->
-    error x.p "unbound type '%s'" x.s *)
-
-(* let find_array_type x env =
-   match find_type x env with
-   | {tdesc = {contents = ARRAY t'}; _} as t -> t, t'
-   | _ as t ->
-      error x.p "expected '%s' to be of array type, but is '%s'" x.s t.tname
-
-   let find_record_type env x =
-   match find_type x env with
-   | {tdesc = {contents = RECORD xts}; _} as t -> t, xts
-   | _ as t ->
-      error x.p "expected '%s' to be of record type, but is '%s'" x.s t.tname *)
-
 let has_duplicate (type a) (f : a -> 'b) (l : a list) =
   let exception Found of a in
   let h = Hashtbl.create 0 in
@@ -121,13 +131,13 @@ let has_duplicate (type a) (f : a -> 'b) (l : a list) =
   | () -> None
   | exception Found x -> Some x
 
-let check_unique f xts s =
+let check_unique_type_name f xts =
   match has_duplicate f xts with
   | None -> ()
-  | Some (x, _) -> error x.loc "duplicate %s: %s" s x.desc
+  | Some (x, _) -> raise (Error {x with desc = Duplicate_type_name x.desc})
 
 let add_types env xts =
-  check_unique fst xts "type name";
+  check_unique_type_name fst xts;
   let constrs, xts' =
     List.fold_left (fun (constrs, xts) (name, ty) ->
         match ty with
@@ -156,10 +166,7 @@ let add_types env xts =
           | Some tid -> tid
           end
       | Some (Tarray _ | Trecord _) ->
-          begin match StringMap.find_opt name constrs with
-          | Some tconstr -> tconstr
-          | None -> assert false
-          end
+          StringMap.find name constrs
       | Some Tname s ->
           loop s.desc
     in
@@ -191,10 +198,10 @@ let loc_of_variable v =
   }
 
 let rec statement env e =
-  let s, e = expression env e in
-  match e with
+  let s, e' = expression env e in
+  match e' with
   | None -> s
-  | Some _ -> failwith "type error"
+  | Some _ -> raise (Error {e with desc = Not_a_statement})
 
 and variable env v : statement * type_id * variable =
   match v.desc with
@@ -203,33 +210,15 @@ and variable env v : statement * type_id * variable =
       Sskip, tid, Vsimple id
   | Vsubscript (v, x) ->
       let s1, ty, v' = variable env v in
-      let t' =
-        match ty with
-        | Tconstr tid ->
-            begin match Hashtbl.find env.cstr tid with
-            | Tarray tid -> tid
-            | Trecord _ -> error v.loc "expected variable of array type"
-            end
-        | _ ->
-            error v.loc "expected variable of array type"
-      in
+      let t' = get_array_type env v.loc ty in
       let s2, x = expression' env x Tint in
       seq s1 s2, t', Vsubscript (t', v', x)
   | Vfield (v, x) ->
       let s, ty, v' = variable env v in
-      let xts =
-        match ty with
-        | Tconstr tid ->
-            begin match Hashtbl.find env.cstr tid with
-            | Trecord fields -> fields
-            | Tarray _ -> error v.loc "expected variable of record type"
-            end
-        | _ ->
-            error v.loc "expected variable of record type"
-      in
+      let xts = get_record_type env v.loc ty in
       let i, tx =
         let rec loop i = function
-          | [] -> error x.loc "record type does not contain field"
+          | [] -> raise (Error {x with desc = Missing_field x.desc})
           | (x', t') :: _xs when x' = x.desc -> i, t'
           | _ :: xs -> loop (i+1) xs
         in
@@ -269,18 +258,12 @@ and declarations env ds : statement * env =
 and expression' env e (ty : type_id) : statement * expression =
   match e.desc with
   | Enil ->
-      begin match ty with
-      | Tconstr tid ->
-          begin match Hashtbl.find env.cstr tid with
-          | Trecord _ -> Sskip, Enil
-          | Tarray _ -> assert false
-          end
-      | _ ->
-          assert false
-      end
+      let _ = get_record_type env e.loc ty in
+      Sskip, Enil
   | Eseq el ->
       let rec loop = function
-        | [] -> failwith "type error"
+        | [] ->
+            raise (Error {e with desc = Missing_value})
         | [e] ->
             expression' env e ty
         | e :: el ->
@@ -300,15 +283,15 @@ and expression' env e (ty : type_id) : statement * expression =
       let s2, e = expression' env e ty in
       seq s1 s2, e
   | _ ->
-      let s, e = expression env e in
-      match e with
-      | None -> s, failwith "type error"
+      let s, e' = expression env e in
+      match e' with
+      | None -> raise (Error {e with desc = Missing_value})
       | Some (ty', e') -> if ty = ty' then s, e' else failwith "type error"
 
 and expression'' env e : statement * type_id * expression =
   match expression env e with
   | s, Some (ty, e) -> s, ty, e
-  | _, None -> failwith "type error"
+  | _, None -> raise (Error {e with desc = Missing_value})
 
 and expression env e : statement * (type_id * expression) option =
   match e.desc with
@@ -317,9 +300,7 @@ and expression env e : statement * (type_id * expression) option =
   | Estring s ->
       Sskip, Some (Tstring, Estring s)
   | Enil ->
-      error e.loc
-        "'nil' should be used in a context where \
-         its type can be determined"
+      raise (Error {e with desc = Illegal_nil})
   | Evar v ->
       let s, t, v = variable env v in
       s, Some (t, Evar (t, v))
@@ -351,7 +332,7 @@ and expression env e : statement * (type_id * expression) option =
       let (args, res) as sign, impl = find_fun fn env in
       let num_expected = List.length args in
       let num_actual = List.length params in
-      if num_expected <> num_actual then raise (Error (fn.loc, Wrong_arity (num_expected, num_actual)));
+      if num_expected <> num_actual then raise (Error {fn with desc = Wrong_arity (num_expected, num_actual)});
       let s, params =
         List.fold_left2 (fun (s, el) arg param -> let s', e' = expression' env param arg in seq s s', e' :: el)
           (Sskip, []) args params
@@ -366,33 +347,22 @@ and expression env e : statement * (type_id * expression) option =
           seq s s', e
         ) (Sskip, None) el
   | Earray (ty, e1, e2) ->
-      let ty, elty =
-        match find_type env ty with
-        | Tconstr id as ty ->
-            begin match Hashtbl.find env.cstr id with
-            | Tarray tid -> ty, tid
-            | Trecord _ -> assert false
-            end
-        | _ -> assert false
-      in
+      let ty = find_type env ty in
+      let elty = get_array_type env e.loc ty in
       let s1, size = expression' env e1 Tint in
       let s2, init = expression' env e2 elty in
       let v = add_fresh_var env ty in
       seq s1 (seq s2 (Sarray (v, size, elty, init))), Some (ty, Evar (ty, v))
   | Erecord (ty, fl) ->
-      let ty, ftyl =
-        match find_type env ty with
-        | Tconstr id as ty ->
-            begin match Hashtbl.find env.cstr id with
-            | Tarray _ -> assert false
-            | Trecord fields -> ty, fields
-            end
-        | _ -> assert false
-      in
-      if List.length ftyl <> List.length fl then assert false;
+      let ty = find_type env ty in
+      let ftyl = get_record_type env e.loc ty in
+      let num_expected = List.length ftyl in
+      let num_actual = List.length fl in
+      if num_expected <> num_actual then
+        raise (Error {e with desc = Wrong_number_of_fields (num_expected, num_actual)});
       let s, tfl =
         List.fold_left2 (fun (s, el) (name, e) (name', ty) ->
-            if name.desc <> name' then assert false;
+            if name.desc <> name' then raise (Error {name with desc = Unexpected_field_name name'});
             let s', e = expression' env e ty in
             seq s s', e :: el
           ) (Sskip, []) fl ftyl
@@ -402,20 +372,22 @@ and expression env e : statement * (type_id * expression) option =
       seq s (Srecord (v, Array.of_list (List.map snd ftyl), tfl)), Some (ty, Evar (ty, v))
   | Eif (e1, e2, e3) ->
       let s1, e1 = expression' env e1 Tint in
-      let s2, e2 = expression env e2 in
-      let s3, e3 =
-        match e3 with
-        | None -> Sskip, None
-        | Some e3 -> expression env e3
+      let s2, e2' = expression env e2 in
+      let s, e =
+        match e2', e3 with
+        | Some _, None ->
+            raise (Error {e2 with desc = Not_a_statement})
+        | None, None ->
+            Sifthenelse (e1, s2, Sskip), None
+        | None, Some e3 ->
+            Sifthenelse (e1, s2, statement env e3), None
+        | Some (t2, e2), Some e3 ->
+            let s3, e3 = expression' env e3 t2 in
+            let v = add_fresh_var env t2 in
+            Sifthenelse (e1, seq s2 (Sassign (v, e2)), seq s3 (Sassign (v, e3))),
+            Some (t2, Typing.Evar (t2, v))
       in
-      begin match e2, e3 with
-      | None, None -> seq s1 (Sifthenelse (e1, s2, s3)), None
-      | Some _, None | None, Some _ -> failwith "type error"
-      | Some (t2, e2), Some (t3, e3) ->
-          if not (type_eq t2 t3) then failwith "type error";
-          let v = add_fresh_var env t2 in
-          seq s1 (Sifthenelse (e1, seq s2 (Sassign (v, e2)), seq s3 (Sassign (v, e3)))), Some (t2, Evar (t2, v))
-      end
+      seq s1 s, e
   | Ewhile (e1, e2) ->
       let s1, e1 = expression' env e1 Tint in
       let s2 = statement {env with loop = true} e2 in
@@ -432,7 +404,7 @@ and expression env e : statement * (type_id * expression) option =
       in
       seq s1 (seq s2 (seq (Sassign (i, e1)) loop)), None
   | Ebreak ->
-      if not env.loop then error e.loc "illegal use of 'break'";
+      if not env.loop then raise (Error {e with desc = Illegal_break});
       Sbreak, None
   | Elet (ds, e) ->
       let s1, env = declarations env ds in
@@ -454,8 +426,6 @@ let stdlib =
 
 (* let stdlib =
    [
-    "print" , [Tstring], None;
-    "printi", [Tint], None;
     "flush", [], None;
     "getchar", [], Some Tstring;
     "ord", [Tstring], Some Tint;

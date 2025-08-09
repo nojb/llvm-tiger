@@ -1,0 +1,5 @@
+let
+  var x := 43
+in
+  printi(x[18])
+end

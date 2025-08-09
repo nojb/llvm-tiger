@@ -1,0 +1,5 @@
+let
+  type t = {x: int}
+  var x := t { y = 42 }
+in
+end

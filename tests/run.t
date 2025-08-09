@@ -2,7 +2,7 @@
   $ clang=clang-18
   $ compile() {
   >   echo; echo "*** BEGIN $1 ***"; echo
-  >   cat $1
+  >   cat $1; echo
   >   if $tc -dllvm -O0 $1; then
   >     if $clang ${1%.tig}.bc ../runtime/runtime.c -o ${1%.tig}.exe; then
   >       echo; echo "*** OUTPUT ***"
@@ -16,6 +16,7 @@
   *** BEGIN test001.tig ***
   
   let var x := 12 var y := x + x in printi(y) end
+  
   
   define void @TIG_main() gc "shadow-stack" {
   entry:
@@ -48,6 +49,7 @@
   in
     printi(x)
   end
+  
   define void @TIG_main() gc "shadow-stack" {
   entry:
     %0 = alloca i64, align 8
@@ -77,6 +79,7 @@
       (let var x2 := x0 + x1 in x0 := x1; x1 := x2 end);
     printi(x1)
   end
+  
   define void @TIG_main() gc "shadow-stack" {
   entry:
     %0 = alloca i64, align 8
@@ -141,6 +144,7 @@
   in
     y := x
   end
+  
   define void @TIG_main() gc "shadow-stack" {
   entry:
     %0 = alloca i64, align 8
@@ -166,6 +170,7 @@
   in
     if x > 12 then x := 0
   end
+  
   define void @TIG_main() gc "shadow-stack" {
   entry:
     %0 = alloca i64, align 8
@@ -202,6 +207,7 @@
   in
     printi(x[3])
   end
+  
   
   define void @TIG_main() gc "shadow-stack" {
   entry:
@@ -254,6 +260,7 @@
     );
     print("\n")
   end
+  
   @0 = private unnamed_addr constant [16 x i8] c"PRIMES AT MOST \00", align 1
   @1 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
   @2 = private unnamed_addr constant [2 x i8] c" \00", align 1
@@ -381,6 +388,7 @@
   *** BEGIN test008.tig ***
   
   print("Hello, World!\n")
+  
   @0 = private unnamed_addr constant [15 x i8] c"Hello, World!\0A\00", align 1
   
   define void @TIG_main() gc "shadow-stack" {
@@ -407,6 +415,7 @@
   in
     printi(x.tl.hd)
   end
+  
   
   @0 = private unnamed_addr constant [12 x i8] c"test009.tig\00", align 1
   
@@ -490,6 +499,7 @@
     printi(x.hd)
   end
   
+  
   @0 = private unnamed_addr constant [12 x i8] c"test010.tig\00", align 1
   
   define void @TIG_main() gc "shadow-stack" {
@@ -540,6 +550,7 @@
     a[3] := nil
   end
   
+  
   define void @TIG_main() gc "shadow-stack" {
   entry:
     %0 = alloca ptr, align 8
@@ -566,7 +577,7 @@
   attributes #0 = { nounwind }
   warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
   1 warning generated.
-  /usr/bin/ld: /tmp/build_fb0684_dune/test011-c5a55d.o: in function `TIG_main':
+  /usr/bin/ld: /tmp/build_e3f4e1_dune/test011-82feda.o: in function `TIG_main':
   :(.text+0x56): undefined reference to `TIG_makeptrarray'
   clang-18: error: linker command failed with exit code 1 (use -v to see invocation)
   
@@ -583,6 +594,7 @@
     a[3][5] := 123;
     printi(a[3][5])
   end
+  
   
   define void @TIG_main() gc "shadow-stack" {
   entry:
@@ -628,7 +640,7 @@
   attributes #0 = { nounwind }
   warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
   1 warning generated.
-  /usr/bin/ld: /tmp/build_fb0684_dune/test012-18c0d4.o: in function `TIG_main':
+  /usr/bin/ld: /tmp/build_e3f4e1_dune/test012-535d67.o: in function `TIG_main':
   :(.text+0x8f): undefined reference to `TIG_makeptrarray'
   clang-18: error: linker command failed with exit code 1 (use -v to see invocation)
   
@@ -648,6 +660,7 @@
       printi (a[i]); print ("\n")
     )
   end
+  
   
   @0 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
   
@@ -809,6 +822,7 @@
   end
   
   
+  
   define void @TIG_main() gc "shadow-stack" {
   entry:
     %0 = alloca i64, align 8
@@ -853,4 +867,214 @@
   *** OUTPUT ***
   
   *** END test014.tig ***
+  
+  
+  *** BEGIN test015.tig ***
+  
+  let
+    var x := 42
+  in
+    printi(y)
+  end
+  
+  error: test015.tig:4:10: unknown variable `y'
+  
+  *** END test015.tig ***
+  
+  
+  *** BEGIN test016.tig ***
+  
+  f(42)
+  
+  error: test016.tig:1:1: unknown function `f'
+  
+  *** END test016.tig ***
+  
+  
+  *** BEGIN test017.tig ***
+  
+  t { hd = 42 }
+  
+  error: test017.tig:1:1: unknown type name `t'
+  
+  *** END test017.tig ***
+  
+  
+  *** BEGIN test018.tig ***
+  
+  printi(42, 56)
+  
+  error: test018.tig:1:1: wrong number of arguments: expected 1, got 2
+  
+  *** END test018.tig ***
+  
+  
+  *** BEGIN test019.tig ***
+  
+  let
+    type t = string
+    type t = int
+  in
+  end
+  
+  define void @TIG_main() gc "shadow-stack" {
+  entry:
+    ret void
+  }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
+  
+  *** OUTPUT ***
+  
+  *** END test019.tig ***
+  
+  
+  *** BEGIN test020.tig ***
+  
+  while 1 do
+    43
+  error: test020.tig:2:3: this expression should not produce a value
+  
+  *** END test020.tig ***
+  
+  
+  *** BEGIN test021.tig ***
+  
+  let
+    var x := 42
+  in
+    printi(x.r)
+  end
+  
+  error: test021.tig:4:10: this expression does not belong to a record type
+  
+  *** END test021.tig ***
+  
+  
+  *** BEGIN test022.tig ***
+  
+  let
+    var x := 43
+  in
+    printi(x[18])
+  end
+  
+  error: test022.tig:4:10: this expression does not belong to an array type
+  
+  *** END test022.tig ***
+  
+  
+  *** BEGIN test023.tig ***
+  
+  let
+    type t = {x: int}
+    var x := t { y = 42 }
+  in
+  end
+  
+  error: test023.tig:3:16: unexpected record field name `x'
+  
+  *** END test023.tig ***
+  
+  
+  *** BEGIN test024.tig ***
+  
+  let
+    var x := nil
+  in
+  end
+  
+  error: test024.tig:2:12: `nil' cannot appear here
+  
+  *** END test024.tig ***
+  
+  
+  *** BEGIN test025.tig ***
+  
+  let
+    type t = { a : int }
+    var x := t { a = 42 }
+  in
+    x := nil
+  end
+  
+  
+  define void @TIG_main() gc "shadow-stack" {
+  entry:
+    %0 = alloca ptr, align 8
+    store ptr null, ptr %0, align 8
+    call void @llvm.gcroot(ptr %0, ptr null)
+    %1 = alloca ptr, align 8
+    store ptr null, ptr %1, align 8
+    call void @llvm.gcroot(ptr %1, ptr null)
+    %2 = call ptr @TIG_makerecord(i32 1)
+    %3 = getelementptr { i64 }, ptr %2, i64 0, i64 0
+    store i64 42, ptr %3, align 4
+    store ptr %2, ptr %1, align 8
+    %4 = load ptr, ptr %1, align 8
+    store ptr %4, ptr %0, align 8
+    store ptr null, ptr %0, align 8
+    ret void
+  }
+  
+  ; Function Attrs: nounwind
+  declare void @llvm.gcroot(ptr %0, ptr %1) #0
+  
+  declare ptr @TIG_makerecord(i32 %0)
+  
+  attributes #0 = { nounwind }
+  warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
+  1 warning generated.
+  
+  *** OUTPUT ***
+  # GC roots: 2
+  
+  *** END test025.tig ***
+  
+  
+  *** BEGIN test026.tig ***
+  
+  break
+  error: test026.tig:1:1: `break' cannot appear here
+  
+  *** END test026.tig ***
+  
+  
+  *** BEGIN test027.tig ***
+  
+  let
+    var x := 42
+    var y := (x := 0)
+  in
+  end
+  
+  error: test027.tig:3:12: value-producing expression was expected here
+  
+  *** END test027.tig ***
+  
+  
+  *** BEGIN test028.tig ***
+  
+  let
+    type t = {a : int, b : string}
+    var x := t{a = 42}
+  in
+  end
+  
+  error: test028.tig:3:12: wrong number of fields: expected 2, got 1
+  
+  *** END test028.tig ***
+  
+  
+  *** BEGIN test029.tig ***
+  
+  let
+    type t = {a: int}
+    var x := t{b = 42}
+  in
+  end
+  
+  error: test029.tig:3:14: unexpected record field name `a'
+  
+  *** END test029.tig ***
   

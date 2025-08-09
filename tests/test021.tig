@@ -1,0 +1,5 @@
+let
+  var x := 42
+in
+  printi(x.r)
+end
