@@ -2,13 +2,13 @@ open Llvm
 
 type ty =
   | Tvoid
-  | Tstruct of ty array
+  | Tstruct of ty list
   | Tarray of ty * int
   | Tnamed of string
   | Tpointer
   | Tint of int
 
-type signature = ty array * ty
+type signature = ty list * ty
 
 type array_kind =
   | Int | Pointer
@@ -104,7 +104,7 @@ let rec transl_ty env ty =
   | Tarray (ty, len) ->
       array_type (transl_ty env ty) len
   | Tstruct tys ->
-      struct_type env.c (Array.map (transl_ty env) tys)
+      struct_type env.c (Array.of_list (List.map (transl_ty env) tys))
   | Tnamed name ->
       named_struct_type env.c name
   | Tpointer ->
@@ -166,7 +166,7 @@ let transl_operation env op args =
       assert false
   (* [|build_call _ f arg "" b|] *)
   | Iexternal (f, (tys, ty)), args ->
-      let lltype = function_type (transl_ty env ty) (Array.map (transl_ty env) tys) in
+      let lltype = function_type (transl_ty env ty) (Array.of_list (List.map (transl_ty env) tys)) in
       let f = declare_function f lltype env.m in
       build_call lltype f (Array.of_list args) "" env.b
   | Imakearray ty, [size; init] ->

@@ -1,0 +1,12 @@
+tc: unexpected error
+
+File "src/typecheck.ml", line 200, characters 2-8: Assertion failed
+Raised at Dune__exe__Typecheck.add_functions in file "src/typecheck.ml", line 200, characters 2-14
+Called from Dune__exe__Typecheck.declarations in file "src/typecheck.ml", line 269, characters 19-44
+Called from Dune__exe__Typecheck.expression in file "src/typecheck.ml", line 435, characters 20-39
+Called from Dune__exe__Typecheck.statement in file "src/typecheck.ml", line 210, characters 14-30
+Called from Dune__exe__Typecheck.program in file "src/typecheck.ml", line 471, characters 13-33
+Called from Dune__exe__Main.compile_file in file "src/main.ml", lines 56-59, characters 2-22
+Called from Stdlib__Arg.parse_and_expand_argv_dynamic_aux in file "arg.ml", line 279, characters 11-20
+Called from Stdlib__Arg.parse in file "arg.ml", line 300, characters 4-31
+Called from Dune__exe__Main in file "src/main.ml", line 100, characters 4-11

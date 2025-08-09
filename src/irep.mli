@@ -1,12 +1,12 @@
 type ty =
   | Tvoid
-  | Tstruct of ty array
+  | Tstruct of ty list
   | Tarray of ty * int
   | Tnamed of string
   | Tpointer
   | Tint of int
 
-type signature = ty array * ty
+type signature = ty list * ty
 
 type array_kind =
   | Int | Pointer

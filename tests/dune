@@ -1,7 +1,8 @@
 (include dune.inc)
 
 (rule
- (with-stdout-to dune.inc.gen (run ../tools/gen_tests.exe .)))
+ (deps (glob_files *.tig))
+ (action (with-stdout-to dune.inc.gen (run ../tools/gen_tests.exe .))))
 
 (rule
  (alias all)

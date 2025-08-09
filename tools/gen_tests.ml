@@ -11,7 +11,7 @@ let output_stanza oc fn =
 
 (rule
  (alias runtest)
- (action (diff %s.err %s.gen)))
+ (action (diff %s.err %s.err.gen)))
 |} base base base base base base base base base
 
 let () =

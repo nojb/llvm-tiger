@@ -9,7 +9,7 @@
 
 (rule
  (alias runtest)
- (action (diff test028.err test028.gen)))
+ (action (diff test028.err test028.err.gen)))
 
 (rule
  (targets test013.out.gen test013.err.gen)
@@ -21,7 +21,7 @@
 
 (rule
  (alias runtest)
- (action (diff test013.err test013.gen)))
+ (action (diff test013.err test013.err.gen)))
 
 (rule
  (targets test024.out.gen test024.err.gen)
@@ -33,7 +33,7 @@
 
 (rule
  (alias runtest)
- (action (diff test024.err test024.gen)))
+ (action (diff test024.err test024.err.gen)))
 
 (rule
  (targets test020.out.gen test020.err.gen)
@@ -45,7 +45,7 @@
 
 (rule
  (alias runtest)
- (action (diff test020.err test020.gen)))
+ (action (diff test020.err test020.err.gen)))
 
 (rule
  (targets test003.out.gen test003.err.gen)
@@ -57,7 +57,7 @@
 
 (rule
  (alias runtest)
- (action (diff test003.err test003.gen)))
+ (action (diff test003.err test003.err.gen)))
 
 (rule
  (targets test015.out.gen test015.err.gen)
@@ -69,7 +69,7 @@
 
 (rule
  (alias runtest)
- (action (diff test015.err test015.gen)))
+ (action (diff test015.err test015.err.gen)))
 
 (rule
  (targets test026.out.gen test026.err.gen)
@@ -81,7 +81,7 @@
 
 (rule
  (alias runtest)
- (action (diff test026.err test026.gen)))
+ (action (diff test026.err test026.err.gen)))
 
 (rule
  (targets test007.out.gen test007.err.gen)
@@ -93,7 +93,7 @@
 
 (rule
  (alias runtest)
- (action (diff test007.err test007.gen)))
+ (action (diff test007.err test007.err.gen)))
 
 (rule
  (targets test031.out.gen test031.err.gen)
@@ -105,7 +105,7 @@
 
 (rule
  (alias runtest)
- (action (diff test031.err test031.gen)))
+ (action (diff test031.err test031.err.gen)))
 
 (rule
  (targets test016.out.gen test016.err.gen)
@@ -117,7 +117,7 @@
 
 (rule
  (alias runtest)
- (action (diff test016.err test016.gen)))
+ (action (diff test016.err test016.err.gen)))
 
 (rule
  (targets test014.out.gen test014.err.gen)
@@ -129,7 +129,7 @@
 
 (rule
  (alias runtest)
- (action (diff test014.err test014.gen)))
+ (action (diff test014.err test014.err.gen)))
 
 (rule
  (targets test002.out.gen test002.err.gen)
@@ -141,7 +141,7 @@
 
 (rule
  (alias runtest)
- (action (diff test002.err test002.gen)))
+ (action (diff test002.err test002.err.gen)))
 
 (rule
  (targets test018.out.gen test018.err.gen)
@@ -153,7 +153,7 @@
 
 (rule
  (alias runtest)
- (action (diff test018.err test018.gen)))
+ (action (diff test018.err test018.err.gen)))
 
 (rule
  (targets test019.out.gen test019.err.gen)
@@ -165,7 +165,7 @@
 
 (rule
  (alias runtest)
- (action (diff test019.err test019.gen)))
+ (action (diff test019.err test019.err.gen)))
 
 (rule
  (targets test017.out.gen test017.err.gen)
@@ -177,7 +177,7 @@
 
 (rule
  (alias runtest)
- (action (diff test017.err test017.gen)))
+ (action (diff test017.err test017.err.gen)))
 
 (rule
  (targets test009.out.gen test009.err.gen)
@@ -189,7 +189,7 @@
 
 (rule
  (alias runtest)
- (action (diff test009.err test009.gen)))
+ (action (diff test009.err test009.err.gen)))
 
 (rule
  (targets test005.out.gen test005.err.gen)
@@ -201,7 +201,7 @@
 
 (rule
  (alias runtest)
- (action (diff test005.err test005.gen)))
+ (action (diff test005.err test005.err.gen)))
 
 (rule
  (targets test027.out.gen test027.err.gen)
@@ -213,7 +213,7 @@
 
 (rule
  (alias runtest)
- (action (diff test027.err test027.gen)))
+ (action (diff test027.err test027.err.gen)))
 
 (rule
  (targets test021.out.gen test021.err.gen)
@@ -225,7 +225,19 @@
 
 (rule
  (alias runtest)
- (action (diff test021.err test021.gen)))
+ (action (diff test021.err test021.err.gen)))
+
+(rule
+ (targets test032.out.gen test032.err.gen)
+ (action (run ../tools/run_test.exe -cmd %{dep:../src/main.exe} -runtime %{dep:../runtime/runtime.c} -out test032.out.gen -err test032.err.gen %{dep:test032.tig})))
+
+(rule
+ (alias runtest)
+ (action (diff test032.out test032.out.gen)))
+
+(rule
+ (alias runtest)
+ (action (diff test032.err test032.err.gen)))
 
 (rule
  (targets test004.out.gen test004.err.gen)
@@ -237,7 +249,7 @@
 
 (rule
  (alias runtest)
- (action (diff test004.err test004.gen)))
+ (action (diff test004.err test004.err.gen)))
 
 (rule
  (targets test001.out.gen test001.err.gen)
@@ -249,7 +261,7 @@
 
 (rule
  (alias runtest)
- (action (diff test001.err test001.gen)))
+ (action (diff test001.err test001.err.gen)))
 
 (rule
  (targets test012.out.gen test012.err.gen)
@@ -261,7 +273,7 @@
 
 (rule
  (alias runtest)
- (action (diff test012.err test012.gen)))
+ (action (diff test012.err test012.err.gen)))
 
 (rule
  (targets test029.out.gen test029.err.gen)
@@ -273,7 +285,7 @@
 
 (rule
  (alias runtest)
- (action (diff test029.err test029.gen)))
+ (action (diff test029.err test029.err.gen)))
 
 (rule
  (targets test006.out.gen test006.err.gen)
@@ -285,7 +297,7 @@
 
 (rule
  (alias runtest)
- (action (diff test006.err test006.gen)))
+ (action (diff test006.err test006.err.gen)))
 
 (rule
  (targets test011.out.gen test011.err.gen)
@@ -297,7 +309,7 @@
 
 (rule
  (alias runtest)
- (action (diff test011.err test011.gen)))
+ (action (diff test011.err test011.err.gen)))
 
 (rule
  (targets test010.out.gen test010.err.gen)
@@ -309,7 +321,7 @@
 
 (rule
  (alias runtest)
- (action (diff test010.err test010.gen)))
+ (action (diff test010.err test010.err.gen)))
 
 (rule
  (targets test022.out.gen test022.err.gen)
@@ -321,7 +333,7 @@
 
 (rule
  (alias runtest)
- (action (diff test022.err test022.gen)))
+ (action (diff test022.err test022.err.gen)))
 
 (rule
  (targets test023.out.gen test023.err.gen)
@@ -333,7 +345,7 @@
 
 (rule
  (alias runtest)
- (action (diff test023.err test023.gen)))
+ (action (diff test023.err test023.err.gen)))
 
 (rule
  (targets test008.out.gen test008.err.gen)
@@ -345,7 +357,7 @@
 
 (rule
  (alias runtest)
- (action (diff test008.err test008.gen)))
+ (action (diff test008.err test008.err.gen)))
 
 (rule
  (targets test030.out.gen test030.err.gen)
@@ -357,7 +369,7 @@
 
 (rule
  (alias runtest)
- (action (diff test030.err test030.gen)))
+ (action (diff test030.err test030.err.gen)))
 
 (rule
  (targets test025.out.gen test025.err.gen)
@@ -369,4 +381,4 @@
 
 (rule
  (alias runtest)
- (action (diff test025.err test025.gen)))
+ (action (diff test025.err test025.err.gen)))

@@ -38,18 +38,30 @@ type loc =
     column: int;
   }
 
-type variable =
+type 'a typed =
+  {
+    desc: 'a;
+    ty: type_id;
+  }
+
+type variable' =
   | Vsimple of ident
-  | Vsubscript of type_id * variable * expression
-  | Vfield of loc * type_id array * variable * int
+  | Vsubscript of variable * expression
+  | Vfield of loc * variable * int
   | Vup of int * int
 
-and expression =
+and variable =
+  variable' typed
+
+and expression' =
   | Eint of int64
   | Estring of string
   | Enil
-  | Evar of type_id * variable
+  | Evar of variable
   | Ebinop of expression * Tabs.bin * expression
+
+and expression =
+  expression' typed
 
 and statement =
   | Sskip
@@ -60,8 +72,8 @@ and statement =
   | Sassign of variable * expression
   | Scall of variable option * string * expression list * signature
   | Sreturn of expression option
-  | Sarray of variable * expression * type_id * expression
-  | Srecord of variable * type_id array * expression list
+  | Sarray of variable * expression * expression
+  | Srecord of variable * expression list
 
 and fundef =
   { fn_name: ident;

@@ -64,11 +64,15 @@ module M = Map.Make(String)
 
 type env =
   {
+    cstrs: type_structure Typing.Ident.Map.t;
     next_reg: Reg.state;
     next_label: Label.state;
     mutable blocks: instruction Label.Map.t;
     vars: reg Ident.Map.t;
   }
+
+let type_structure env tid =
+  Ident.Map.find tid env.cstrs
 
 let reg_of_var env id =
   Ident.Map.find id env.vars
@@ -90,6 +94,14 @@ let label_instr env i =
 let type_id : type_id -> ty = function
   | Tint -> Tint 64
   | Tstring | Tconstr _ -> Tpointer
+
+let type_structure env : type_id -> ty = function
+  | Tint | Tstring -> assert false
+  | Tconstr cstr ->
+      begin match type_structure env cstr with
+      | Tarray tid -> type_id tid
+      | Trecord l -> Tstruct (List.map (fun (_, tid) -> type_id tid) l)
+      end
 
 let load env ty r next =
   let r' = new_reg env in
@@ -116,7 +128,7 @@ let nil_error env loc =
   int env loc.lineno @@ fun lineno ->
   int env loc.column @@ fun column ->
   op env
-    (Iexternal ("TIG_nil_error", ([|Tpointer; Tint 64; Tint 64|], Tvoid)))
+    (Iexternal ("TIG_nil_error", ([Tpointer; Tint 64; Tint 64], Tvoid)))
     [filename; lineno; column] (fun _ -> Iunreachable)
 
 let null_check env loc v next =
@@ -127,35 +139,35 @@ let null_check env loc v next =
   Iifthenelse (c, lnull, lnext)
 
 let rec variable env v next =
-  match v with
+  match v.desc with
   | Vsimple x ->
       next (reg_of_var env x)
-  | Vsubscript (ty, v, i) ->
-      variable env v @@ fun v ->
-      expression env i @@ fun i ->
-      load env Tpointer v @@ fun v ->
-      op env (Pgep (type_id ty)) [v; i] next
-  | Vfield (loc, tyl, v, i) ->
-      variable env v @@ fun v ->
-      int env i @@ fun i ->
-      int env 0 @@ fun zero ->
-      load env Tpointer v @@ fun v ->
-      null_check env loc v @@
-      op env (Pgep (Tstruct (Array.map type_id tyl))) [v; zero; i] next
+  | Vsubscript (v, i) ->
+      variable env v @@ fun v' ->
+      expression env i @@ fun i' ->
+      load env Tpointer v' @@ fun v' ->
+      op env (Pgep (type_structure env v.ty)) [v'; i'] next
+  | Vfield (loc, v, i) ->
+      variable env v @@ fun v' ->
+      int env i @@ fun i' ->
+      int env 0 @@ fun zero' ->
+      load env Tpointer v' @@ fun v' ->
+      null_check env loc v' @@
+      op env (Pgep (type_structure env v.ty)) [v'; zero'; i'] next
   | Vup _ ->
       assert false
 
 and expression env (e : expression) (next : reg -> instruction) =
-  match e with
+  match e.desc with
   | Eint n ->
       int64 env n next
   | Estring s ->
       string env s next
   | Enil ->
       null env next
-  | Evar (tid, v) ->
-      variable env v @@ fun rv ->
-      load env (type_id tid) rv next
+  | Evar v ->
+      variable env v @@ fun v' ->
+      load env (type_id v.ty) v' next
   | Ebinop (e1, Op_add, e2) ->
       expression env e1 @@ fun r1 ->
       expression env e2 @@ fun r2 ->
@@ -209,7 +221,7 @@ and statement env lexit s next =
             let r = new_reg env in
             let sign =
               let (args, res) = sign in
-              Array.of_list (List.map type_id args), match res with None -> Tvoid | Some t -> type_id t
+              List.map type_id args, match res with None -> Tvoid | Some t -> type_id t
             in
             Iop (Iexternal (s, sign), List.rev rl, r, next)
         | e :: el ->
@@ -223,28 +235,28 @@ and statement env lexit s next =
       Ireturn (Some r)
   | Sreturn None ->
       Ireturn None
-  | Sarray (v, size, ty, init) ->
-      let kind = match ty with Tstring | Tconstr _ -> Pointer | Tint -> Int in
+  | Sarray (v, size, init) ->
+      let kind = match init.ty with Tstring | Tconstr _ -> Pointer | Tint -> Int in
       expression env size @@ fun rsize ->
       expression env init @@ fun rinit ->
       variable env v @@ fun rv ->
       op env (Imakearray kind) [rsize; rinit] @@ fun rd ->
       Istore (rd, rv, next)
-  | Srecord (v, tyl, fl) ->
+  | Srecord (v, fl) ->
       let n = List.length fl in
-      let ty = Tstruct (Array.map type_id tyl) in
+      let ty = type_structure env v.ty in
       op env (Imakerecord n) [] @@ fun rr ->
       let rec loop rl = function
         | [] ->
-            variable env v @@ fun rv ->
+            variable env v @@ fun v' ->
             let _, stores =
               List.fold_left (fun (i, next) r ->
                   i+1,
                   int env (n - i - 1) @@ fun i' ->
-                  int env 0 @@ fun zero ->
-                  op env (Pgep ty) [rr; zero; i'] @@ fun rd ->
+                  int env 0 @@ fun zero' ->
+                  op env (Pgep ty) [rr; zero'; i'] @@ fun rd ->
                   Istore (r, rd, next)
-                ) (0, Istore (rr, rv, next)) rl
+                ) (0, Istore (rr, v', next)) rl
             in
             stores
         | e :: fl ->
@@ -260,7 +272,8 @@ let program (p : Typing.program) =
     Hashtbl.iter (fun s _ -> vars := Ident.Map.add s (Reg.next next_reg) !vars) p.p_vars;
     !vars
   in
-  let env = { next_reg; next_label = Label.create (); blocks = Label.Map.empty; vars } in
+  let cstrs = Hashtbl.fold Ident.Map.add p.p_cstr Ident.Map.empty in
+  let env = { cstrs; next_reg; next_label = Label.create (); blocks = Label.Map.empty; vars } in
   let entrypoint =
     Hashtbl.fold (fun name tid next ->
         let root = match tid with Tconstr _ | Tstring -> true | Tint -> false in

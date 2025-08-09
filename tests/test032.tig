@@ -1,0 +1,6 @@
+let
+  function fact (n: int) : int =
+    if n then n * fact(n - 1) else 1
+in
+  printi(fact(10))
+end

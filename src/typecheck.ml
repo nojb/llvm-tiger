@@ -106,12 +106,12 @@ let get_array_type env loc = function
 let add_var env (x : ident) tid =
   let id = Ident.create env.next_ident x.desc in
   Hashtbl.add env.vars id tid;
-  Typing.Vsimple id, {env with venv = StringMap.add x.desc (Var (tid, id)) env.venv}
+  {desc = Typing.Vsimple id; ty = tid}, {env with venv = StringMap.add x.desc (Var (tid, id)) env.venv}
 
 let add_fresh_var env tid =
   let id = Ident.create env.next_ident "tmp" in
   Hashtbl.add env.vars id tid;
-  Typing.Vsimple id
+  {ty = tid; desc = Typing.Vsimple id}
 
 (* let add_fun x uid atyps rtyp free_vars env =
    let fi = { name = uid; sign = atyps, rtyp } in
@@ -196,6 +196,9 @@ let add_types env xts =
   in
   {env with tenv}
 
+let add_functions _env _fdefs =
+  assert false
+
 let loc_of_variable v =
   {
     filename = v.loc.pos_fname;
@@ -209,19 +212,19 @@ let rec statement env e =
   | None -> s
   | Some _ -> raise (Error {e with desc = Not_a_statement})
 
-and variable env v : statement * type_id * variable =
+and variable env v : statement * variable =
   match v.desc with
   | Vsimple x ->
       let tid, id = find_var x env in
-      Sskip, tid, Vsimple id
+      Sskip, {desc = Vsimple id; ty = tid}
   | Vsubscript (v, x) ->
-      let s1, ty, v' = variable env v in
-      let t' = get_array_type env v.loc ty in
+      let s1, v' = variable env v in
+      let t' = get_array_type env v.loc v'.ty in
       let s2, x = expression' env x Tint in
-      seq s1 s2, t', Vsubscript (t', v', x)
+      seq s1 s2, {desc = Vsubscript (v', x); ty = t'}
   | Vfield (v, x) ->
-      let s, ty, v' = variable env v in
-      let cstr, xts = get_record_type env v.loc ty in
+      let s, v' = variable env v in
+      let cstr, xts = get_record_type env v.loc v'.ty in
       let i, tx =
         let rec loop i = function
           | [] -> raise (Error {x with desc = Unknown_field (Ident.name cstr, x.desc)})
@@ -230,23 +233,22 @@ and variable env v : statement * type_id * variable =
         in
         loop 0 xts
       in
-      let typ = Array.of_list (List.map snd xts) in
       let loc = loc_of_variable v in
-      s, tx, Vfield (loc, typ, v', i)
+      s, {desc = Vfield (loc, v', i); ty = tx}
 
 and declarations env ds : statement * env =
   match ds with
   | [] -> Sskip, env
   | Dvar (x, xty, init) :: ds ->
-      let sinit, tid', einit =
+      let sinit, einit =
         match xty with
         | None -> expression'' env init
         | Some sty ->
             let ty = find_type env sty in
             let s, e = expression' env init ty in
-            s, ty, e
+            s, e
       in
-      let var, env = add_var env x tid' in
+      let var, env = add_var env x einit.ty in
       let s', env = declarations env ds in
       seq sinit (seq (Sassign (var, einit)) s'), env
   | Dtype (s, ty) :: ds ->
@@ -257,15 +259,20 @@ and declarations env ds : statement * env =
       in
       let tys, ds = loop [s, ty] ds in
       declarations (add_types env tys) ds
-  | Dfun _ :: _ ->
-      assert false
-(* expression' (add_funs env funs) e ty *)
+  | Dfun fdef :: ds ->
+      let rec loop accu = function
+        | [] -> List.rev accu, []
+        | Dfun fdef :: ds -> loop (fdef :: accu) ds
+        | (Dvar _ | Dtype _) :: _ as ds -> List.rev accu, ds
+      in
+      let fdefs, ds = loop [fdef] ds in
+      declarations (add_functions env fdefs) ds
 
 and expression' env e (ty : type_id) : statement * expression =
   match e.desc with
   | Enil ->
       let _ = get_record_type env e.loc ty in
-      Sskip, Enil
+      Sskip, {desc = Enil; ty}
   | Eseq el ->
       let rec loop = function
         | [] ->
@@ -283,7 +290,7 @@ and expression' env e (ty : type_id) : statement * expression =
       let s2, e2 = expression' env e2 ty in
       let s3, e3 = expression' env e3 ty in
       let v = add_fresh_var env ty in
-      seq s1 (Sifthenelse (e1, seq s2 (Sassign (v, e2)), seq s3 (Sassign (v, e3)))), Evar (ty, v)
+      seq s1 (Sifthenelse (e1, seq s2 (Sassign (v, e2)), seq s3 (Sassign (v, e3)))), {ty; desc = Evar v}
   | Elet (ds, e) ->
       let s1, env = declarations env ds in
       let s2, e = expression' env e ty in
@@ -292,9 +299,9 @@ and expression' env e (ty : type_id) : statement * expression =
       let s, e' = expression env e in
       match e' with
       | None -> raise (Error {e with desc = Missing_value})
-      | Some (ty', e') ->
+      | Some e' ->
           let ok =
-            match ty, ty' with
+            match ty, e'.ty with
             | Tint, Tint | Tstring, Tstring -> true
             | Tconstr cstr1, Tconstr cstr2 -> Ident.equal cstr1 cstr2
             | _ -> false
@@ -302,45 +309,45 @@ and expression' env e (ty : type_id) : statement * expression =
           if not ok then failwith "type error";
           s, e'
 
-and expression'' env e : statement * type_id * expression =
+and expression'' env e : statement * expression =
   match expression env e with
-  | s, Some (ty, e) -> s, ty, e
+  | s, Some e -> s, e
   | _, None -> raise (Error {e with desc = Missing_value})
 
-and expression env e : statement * (type_id * expression) option =
+and expression env e : statement * expression option =
   match e.desc with
   | Eint n ->
-      Sskip, Some (Tint, Eint n)
+      Sskip, Some {ty = Tint; desc = Eint n}
   | Estring s ->
-      Sskip, Some (Tstring, Estring s)
+      Sskip, Some {ty = Tstring; desc = Estring s}
   | Enil ->
       raise (Error {e with desc = Illegal_nil})
   | Evar v ->
-      let s, t, v = variable env v in
-      s, Some (t, Evar (t, v))
+      let s, v = variable env v in
+      s, Some {ty = v.ty; desc = Evar v}
   | Ebinop (e1, Op_add, e2) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression' env e2 Tint in
-      seq s1 s2, Some (Tint, Ebinop (e1, Op_add, e2))
+      seq s1 s2, Some {ty = Tint; desc = Ebinop (e1, Op_add, e2)}
   | Ebinop (e1, Op_sub, e2) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression' env e2 Tint in
-      seq s1 s2, Some (Tint, Ebinop (e1, Op_sub, e2))
+      seq s1 s2, Some {ty = Tint; desc = Ebinop (e1, Op_sub, e2)}
   | Ebinop (e1, Op_mul, e2) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression' env e2 Tint in
-      seq s1 s2, Some (Tint, Ebinop (e1, Op_mul, e2))
+      seq s1 s2, Some {ty = Tint; desc = Ebinop (e1, Op_mul, e2)}
   | Ebinop (e1, Op_div, e2) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression' env e2 Tint in
-      seq s1 s2, Some (Tint, Ebinop (e1, Op_div, e2))
+      seq s1 s2, Some {ty = Tint; desc = Ebinop (e1, Op_div, e2)}
   | Ebinop (e1, Op_cmp c, e2) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2 = expression' env e2 Tint in
-      seq s1 s2, Some (Tint, Ebinop (e1, Op_cmp c, e2))
+      seq s1 s2, Some {ty = Tint; desc = Ebinop (e1, Op_cmp c, e2)}
   | Eassign (v, e) ->
-      let s1, ty, v = variable env v in
-      let s2, e = expression' env e ty in
+      let s1, v = variable env v in
+      let s2, e = expression' env e v.ty in
       seq s1 (seq s2 (Sassign (v, e))), None
   | Ecall (fn, params) ->
       let (args, res) as sign, impl = find_fun fn env in
@@ -366,7 +373,7 @@ and expression env e : statement * (type_id * expression) option =
       let s1, size = expression' env e1 Tint in
       let s2, init = expression' env e2 elty in
       let v = add_fresh_var env ty in
-      seq s1 (seq s2 (Sarray (v, size, elty, init))), Some (ty, Evar (ty, v))
+      seq s1 (seq s2 (Sarray (v, size, init))), Some {ty; desc = Evar v}
   | Erecord (ty, fl) ->
       let ty = find_type env ty in
       let cstr, ftyl = get_record_type env e.loc ty in
@@ -386,7 +393,7 @@ and expression env e : statement * (type_id * expression) option =
       in
       let s, tfl = loop (Sskip, []) fl ftyl in
       let v = add_fresh_var env ty in
-      seq s (Srecord (v, Array.of_list (List.map snd ftyl), tfl)), Some (ty, Evar (ty, v))
+      seq s (Srecord (v, tfl)), Some {ty; desc = Evar v}
   | Eif (e1, e2, e3) ->
       let s1, e1 = expression' env e1 Tint in
       let s2, e2' = expression env e2 in
@@ -398,11 +405,11 @@ and expression env e : statement * (type_id * expression) option =
             Sifthenelse (e1, s2, Sskip), None
         | None, Some e3 ->
             Sifthenelse (e1, s2, statement env e3), None
-        | Some (t2, e2), Some e3 ->
-            let s3, e3 = expression' env e3 t2 in
-            let v = add_fresh_var env t2 in
+        | Some e2, Some e3 ->
+            let s3, e3 = expression' env e3 e2.ty in
+            let v = add_fresh_var env e2.ty in
             Sifthenelse (e1, seq s2 (Sassign (v, e2)), seq s3 (Sassign (v, e3))),
-            Some (t2, Typing.Evar (t2, v))
+            Some {ty = e2.ty; desc = Typing.Evar v}
       in
       seq s1 s, e
   | Ewhile (e1, e2) ->
@@ -416,8 +423,9 @@ and expression env e : statement * (type_id * expression) option =
       let s3 = statement {env with loop = true} e3 in
       let loop =
         Sloop (Sifthenelse
-                 (Ebinop(e2, Op_cmp Clt, Evar (Tint, i)),
-                  Sbreak, seq s3 (Sassign (i, Ebinop (Evar (Tint, i), Op_add, Eint 1L)))))
+                 ({ty = Tint; desc = Ebinop(e2, Op_cmp Clt, {ty = Tint; desc = Evar i})},
+                  Sbreak, seq s3 (Sassign (i, {ty = Tint; desc = Ebinop ({ty = Tint; desc = Evar i},
+                                                                         Op_add, {ty = Tint; desc = Eint 1L})}))))
       in
       seq s1 (seq s2 (seq (Sassign (i, e1)) loop)), None
   | Ebreak ->
