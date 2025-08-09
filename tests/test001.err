@@ -1,0 +1,9 @@
+
+define void @TIG_main() gc "shadow-stack" {
+entry:
+  %0 = add i64 12, 12
+  call void @TIG_printi(i64 %0)
+  ret void
+}
+
+declare void @TIG_printi(i64 %0)

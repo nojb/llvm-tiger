@@ -1,0 +1,28 @@
+
+define void @TIG_main() gc "shadow-stack" {
+entry:
+  %0 = alloca ptr, align 8
+  store ptr null, ptr %0, align 8
+  call void @llvm.gcroot(ptr %0, ptr null)
+  %1 = alloca ptr, align 8
+  store ptr null, ptr %1, align 8
+  call void @llvm.gcroot(ptr %1, ptr null)
+  %2 = call ptr @TIG_makeintarray(i64 10, i64 42)
+  store ptr %2, ptr %1, align 8
+  %3 = load ptr, ptr %1, align 8
+  store ptr %3, ptr %0, align 8
+  %4 = load ptr, ptr %0, align 8
+  %5 = getelementptr i64, ptr %4, i64 3
+  %6 = load i64, ptr %5, align 4
+  call void @TIG_printi(i64 %6)
+  ret void
+}
+
+; Function Attrs: nounwind
+declare void @llvm.gcroot(ptr %0, ptr %1) #0
+
+declare ptr @TIG_makeintarray(i64 %0, i64 %1)
+
+declare void @TIG_printi(i64 %0)
+
+attributes #0 = { nounwind }

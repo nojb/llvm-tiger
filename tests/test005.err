@@ -1,0 +1,17 @@
+
+define void @TIG_main() gc "shadow-stack" {
+entry:
+  %0 = icmp sgt i64 42, 12
+  %1 = zext i1 %0 to i64
+  %2 = icmp ne i64 %1, 0
+  br i1 %2, label %3, label %5
+
+3:                                                ; preds = %entry
+  br label %4
+
+4:                                                ; preds = %5, %3
+  ret void
+
+5:                                                ; preds = %entry
+  br label %4
+}

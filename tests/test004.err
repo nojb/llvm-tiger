@@ -1,0 +1,5 @@
+
+define void @TIG_main() gc "shadow-stack" {
+entry:
+  ret void
+}

@@ -1,2 +1,8 @@
-(cram
- (deps ../src/main.exe (glob_files *.tig) ../runtime/runtime.c))
+(include dune.inc)
+
+(rule
+ (with-stdout-to dune.inc.gen (run ../tools/gen_tests.exe .)))
+
+(rule
+ (alias all)
+ (action (diff dune.inc dune.inc.gen)))

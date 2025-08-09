@@ -1,0 +1,32 @@
+
+@0 = private unnamed_addr constant [12 x i8] c"test010.tig\00", align 1
+
+define void @TIG_main() gc "shadow-stack" {
+entry:
+  %0 = alloca ptr, align 8
+  store ptr null, ptr %0, align 8
+  call void @llvm.gcroot(ptr %0, ptr null)
+  store ptr null, ptr %0, align 8
+  %1 = load ptr, ptr %0, align 8
+  %2 = icmp eq ptr %1, null
+  br i1 %2, label %3, label %4
+
+3:                                                ; preds = %entry
+  call void @TIG_nil_error(ptr @0, i64 5, i64 10)
+  unreachable
+
+4:                                                ; preds = %entry
+  %5 = getelementptr { i64, ptr }, ptr %1, i64 0, i64 0
+  %6 = load i64, ptr %5, align 4
+  call void @TIG_printi(i64 %6)
+  ret void
+}
+
+; Function Attrs: nounwind
+declare void @llvm.gcroot(ptr %0, ptr %1) #0
+
+declare void @TIG_nil_error(ptr %0, i64 %1, i64 %2)
+
+declare void @TIG_printi(i64 %0)
+
+attributes #0 = { nounwind }

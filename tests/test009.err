@@ -1,0 +1,64 @@
+
+@0 = private unnamed_addr constant [12 x i8] c"test009.tig\00", align 1
+
+define void @TIG_main() gc "shadow-stack" {
+entry:
+  %0 = alloca ptr, align 8
+  store ptr null, ptr %0, align 8
+  call void @llvm.gcroot(ptr %0, ptr null)
+  %1 = alloca ptr, align 8
+  store ptr null, ptr %1, align 8
+  call void @llvm.gcroot(ptr %1, ptr null)
+  %2 = alloca ptr, align 8
+  store ptr null, ptr %2, align 8
+  call void @llvm.gcroot(ptr %2, ptr null)
+  %3 = call ptr @TIG_makerecord(i32 2)
+  %4 = getelementptr { i64, ptr }, ptr %3, i64 0, i64 0
+  store i64 12, ptr %4, align 4
+  %5 = getelementptr { i64, ptr }, ptr %3, i64 0, i64 1
+  store ptr null, ptr %5, align 8
+  store ptr %3, ptr %0, align 8
+  %6 = call ptr @TIG_makerecord(i32 2)
+  %7 = load ptr, ptr %0, align 8
+  %8 = getelementptr { i64, ptr }, ptr %6, i64 0, i64 0
+  store i64 42, ptr %8, align 4
+  %9 = getelementptr { i64, ptr }, ptr %6, i64 0, i64 1
+  store ptr %7, ptr %9, align 8
+  store ptr %6, ptr %1, align 8
+  %10 = load ptr, ptr %1, align 8
+  store ptr %10, ptr %2, align 8
+  %11 = load ptr, ptr %2, align 8
+  %12 = icmp eq ptr %11, null
+  br i1 %12, label %13, label %14
+
+13:                                               ; preds = %entry
+  call void @TIG_nil_error(ptr @0, i64 5, i64 10)
+  unreachable
+
+14:                                               ; preds = %entry
+  %15 = getelementptr { i64, ptr }, ptr %11, i64 0, i64 1
+  %16 = load ptr, ptr %15, align 8
+  %17 = icmp eq ptr %16, null
+  br i1 %17, label %18, label %19
+
+18:                                               ; preds = %14
+  call void @TIG_nil_error(ptr @0, i64 5, i64 10)
+  unreachable
+
+19:                                               ; preds = %14
+  %20 = getelementptr { i64, ptr }, ptr %16, i64 0, i64 0
+  %21 = load i64, ptr %20, align 4
+  call void @TIG_printi(i64 %21)
+  ret void
+}
+
+; Function Attrs: nounwind
+declare void @llvm.gcroot(ptr %0, ptr %1) #0
+
+declare ptr @TIG_makerecord(i32 %0)
+
+declare void @TIG_nil_error(ptr %0, i64 %1, i64 %2)
+
+declare void @TIG_printi(i64 %0)
+
+attributes #0 = { nounwind }

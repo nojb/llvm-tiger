@@ -1,0 +1,28 @@
+
+define void @TIG_main() gc "shadow-stack" {
+entry:
+  %0 = alloca ptr, align 8
+  store ptr null, ptr %0, align 8
+  call void @llvm.gcroot(ptr %0, ptr null)
+  %1 = alloca ptr, align 8
+  store ptr null, ptr %1, align 8
+  call void @llvm.gcroot(ptr %1, ptr null)
+  %2 = call ptr @TIG_makeptrarray(i64 10, ptr null)
+  store ptr %2, ptr %0, align 8
+  %3 = load ptr, ptr %0, align 8
+  store ptr %3, ptr %1, align 8
+  %4 = load ptr, ptr %1, align 8
+  %5 = getelementptr ptr, ptr %4, i64 3
+  store ptr null, ptr %5, align 8
+  ret void
+}
+
+; Function Attrs: nounwind
+declare void @llvm.gcroot(ptr %0, ptr %1) #0
+
+declare ptr @TIG_makeptrarray(i64 %0, ptr %1)
+
+attributes #0 = { nounwind }
+/usr/bin/ld: test011.o: in function `TIG_main':
+:(.text+0x3f): undefined reference to `TIG_makeptrarray'
+collect2: error: ld returned 1 exit status

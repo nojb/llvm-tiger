@@ -1,0 +1,8 @@
+(executable
+ (name gen_tests)
+ (modules gen_tests))
+
+(executable
+ (name run_test)
+ (libraries unix)
+ (modules run_test))

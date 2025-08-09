@@ -3,7 +3,7 @@
 (menhir (modules parser))
 
 (executable
- (public_name tigerc)
+ (public_name tc)
  (name main)
  (libraries
   llvm

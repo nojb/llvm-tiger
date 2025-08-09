@@ -1,0 +1,78 @@
+
+@0 = private unnamed_addr constant [2 x i8] c"\0A\00", align 1
+
+define void @TIG_main() gc "shadow-stack" {
+entry:
+  %0 = alloca ptr, align 8
+  store ptr null, ptr %0, align 8
+  call void @llvm.gcroot(ptr %0, ptr null)
+  %1 = alloca ptr, align 8
+  store ptr null, ptr %1, align 8
+  call void @llvm.gcroot(ptr %1, ptr null)
+  %2 = call ptr @TIG_makeintarray(i64 50, i64 0)
+  store ptr %2, ptr %0, align 8
+  %3 = load ptr, ptr %0, align 8
+  store ptr %3, ptr %1, align 8
+  br label %4
+
+4:                                                ; preds = %entry, %28
+  %.01 = phi i64 [ 0, %entry ], [ %27, %28 ]
+  %5 = sub i64 50, 1
+  %6 = icmp slt i64 %5, %.01
+  %7 = zext i1 %6 to i64
+  %8 = icmp ne i64 %7, 0
+  br i1 %8, label %9, label %24
+
+9:                                                ; preds = %4
+  br label %10
+
+10:                                               ; preds = %9
+  br label %11
+
+11:                                               ; preds = %10, %23
+  %.0 = phi i64 [ 0, %10 ], [ %22, %23 ]
+  %12 = sub i64 50, 1
+  %13 = icmp slt i64 %12, %.0
+  %14 = zext i1 %13 to i64
+  %15 = icmp ne i64 %14, 0
+  br i1 %15, label %16, label %18
+
+16:                                               ; preds = %11
+  br label %17
+
+17:                                               ; preds = %16
+  ret void
+
+18:                                               ; preds = %11
+  %19 = load ptr, ptr %1, align 8
+  %20 = getelementptr i64, ptr %19, i64 %.0
+  %21 = load i64, ptr %20, align 4
+  call void @TIG_printi(i64 %21)
+  call void @TIG_print(ptr @0)
+  %22 = add i64 %.0, 1
+  br label %23
+
+23:                                               ; preds = %18
+  br label %11
+
+24:                                               ; preds = %4
+  %25 = load ptr, ptr %1, align 8
+  %26 = getelementptr i64, ptr %25, i64 %.01
+  store i64 %.01, ptr %26, align 4
+  %27 = add i64 %.01, 1
+  br label %28
+
+28:                                               ; preds = %24
+  br label %4
+}
+
+; Function Attrs: nounwind
+declare void @llvm.gcroot(ptr %0, ptr %1) #0
+
+declare ptr @TIG_makeintarray(i64 %0, i64 %1)
+
+declare void @TIG_printi(i64 %0)
+
+declare void @TIG_print(ptr %0)
+
+attributes #0 = { nounwind }

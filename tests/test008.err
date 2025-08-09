@@ -1,0 +1,10 @@
+
+@0 = private unnamed_addr constant [15 x i8] c"Hello, World!\0A\00", align 1
+
+define void @TIG_main() gc "shadow-stack" {
+entry:
+  call void @TIG_print(ptr @0)
+  ret void
+}
+
+declare void @TIG_print(ptr %0)
