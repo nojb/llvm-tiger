@@ -1,67 +1,6 @@
 open Typing
 open Irep
 
-(* let tr_return_type env fn =
-   match fn.fn_rtyp with
-   | None -> void_ty
-   | Some t -> find_type t env
-
-   let fundecls = ref []
-
-   let tr_function_header free_vars env fn =
-   let rtyp = tr_return_type env fn in
-   let argst = List.map (fun (_, t) -> find_type t env) fn.fn_args in
-   let uid = gentmp fn.fn_name.s in
-   add_fun fn.fn_name uid argst rtyp free_vars env
-
-   let rec tr_function_body env fundef =
-   let type_of_free_var x =
-    match M.find x env.venv with
-    | Variable _vi ->
-        Tpointer
-    | Function _ ->
-        assert false
-   in
-   let fi = find_fun fundef.fn_name env in
-   let ts, t = fi.fsign in
-   let fvs = fi.free_vars in
-   let tys1 = List.map type_of_free_var fvs in
-   let env, args1 =
-    List.fold_left (fun (env, args) x ->
-        let vi = find_var {s = x; p = Lexing.dummy_pos} env in
-        let env, x = add_var {s = x; p = Lexing.dummy_pos} vi.vtype env in
-        env, x.id :: args
-      ) (env, []) fvs
-   in
-   let args1 = List.rev args1 in
-   let env, args2 =
-    List.fold_left2 (fun (env, args) (x, _) t ->
-        let id = fresh () in
-        let env, x = add_var x t env in
-        env, (id, x.id, transl_typ t) :: args
-      ) (env, []) fundef.fn_args ts
-   in
-   let args2 = List.rev args2 in
-   let tys2 = List.map transl_typ ts in
-   let s = new builder in
-   List.iter (fun (id1, id2, ty) ->
-      s#insert_op (Ialloca ty) [||] [|id2|];
-      s#insert_op Istore [|id1; id2|] [||]
-    ) args2;
-   let e = typ_exp {env with in_loop = false} s fundef.fn_body t in
-   begin if fundef.fn_rtyp = None then
-      s#insert (Ireturn false) [||] [||]
-    else
-      s#insert (Ireturn true) [|e s|] [||]
-   end;
-   let body = s#extract in
-   let args2 = List.map (fun (id, _, _) -> id) args2 in
-   let rty = transl_typ (tr_return_type env fundef) in
-   let signature = Array.of_list (tys1 @ tys2), rty in
-   fundecls := {name = fi.fname; args = Array.of_list (args1 @ args2); signature; body} :: !fundecls *)
-
-module M = Map.Make(String)
-
 type env =
   {
     cstrs: type_structure Typing.Ident.Map.t;
