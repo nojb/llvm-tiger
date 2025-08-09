@@ -577,7 +577,7 @@
   attributes #0 = { nounwind }
   warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
   1 warning generated.
-  /usr/bin/ld: /tmp/build_e3f4e1_dune/test011-82feda.o: in function `TIG_main':
+  /usr/bin/ld: /tmp/build_98e354_dune/test011-8fb2ac.o: in function `TIG_main':
   :(.text+0x56): undefined reference to `TIG_makeptrarray'
   clang-18: error: linker command failed with exit code 1 (use -v to see invocation)
   
@@ -640,7 +640,7 @@
   attributes #0 = { nounwind }
   warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
   1 warning generated.
-  /usr/bin/ld: /tmp/build_e3f4e1_dune/test012-535d67.o: in function `TIG_main':
+  /usr/bin/ld: /tmp/build_98e354_dune/test012-afdcf0.o: in function `TIG_main':
   :(.text+0x8f): undefined reference to `TIG_makeptrarray'
   clang-18: error: linker command failed with exit code 1 (use -v to see invocation)
   
@@ -871,46 +871,51 @@
   
   *** BEGIN test015.tig ***
   
+  /* ERR: unknown variable */
   let
     var x := 42
   in
     printi(y)
   end
   
-  error: test015.tig:4:10: unknown variable `y'
+  error: test015.tig:5:10: unknown variable `y'
   
   *** END test015.tig ***
   
   
   *** BEGIN test016.tig ***
   
+  /* ERR: unknown function */
   f(42)
   
-  error: test016.tig:1:1: unknown function `f'
+  error: test016.tig:2:1: unknown function `f'
   
   *** END test016.tig ***
   
   
   *** BEGIN test017.tig ***
   
+  /* ERR: unknown type name */
   t { hd = 42 }
   
-  error: test017.tig:1:1: unknown type name `t'
+  error: test017.tig:2:1: unknown type name `t'
   
   *** END test017.tig ***
   
   
   *** BEGIN test018.tig ***
   
+  /* ERR: wrong arity */
   printi(42, 56)
   
-  error: test018.tig:1:1: wrong number of arguments: expected 1, got 2
+  error: test018.tig:2:1: wrong number of arguments: expected 1, got 2
   
   *** END test018.tig ***
   
   
   *** BEGIN test019.tig ***
   
+  /* ERR: repeated type name */
   let
     type t = string
     type t = int
@@ -931,66 +936,73 @@
   
   *** BEGIN test020.tig ***
   
+  /* ERR: statement expected */
   while 1 do
     43
-  error: test020.tig:2:3: this expression should not produce a value
+  error: test020.tig:3:3: this expression should not produce a value
   
   *** END test020.tig ***
   
   
   *** BEGIN test021.tig ***
   
+  /* ERR: not a record */
   let
     var x := 42
   in
     printi(x.r)
   end
   
-  error: test021.tig:4:10: this expression does not belong to a record type
+  error: test021.tig:5:10: this expression does not belong to a record type
   
   *** END test021.tig ***
   
   
   *** BEGIN test022.tig ***
   
+  /* ERR: not an array */
   let
     var x := 43
   in
     printi(x[18])
   end
   
-  error: test022.tig:4:10: this expression does not belong to an array type
+  error: test022.tig:5:10: this expression does not belong to an array type
   
   *** END test022.tig ***
   
   
   *** BEGIN test023.tig ***
   
+  /* ERR: unknown field */
   let
     type t = {x: int}
-    var x := t { y = 42 }
+    var x : t := nil
   in
+    printi(x.r)
   end
   
-  error: test023.tig:3:16: unexpected record field name `x'
+  error: test023.tig:6:12: record type `t' does not contain a field `r'
   
   *** END test023.tig ***
   
   
   *** BEGIN test024.tig ***
   
+  /* ERR: illegal nil */
   let
     var x := nil
   in
   end
   
-  error: test024.tig:2:12: `nil' cannot appear here
+  error: test024.tig:3:12: `nil' cannot appear here
   
   *** END test024.tig ***
   
   
   *** BEGIN test025.tig ***
   
+  /* Valid nil */
   let
     type t = { a : int }
     var x := t { a = 42 }
@@ -1034,47 +1046,51 @@
   
   *** BEGIN test026.tig ***
   
+  /* ERR: illegal break */
   break
-  error: test026.tig:1:1: `break' cannot appear here
+  error: test026.tig:2:1: `break' cannot appear here
   
   *** END test026.tig ***
   
   
   *** BEGIN test027.tig ***
   
+  /* ERR: value expected */
   let
     var x := 42
     var y := (x := 0)
   in
   end
   
-  error: test027.tig:3:12: value-producing expression was expected here
+  error: test027.tig:4:12: value-producing expression was expected here
   
   *** END test027.tig ***
   
   
   *** BEGIN test028.tig ***
   
+  /* ERR: Wrong number of fields */
   let
     type t = {a : int, b : string}
     var x := t{a = 42}
   in
   end
   
-  error: test028.tig:3:12: wrong number of fields: expected 2, got 1
+  error: test028.tig:4:12: some fields belonging to the type `t' are missing: b
   
   *** END test028.tig ***
   
   
   *** BEGIN test029.tig ***
   
+  /* ERR: unexpected field */
   let
     type t = {a: int}
     var x := t{b = 42}
   in
   end
   
-  error: test029.tig:3:14: unexpected record field name `a'
+  error: test029.tig:4:14: a field named `a' belonging to the type `t' was expected here
   
   *** END test029.tig ***
   

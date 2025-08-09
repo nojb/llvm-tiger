@@ -11,7 +11,7 @@ end = struct
   type state = int ref
   let new_state () = ref 0
   let create r name = incr r; { name; id = !r }
-  let name { name; id } = Printf.sprintf "%s/%i" name id
+  let name { name; id = _ } = name
   let compare t1 t2 = Int.compare t1.id t2.id
   let equal t1 t2 = Int.equal t1.id t2.id
   module Map = Map.Make(struct type nonrec t = t let compare = compare end)

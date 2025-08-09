@@ -1,7 +1,7 @@
 /* ERR: unknown field */
 let
   type t = {x: int}
-  var x := nil
+  var x : t := nil
 in
   printi(x.r)
 end

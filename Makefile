@@ -1,11 +1,7 @@
-OCAMLBUILD = ocamlbuild -classic-display -use-ocamlfind
+.PHONY: all
+all:
+	dune build
 
-all: src/main.native
-
-src/main.native:
-	$(OCAMLBUILD) $@
-
-clean:
-	$(OCAMLBUILD) -clean
-
-.PHONY: all %.native
+.PHONY: test
+test:
+	dune runtest --auto-promote

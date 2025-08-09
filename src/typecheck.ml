@@ -39,12 +39,13 @@ type error =
   | Not_a_statement
   | Not_a_record of type_id
   | Not_an_array of type_id
-  | Missing_field of string
+  | Unknown_field of string * string
   | Illegal_nil
   | Illegal_break
   | Missing_value
-  | Wrong_number_of_fields of int * int
-  | Unexpected_field_name of string
+  | Mismatched_field of string * string
+  | Missing_fields of string * string list
+  | Too_many_fields of string * string list
 
 let string_of_error = function
   | Unbound_variable s -> Printf.sprintf "unknown variable `%s'" s
@@ -55,12 +56,17 @@ let string_of_error = function
   | Not_a_statement -> "this expression should not produce a value"
   | Not_a_record _ -> "this expression does not belong to a record type"
   | Not_an_array _ -> "this expression does not belong to an array type"
-  | Missing_field s -> Printf.sprintf "unknown record field `%s'" s
+  | Unknown_field (ty, s) -> Printf.sprintf "record type `%s' does not contain a field `%s'" ty s
   | Illegal_nil -> Printf.sprintf "`nil' cannot appear here"
   | Illegal_break -> Printf.sprintf "`break' cannot appear here"
   | Missing_value -> Printf.sprintf "value-producing expression was expected here"
-  | Wrong_number_of_fields (expected, actual) -> Printf.sprintf "wrong number of fields: expected %i, got %i" expected actual
-  | Unexpected_field_name s -> Printf.sprintf "unexpected record field name `%s'" s
+  | Mismatched_field (ty, s) -> Printf.sprintf "a field named `%s' belonging to the type `%s' was expected here" s ty
+  | Missing_fields (ty, sl) ->
+      Printf.sprintf "some fields belonging to the type `%s' are missing: %s"
+        ty (String.concat ", " sl)
+  | Too_many_fields (ty, sl) ->
+      Printf.sprintf "too many fields for type `%s': %s"
+        ty (String.concat ", " sl)
 
 exception Error of error loc
 
@@ -82,7 +88,7 @@ let find_type env id =
 let get_record_type env loc = function
   | Tconstr tid as ty ->
       begin match Hashtbl.find env.cstr tid with
-      | Trecord fields -> fields
+      | Trecord fields -> tid, fields
       | Tarray _ -> raise (Error {loc; desc = Not_a_record ty})
       end
   | ty ->
@@ -215,10 +221,10 @@ and variable env v : statement * type_id * variable =
       seq s1 s2, t', Vsubscript (t', v', x)
   | Vfield (v, x) ->
       let s, ty, v' = variable env v in
-      let xts = get_record_type env v.loc ty in
+      let cstr, xts = get_record_type env v.loc ty in
       let i, tx =
         let rec loop i = function
-          | [] -> raise (Error {x with desc = Missing_field x.desc})
+          | [] -> raise (Error {x with desc = Unknown_field (Ident.name cstr, x.desc)})
           | (x', t') :: _xs when x' = x.desc -> i, t'
           | _ :: xs -> loop (i+1) xs
         in
@@ -355,19 +361,22 @@ and expression env e : statement * (type_id * expression) option =
       seq s1 (seq s2 (Sarray (v, size, elty, init))), Some (ty, Evar (ty, v))
   | Erecord (ty, fl) ->
       let ty = find_type env ty in
-      let ftyl = get_record_type env e.loc ty in
-      let num_expected = List.length ftyl in
-      let num_actual = List.length fl in
-      if num_expected <> num_actual then
-        raise (Error {e with desc = Wrong_number_of_fields (num_expected, num_actual)});
-      let s, tfl =
-        List.fold_left2 (fun (s, el) (name, e) (name', ty) ->
-            if name.desc <> name' then raise (Error {name with desc = Unexpected_field_name name'});
-            let s', e = expression' env e ty in
-            seq s s', e :: el
-          ) (Sskip, []) fl ftyl
+      let cstr, ftyl = get_record_type env e.loc ty in
+      let rec loop (s, el) fl tyl =
+        match fl, tyl with
+        | [], [] ->
+            s, List.rev el
+        | (sname, f) :: fl, (name, ty) :: tyl ->
+            if not (String.equal sname.desc name) then
+              raise (Error {sname with desc = Mismatched_field (Ident.name cstr, name)});
+            let s', e = expression' env f ty in
+            loop (seq s s', e :: el) fl tyl
+        | [], _ :: _ ->
+            raise (Error {e with desc = Missing_fields (Ident.name cstr, List.map fst tyl)})
+        | _ :: _, [] ->
+            raise (Error {e with desc = Too_many_fields (Ident.name cstr, List.map (fun (x, _) -> x.desc) fl)})
       in
-      let tfl = List.rev tfl in
+      let s, tfl = loop (Sskip, []) fl ftyl in
       let v = add_fresh_var env ty in
       seq s (Srecord (v, Array.of_list (List.map snd ftyl), tfl)), Some (ty, Evar (ty, v))
   | Eif (e1, e2, e3) ->
