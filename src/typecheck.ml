@@ -137,13 +137,13 @@ let has_duplicate (type a) (f : a -> 'b) (l : a list) =
   | () -> None
   | exception Found x -> Some x
 
-let check_unique_type_name f xts =
-  match has_duplicate f xts with
+let check_unique_type_name xts =
+  match has_duplicate (fun (x, _) -> x.desc) xts with
   | None -> ()
   | Some (x, _) -> raise (Error {x with desc = Duplicate_type_name x.desc})
 
 let add_types env xts =
-  check_unique_type_name fst xts;
+  check_unique_type_name xts;
   let constrs, xts' =
     List.fold_left (fun (constrs, xts) (name, ty) ->
         match ty with

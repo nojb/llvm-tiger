@@ -893,13 +893,7 @@
     type t = int
   in
   end
-  
-  define void @TIG_main() gc "shadow-stack" {
-  entry:
-    ret void
-  }
-  
-  *** OUTPUT ***
+  error: test019.tig:4:8: repeated type name `t'
   
   *** END test019.tig ***
   
