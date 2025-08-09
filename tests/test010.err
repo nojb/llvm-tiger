@@ -30,3 +30,4 @@ declare void @TIG_nil_error(ptr %0, i64 %1, i64 %2)
 declare void @TIG_printi(i64 %0)
 
 attributes #0 = { nounwind }
+test010.tig:5:10: variable is nil

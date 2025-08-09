@@ -16,7 +16,11 @@ let run fn =
     | _, (WSIGNALED n | WSTOPPED n) -> 128 + n
   in
   let code = run_process !cmd ["-dllvm"; fn] in
-  if code = 0 then ignore (run_process "cc" [base ^ ".o"; !runtime]);
+  if code = 0 then begin
+    let exe_name = base ^ ".exe" in
+    let code = run_process "cc" [base ^ ".o"; !runtime; "-o"; exe_name] in
+    if code = 0 then ignore (run_process ("./" ^ exe_name) [exe_name])
+  end;
   Unix.close out_file;
   Unix.close err_file
 
