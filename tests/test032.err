@@ -1,7 +1,7 @@
 
 define void @TIG_main() gc "shadow-stack" {
 entry:
-  %0 = call i64 @fact_1(i64 10)
+  %0 = call i64 @fact_1(i64 15)
   call void @TIG_printi(i64 %0)
   ret void
 }

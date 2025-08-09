@@ -55,6 +55,21 @@ void TIG_print(char *s)
   fputs(s, stdout);
 }
 
+void TIG_flush(void)
+{
+  fflush(stdout);
+}
+
+intptr_t TIG_not(intptr_t x)
+{
+  return (x == 0) ? 1 : 0;
+}
+
+void TIG_exit(intptr_t n)
+{
+  exit(n);
+}
+
 intptr_t* TIG_makearray(ssize_t n, intptr_t x)
 {
   intptr_t *arr = calloc(n+1, sizeof(intptr_t));

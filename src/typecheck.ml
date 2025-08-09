@@ -460,38 +460,39 @@ and add_functions env fdefs =
   {env with venv}
 
 let base_tenv =
-  StringMap.of_list
-    [
-      "int", Tint;
-      "string", Tstring;
-    ]
-
-let stdlib =
   [
-    "printi", [Tint], None, "TIG_printi";
-    "print", [Tstring], None, "TIG_print";
+    "int", Tint;
+    "string", Tstring;
   ]
 
-(* let stdlib =
-   [
+let base_venv =
+  [
+    "printi", [Tint], None;
+    "print", [Tstring], None;
     "flush", [], None;
-    "getchar", [], Some Tstring;
-    "ord", [Tstring], Some Tint;
-    "chr", [Tint], Some Tstring;
-    "size", [Tstring], Some Tint;
-    "substring", [Tstring; Tint; Tint], Some Tstring;
-    "concat", [Tstring; Tstring], Some Tstring;
     "not", [Tint], Some Tint;
     "exit", [Tint], None;
-   ] *)
-
-let base_venv =
-  let f venv (name, args, res, impl) = StringMap.add name (Fun ((args, res), External impl)) venv in
-  List.fold_left f StringMap.empty stdlib
+    (* "getchar", [], Some Tstring;
+       "ord", [Tstring], Some Tint;
+       "chr", [Tint], Some Tstring;
+       "size", [Tstring], Some Tint;
+       "substring", [Tstring; Tint; Tint], Some Tstring;
+       "concat", [Tstring; Tstring], Some Tstring; *)
+  ]
 
 let program (p : Tabs.program) =
-  let env = empty_env base_venv base_tenv in
+  let env =
+    let base_venv =
+      let f venv (name, args, res) =
+        StringMap.add name (Fun ((args, res), External ("TIG_" ^ name))) venv in
+      List.fold_left f StringMap.empty base_venv
+    in
+    empty_env base_venv (StringMap.of_list base_tenv)
+  in
   let body = statement env p.body in
-  let p_funs = {fn_name = Main; fn_rtyp = None; fn_args = []; fn_vars = !(env.vars); fn_body = body} :: !(env.funs) in
+  let p_funs =
+    {fn_name = Main; fn_rtyp = None; fn_args = []; fn_vars = !(env.vars); fn_body = body} ::
+    !(env.funs)
+  in
   let p_cstr = Hashtbl.fold (fun id ts accu -> (id, ts) :: accu) env.cstr [] in
   {p_cstr; p_funs}
