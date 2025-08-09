@@ -4,6 +4,7 @@ module Ident: sig
   val new_state: unit -> state
   val create: state -> string -> t
   val name: t -> string
+  val unique_name: t -> string
   val equal: t -> t -> bool
   module Map: Map.S with type key = t
 end = struct
@@ -12,6 +13,7 @@ end = struct
   let new_state () = ref 0
   let create r name = incr r; { name; id = !r }
   let name { name; id = _ } = name
+  let unique_name { name; id } = Printf.sprintf "%s_%i" name id
   let compare t1 t2 = Int.compare t1.id t2.id
   let equal t1 t2 = Int.equal t1.id t2.id
   module Map = Map.Make(struct type nonrec t = t let compare = compare end)
@@ -37,6 +39,10 @@ type loc =
     lineno: int;
     column: int;
   }
+
+type implem =
+  | External of string
+  | Internal of ident
 
 type 'a typed =
   {
@@ -70,22 +76,24 @@ and statement =
   | Sifthenelse of expression * statement * statement
   | Sseq of statement * statement
   | Sassign of variable * expression
-  | Scall of variable option * string * expression list * signature
+  | Scall of variable option * implem * expression list * signature
   | Sreturn of expression option
   | Sarray of variable * expression * expression
   | Srecord of variable * expression list
 
-and fundef =
-  { fn_name: ident;
+type fundef_name =
+  | Main
+  | Internal of ident
+
+type fundef =
+  { fn_name: fundef_name;
     fn_rtyp: type_id option;
     fn_args: (ident * type_id) list;
     fn_vars: (ident * type_id) list;
     fn_body: statement }
 
-and program =
+type program =
   {
-    p_name: string;
-    p_cstr: (ident, type_structure) Hashtbl.t;
-    p_vars: (ident, type_id) Hashtbl.t;
-    p_body: statement;
+    p_cstr: (ident * type_structure) list;
+    p_funs: fundef list;
   }

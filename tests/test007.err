@@ -23,8 +23,8 @@ entry:
   br label %5
 
 5:                                                ; preds = %entry, %32
-  %.0 = phi i64 [ 2, %entry ], [ %31, %32 ]
-  %6 = icmp slt i64 500, %.0
+  %.01 = phi i64 [ 2, %entry ], [ %31, %32 ]
+  %6 = icmp slt i64 500, %.01
   %7 = zext i1 %6 to i64
   %8 = icmp ne i64 %7, 0
   br i1 %8, label %9, label %11
@@ -40,26 +40,26 @@ entry:
   %12 = load ptr, ptr %1, align 8
   %13 = getelementptr { i64, [0 x i64] }, ptr %12, i64 0, i64 0
   %14 = load i64, ptr %13, align 4
-  %15 = icmp sge i64 %.0, 0
-  %16 = icmp slt i64 %.0, %14
+  %15 = icmp sge i64 %.01, 0
+  %16 = icmp slt i64 %.01, %14
   %17 = and i1 %15, %16
   br i1 %17, label %18, label %47
 
 18:                                               ; preds = %11
-  %19 = getelementptr { i64, [0 x i64] }, ptr %12, i64 0, i64 1, i64 %.0
+  %19 = getelementptr { i64, [0 x i64] }, ptr %12, i64 0, i64 1, i64 %.01
   %20 = load i64, ptr %19, align 4
   %21 = icmp ne i64 %20, 0
   br i1 %21, label %22, label %46
 
 22:                                               ; preds = %18
-  call void @TIG_printi(i64 %.0)
+  call void @TIG_printi(i64 %.01)
   call void @TIG_print(ptr @2)
   br label %23
 
 23:                                               ; preds = %22, %44
-  %.01 = phi i64 [ %.0, %22 ], [ %43, %44 ]
-  %24 = sdiv i64 500, %.0
-  %25 = icmp slt i64 %24, %.01
+  %.0 = phi i64 [ %.01, %22 ], [ %43, %44 ]
+  %24 = sdiv i64 500, %.01
+  %25 = icmp slt i64 %24, %.0
   %26 = zext i1 %25 to i64
   %27 = icmp ne i64 %26, 0
   br i1 %27, label %28, label %33
@@ -71,14 +71,14 @@ entry:
   br label %30
 
 30:                                               ; preds = %46, %29
-  %31 = add i64 %.0, 1
+  %31 = add i64 %.01, 1
   br label %32
 
 32:                                               ; preds = %30
   br label %5
 
 33:                                               ; preds = %23
-  %34 = mul i64 %.0, %.01
+  %34 = mul i64 %.01, %.0
   %35 = load ptr, ptr %1, align 8
   %36 = getelementptr { i64, [0 x i64] }, ptr %35, i64 0, i64 0
   %37 = load i64, ptr %36, align 4
@@ -90,7 +90,7 @@ entry:
 41:                                               ; preds = %33
   %42 = getelementptr { i64, [0 x i64] }, ptr %35, i64 0, i64 1, i64 %34
   store i64 0, ptr %42, align 4
-  %43 = add i64 %.01, 1
+  %43 = add i64 %.0, 1
   br label %44
 
 44:                                               ; preds = %41

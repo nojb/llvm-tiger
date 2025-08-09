@@ -236,24 +236,33 @@ and statement env lexit s next =
   | Sseq (s1, s2) ->
       statement env lexit s1 (statement env lexit s2 next)
   | Sassign (v, e) ->
-      variable env v @@ fun rv ->
-      expression env e @@ fun re ->
-      Istore (re, rv, next)
-  | Scall (None, s, el, sign) ->
+      variable env v @@ fun v' ->
+      expression env e @@ fun e' ->
+      Istore (e', v', next)
+  | Scall (v, impl, el, sg) ->
       let rec loop rl = function
-        | [] ->
-            let r = new_reg env in
-            let sign =
-              let (args, res) = sign in
-              List.map type_id args, match res with None -> Tvoid | Some t -> type_id t
-            in
-            Iop (Iexternal (s, sign), List.rev rl, r, next)
         | e :: el ->
             expression env e @@ fun r -> loop (r :: rl) el
+        | [] ->
+            let r = new_reg env in
+            let next =
+              match v with
+              | None -> next
+              | Some v -> variable env v @@ fun v' -> Istore (r, v', next)
+            in
+            let op =
+              match impl with
+              | External s ->
+                  let sg =
+                    let (args, res) = sg in
+                    List.map type_id args, match res with None -> Tvoid | Some t -> type_id t
+                  in
+                  Iexternal (s, sg)
+              | Internal id -> Icall id
+            in
+            Iop (op, List.rev rl, r, next)
       in
       loop [] el
-  | Scall (Some _, _, _, _) ->
-      assert false
   | Sreturn (Some e) ->
       expression env e @@ fun r ->
       Ireturn (Some r)
@@ -288,19 +297,39 @@ and statement env lexit s next =
       in
       loop [] fl
 
-let program (p : Typing.program) =
+let fundef cstrs fundef =
   let next_reg = Reg.create () in
   let vars =
     let vars = ref Ident.Map.empty in
-    Hashtbl.iter (fun s _ -> vars := Ident.Map.add s (Reg.next next_reg) !vars) p.p_vars;
+    List.iter (fun (s, _) -> vars := Ident.Map.add s (Reg.next next_reg) !vars) fundef.fn_args;
+    List.iter (fun (s, _) -> vars := Ident.Map.add s (Reg.next next_reg) !vars) fundef.fn_vars;
     !vars
   in
-  let cstrs = Hashtbl.fold Ident.Map.add p.p_cstr Ident.Map.empty in
   let env = { cstrs; next_reg; next_label = Label.create (); blocks = Label.Map.empty; vars } in
+  let entrypoint = statement env None fundef.fn_body (Ireturn None) in
   let entrypoint =
-    Hashtbl.fold (fun name tid next ->
+    List.fold_left (fun next (name, tid) ->
         let root = match tid with Tconstr _ | Tstring -> true | Tint -> false in
         Iop (Ialloca (type_id tid, root), [], Ident.Map.find name vars, next)
-      ) p.p_vars (statement env None p.p_body (Ireturn None))
+      ) entrypoint fundef.fn_vars
   in
-  {name = p.p_name; code = env.blocks; entrypoint}
+  let _, entrypoint =
+    List.fold_left (fun (i, next) (name, tid) ->
+        let root = match tid with Tconstr _ | Tstring -> true | Tint -> false in
+        let r = Reg.next next_reg in
+        let next = Iop (Pparam i, [], r, Istore (r, Ident.Map.find name vars, next)) in
+        i+1, Iop (Ialloca (type_id tid, root), [], Ident.Map.find name vars, next)
+      ) (0, entrypoint) fundef.fn_args
+  in
+  let signature =
+    List.map (fun (_, ty) -> type_id ty) fundef.fn_args,
+    match fundef.fn_rtyp with
+    | None -> Tvoid
+    | Some ty -> type_id ty
+  in
+  { name = fundef.fn_name; signature; code = env.blocks; entrypoint }
+
+let program (p : Typing.program) =
+  let cstrs = Ident.Map.of_list p.p_cstr in
+  let funs = List.map (fundef cstrs) p.p_funs in
+  { funs }

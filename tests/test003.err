@@ -4,10 +4,10 @@ entry:
   br label %0
 
 0:                                                ; preds = %entry, %9
-  %.02 = phi i64 [ 0, %entry ], [ %.0, %9 ]
-  %.01 = phi i64 [ 1, %entry ], [ %8, %9 ]
-  %.0 = phi i64 [ 1, %entry ], [ %7, %9 ]
-  %1 = icmp slt i64 100, %.01
+  %.02 = phi i64 [ 1, %entry ], [ %7, %9 ]
+  %.01 = phi i64 [ 0, %entry ], [ %.02, %9 ]
+  %.0 = phi i64 [ 1, %entry ], [ %8, %9 ]
+  %1 = icmp slt i64 100, %.0
   %2 = zext i1 %1 to i64
   %3 = icmp ne i64 %2, 0
   br i1 %3, label %4, label %6
@@ -16,12 +16,12 @@ entry:
   br label %5
 
 5:                                                ; preds = %4
-  call void @TIG_printi(i64 %.0)
+  call void @TIG_printi(i64 %.02)
   ret void
 
 6:                                                ; preds = %0
-  %7 = add i64 %.02, %.0
-  %8 = add i64 %.01, 1
+  %7 = add i64 %.01, %.02
+  %8 = add i64 %.0, 1
   br label %9
 
 9:                                                ; preds = %6

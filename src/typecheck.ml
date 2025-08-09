@@ -8,13 +8,14 @@ let seq s1 s2 =
 
 type value =
   | Var of type_id * Typing.ident
-  | Fun of (type_id list * type_id option) * string
+  | Fun of signature * implem
 
 module StringMap = Map.Make(String)
 
 type env =
   {
-    vars: (Typing.ident, type_id) Hashtbl.t;
+    vars: (Typing.ident * type_id) list ref;
+    funs: Typing.fundef list ref;
     cstr: (Typing.ident, type_structure) Hashtbl.t;
     venv: value StringMap.t;
     tenv: type_id StringMap.t;
@@ -23,7 +24,8 @@ type env =
   }
 
 let empty_env venv tenv =
-  { vars = Hashtbl.create 0;
+  { vars = ref [];
+    funs = ref [];
     cstr = Hashtbl.create 0;
     venv;
     tenv;
@@ -105,25 +107,13 @@ let get_array_type env loc = function
 
 let add_var env (x : ident) tid =
   let id = Ident.create env.next_ident x.desc in
-  Hashtbl.add env.vars id tid;
+  env.vars := (id, tid) :: !(env.vars);
   {desc = Typing.Vsimple id; ty = tid}, {env with venv = StringMap.add x.desc (Var (tid, id)) env.venv}
 
 let add_fresh_var env tid =
   let id = Ident.create env.next_ident "tmp" in
-  Hashtbl.add env.vars id tid;
+  env.vars := (id, tid) :: !(env.vars);
   {ty = tid; desc = Typing.Vsimple id}
-
-(* let add_fun x uid atyps rtyp free_vars env =
-   let fi = { name = uid; sign = atyps, rtyp } in
-   {env with venv = M.add x.s (Function fi) env.venv} *)
-
-(* let find_fun x env =
-   try
-    match M.find x.s env.venv with
-    | Variable _ -> raise Not_found
-    | Function fi -> fi
-   with Not_found ->
-    error x.p "unbound function '%s'" x.s *)
 
 let has_duplicate (type a) (f : a -> 'b) (l : a list) =
   let exception Found of a in
@@ -195,9 +185,6 @@ let add_types env xts =
       ) env.tenv xts'
   in
   {env with tenv}
-
-let add_functions _env _fdefs =
-  assert false
 
 let loc_of_variable v =
   {
@@ -359,10 +346,12 @@ and expression env e : statement * expression option =
         List.fold_left2 (fun (s, el) arg param -> let s', e' = expression' env param arg in seq s s', e' :: el)
           (Sskip, []) args params
       in
-      begin match res with
-      | None -> seq s (Scall (None, impl, List.rev params, sign)), None
-      | Some _ -> assert false
-      end
+      let v = Option.map (add_fresh_var env) res in
+      let s', e' =
+        Scall (v, impl, List.rev params, sign),
+        match v with None -> None | Some v -> Some {ty = v.ty; desc = Typing.Evar v}
+      in
+      seq s s', e'
   | Eseq el ->
       List.fold_left (fun (s, _) e ->
           let s', e = expression env e in
@@ -437,6 +426,39 @@ and expression env e : statement * expression option =
       let s2, e = expression env e in
       seq s1 s2, e
 
+and add_functions env fdefs =
+  let names, venv =
+    List.fold_left (fun (names, venv) fdef ->
+        let fn_name = Ident.create env.next_ident fdef.fn_name.desc in
+        let rtyp = Option.map (find_type env) fdef.fn_rtyp in
+        let args = List.map (fun (_name, sty) -> find_type env sty) fdef.fn_args in
+        let sg = args, rtyp in
+        (Internal fn_name, args, rtyp) :: names,
+        StringMap.add fdef.fn_name.desc (Fun (sg, Internal fn_name)) venv
+      ) ([], env.venv) fdefs
+  in
+  List.iter2 (fun (fn_name, fn_args, fn_rtyp) fdef ->
+      let (fn_args, venv) =
+        List.fold_left2 (fun (args, venv) (name, _) ty ->
+            let id = Ident.create env.next_ident name.desc in
+            (id, ty) :: args, StringMap.add name.desc (Var (ty, id)) venv
+          ) ([], venv) fdef.fn_args fn_args
+      in
+      let vars = ref [] in
+      let env = {env with vars; venv} in
+      let fn_body =
+        match fn_rtyp with
+        | None ->
+            statement env fdef.fn_body
+        | Some ty ->
+            let s, e = expression' env fdef.fn_body ty in
+            seq s (Sreturn (Some e))
+      in
+      let fdef = {fn_name; fn_rtyp; fn_args; fn_vars = !vars; fn_body} in
+      env.funs := fdef :: !(env.funs)
+    ) (List.rev names) fdefs;
+  {env with venv}
+
 let base_tenv =
   StringMap.of_list
     [
@@ -464,10 +486,12 @@ let stdlib =
    ] *)
 
 let base_venv =
-  let f venv (name, args, res, impl) = StringMap.add name (Fun ((args, res), impl)) venv in
+  let f venv (name, args, res, impl) = StringMap.add name (Fun ((args, res), External impl)) venv in
   List.fold_left f StringMap.empty stdlib
 
 let program (p : Tabs.program) =
   let env = empty_env base_venv base_tenv in
   let body = statement env p.body in
-  {p_name = p.name; p_cstr = env.cstr; p_vars = env.vars; p_body = body}
+  let p_funs = {fn_name = Main; fn_rtyp = None; fn_args = []; fn_vars = !(env.vars); fn_body = body} :: !(env.funs) in
+  let p_cstr = Hashtbl.fold (fun id ts accu -> (id, ts) :: accu) env.cstr [] in
+  {p_cstr; p_funs}

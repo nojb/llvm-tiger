@@ -13,11 +13,11 @@ entry:
   store ptr null, ptr %2, align 8
   call void @llvm.gcroot(ptr %2, ptr null)
   %3 = call ptr @TIG_makearray(i64 43, i64 3)
-  store ptr %3, ptr %1, align 8
-  %4 = load ptr, ptr %1, align 8
+  store ptr %3, ptr %0, align 8
+  %4 = load ptr, ptr %0, align 8
   %5 = call ptr @TIG_makearray(i64 10, ptr %4)
-  store ptr %5, ptr %0, align 8
-  %6 = load ptr, ptr %0, align 8
+  store ptr %5, ptr %1, align 8
+  %6 = load ptr, ptr %1, align 8
   store ptr %6, ptr %2, align 8
   %7 = load ptr, ptr %2, align 8
   %8 = getelementptr { i64, [0 x ptr] }, ptr %7, i64 0, i64 0

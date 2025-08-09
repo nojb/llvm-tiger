@@ -12,6 +12,7 @@ type operation =
   | Pconstint of int64
   | Pconststring of string
   | Pnull
+  | Pparam of int
   | Paddint
   | Psubint
   | Pmulint
@@ -22,6 +23,7 @@ type operation =
   | Pzext
   | Ialloca of ty * bool (* gcroot *)
   | Iexternal of string * signature
+  | Icall of Typing.ident
   | Imakearray
   | Imakerecord of int
 
@@ -54,11 +56,17 @@ type instruction =
   | Ireturn of reg option
   | Iunreachable
 
-type program =
+type fundef =
   {
-    name: string;
+    name: Typing.fundef_name;
+    signature: signature;
     code: instruction Label.Map.t;
     entrypoint: instruction;
+  }
+
+type program =
+  {
+    funs: fundef list;
   }
 
 val transl_program: program -> Llvm.llmodule

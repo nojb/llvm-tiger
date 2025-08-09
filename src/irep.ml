@@ -14,6 +14,7 @@ type operation =
   | Pconstint of int64
   | Pconststring of string
   | Pnull
+  | Pparam of int
   | Paddint
   | Psubint
   | Pmulint
@@ -24,6 +25,7 @@ type operation =
   | Pzext
   | Ialloca of ty * bool
   | Iexternal of string * signature
+  | Icall of Typing.ident
   | Imakearray
   | Imakerecord of int
 
@@ -57,30 +59,22 @@ type instruction =
   | Ireturn of reg option
   | Iunreachable
 
-type program =
+type fundef =
   {
-    name: string;
-    code: instruction Label.Map.t;
-    entrypoint: instruction;
-  }
-
-let intptr_type c =
-  assert (Sys.word_size = 64);
-  i64_type c
-
-  (*
-type fundecl =
-  {
-    name: string;
-    args: reg list;
+    name: Typing.fundef_name;
     signature: signature;
     code: instruction Label.Map.t;
     entrypoint: instruction;
   }
 
-let print_fundecl ppf f =
-  let open Format in
-  fprintf ppf "@[<v>%s(%a):@,%a@]@." f.name print_args f.args print_instruction f.entrypoint *)
+type program =
+  {
+    funs: fundef list;
+  }
+
+let intptr_type c =
+  assert (Sys.word_size = 64);
+  i64_type c
 
 type env =
   {
@@ -92,22 +86,23 @@ type env =
     code: instruction Label.Map.t;
     blocks: llbasicblock Label.Tbl.t;
     regs: llvalue Reg.Map.t;
+    funs: (llvalue * lltype) Typing.Ident.Map.t;
   }
 
-let rec transl_ty env ty =
+let rec transl_ty c ty =
   match ty with
   | Tvoid ->
-      void_type env.c
+      void_type c
   | Tarray (ty, len) ->
-      array_type (transl_ty env ty) len
+      array_type (transl_ty c ty) len
   | Tstruct tys ->
-      struct_type env.c (Array.of_list (List.map (transl_ty env) tys))
+      struct_type c (Array.of_list (List.map (transl_ty c) tys))
   | Tnamed name ->
-      named_struct_type env.c name
+      named_struct_type c name
   | Tpointer ->
-      pointer_type env.c
+      pointer_type c
   | Tint width ->
-      integer_type env.c width
+      integer_type c width
 
 let gcroot env v =
   let lltype = function_type (void_type env.c) [|pointer_type env.c; pointer_type env.c|] in
@@ -128,6 +123,8 @@ let transl_operation env op args =
       end
   | Pnull, [] ->
       const_null (pointer_type env.c)
+  | Pparam i, [] ->
+      param env.f i
   | Paddint, [arg1; arg2] ->
       build_add arg1 arg2 "" env.b
   | Psubint, [arg1; arg2] ->
@@ -148,18 +145,21 @@ let transl_operation env op args =
   | Pzext, [r] ->
       build_zext r (intptr_type env.c) "" env.b
   | Pgep ty, (r0 :: rl) ->
-      build_gep (transl_ty env ty) r0 (Array.of_list rl) "" env.b
+      build_gep (transl_ty env.c ty) r0 (Array.of_list rl) "" env.b
   | Ialloca (ty, root), [] ->
-      let v = build_alloca (transl_ty env ty) "" env.b in
+      let v = build_alloca (transl_ty env.c ty) "" env.b in
       if root then begin
         ignore (build_store (const_null (pointer_type env.c)) v env.b);
         gcroot env v;
       end;
       v
   | Iexternal (f, (tys, ty)), args ->
-      let lltype = function_type (transl_ty env ty) (Array.of_list (List.map (transl_ty env) tys)) in
+      let lltype = function_type (transl_ty env.c ty) (Array.of_list (List.map (transl_ty env.c) tys)) in
       let f = declare_function f lltype env.m in
       build_call lltype f (Array.of_list args) "" env.b
+  | Icall f, args ->
+      let f, sg = Typing.Ident.Map.find f env.funs in
+      build_call sg f (Array.of_list args) "" env.b
   | Imakearray, [size; init] ->
       let ty = function_type (pointer_type env.c) [|intptr_type env.c; intptr_type env.c|] in
       let f = declare_function "TIG_makearray" ty env.m in
@@ -168,7 +168,8 @@ let transl_operation env op args =
       let ty = function_type (pointer_type env.c) [|i32_type env.c|] in
       let f = declare_function "TIG_makerecord" ty env.m in
       build_call ty f [|const_int (i32_type env.c) n|] "" env.b
-  | (Pconstint _ | Pconststring _ | Pnull | Paddint | Psubint | Pmulint | Pdivint | Pcmpint _ |
+  | (Pconstint _ | Pconststring _ | Pnull |
+     Pparam _ | Paddint | Psubint | Pmulint | Pdivint | Pcmpint _ |
      Pand | Pzext | Pgep _ | Ialloca _ | Imakearray |
      Imakerecord _ ), _ ->
       assert false
@@ -189,7 +190,7 @@ let rec transl_instr env i =
       let vres = transl_operation env op args in
       transl_instr (add_var env res vres) next
   | Iload (ty, arg, res, next) ->
-      let v = build_load (transl_ty env ty) (find_var env arg) "" env.b in
+      let v = build_load (transl_ty env.c ty) (find_var env arg) "" env.b in
       transl_instr (add_var env res v) next
   | Istore (src, dst, next) ->
       ignore (build_store (find_var env src) (find_var env dst) env.b);
@@ -219,40 +220,37 @@ and transl_block env lbl =
       transl_instr {env with b} (find_code env lbl);
       bb
 
-      (*
-let transl_fundecl_1 m f =
-  let tys, ty = f.signature in
-  let fty = function_type (transl_ty m ty) (Array.map (transl_ty m) tys) in
-  ignore (define_function f.name fty m)
-
-let transl_fundecl_2 m f =
-  let v =
-    match lookup_function f.name m with
-    | None -> assert false
-    | Some v -> v
+let transl_fundefs c m fdefs =
+  let fs =
+    List.map (fun fdef ->
+        let args, rety = fdef.signature in
+        let rety = transl_ty c rety in
+        let args = List.map (transl_ty c) args in
+        let sg = function_type rety (Array.of_list args) in
+        let name =
+          match fdef.name with Main -> "TIG_main" | Internal id -> Typing.Ident.unique_name id in
+        let f = define_function name sg m in
+        set_gc (Some "shadow-stack") f;
+        f, sg
+      ) fdefs
   in
-  let c = module_context m in
-  let b = builder c in
-  let _, env =
-    let aux (n, env) arg = n + 1, Reg.Map.add arg (param v n) env in
-    List.fold_left aux (0, Reg.Map.empty) f.args
+  let funs =
+    List.fold_left2 (fun funs fdef (f, sg) ->
+        match fdef.name with
+        | Main -> funs
+        | Internal name -> Typing.Ident.Map.add name (f, sg) funs
+      ) Typing.Ident.Map.empty fdefs fs
   in
-  let lgoto = Label.Map.map (fun _ -> append_block c "" v) f.code in
-  let transl_block block i = position_at_end block b; transl_instr env m b i lgoto in
-  transl_block (entry_block v) f.entrypoint;
-  Label.Map.iter (fun lbl i -> transl_block (Label.Map.find lbl lgoto) i) f.code *)
+  let strings = Hashtbl.create 0 in
+  List.iter2 (fun (fdef : fundef) (f, _) ->
+      let b = builder c in
+      let env = { c; m; b; f; strings; code = fdef.code; blocks = Label.Tbl.create 0; regs = Reg.Map.empty; funs } in
+      position_at_end (entry_block f) b;
+      transl_instr env fdef.entrypoint
+    ) fdefs fs
 
 let transl_program (p : program) =
   let c = global_context () in
-  let m = create_module c p.name in
-  let f = define_function "TIG_main" (function_type (void_type c) [||]) m in
-  set_gc (Some "shadow-stack") f;
-  let b = builder c in
-  let env =
-    { c; m; b; f; strings = Hashtbl.create 0;
-      code = p.code; blocks = Label.Tbl.create 0;
-      regs = Reg.Map.empty }
-  in
-  position_at_end (entry_block f) b;
-  transl_instr env p.entrypoint;
+  let m = create_module c "" in
+  transl_fundefs c m p.funs;
   m
