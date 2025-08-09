@@ -577,7 +577,7 @@
   attributes #0 = { nounwind }
   warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
   1 warning generated.
-  /usr/bin/ld: /tmp/build_98e354_dune/test011-8fb2ac.o: in function `TIG_main':
+  /usr/bin/ld: /tmp/build_fdda9f_dune/test011-b8281c.o: in function `TIG_main':
   :(.text+0x56): undefined reference to `TIG_makeptrarray'
   clang-18: error: linker command failed with exit code 1 (use -v to see invocation)
   
@@ -640,7 +640,7 @@
   attributes #0 = { nounwind }
   warning: overriding the module target triple with x86_64-pc-linux-gnu [-Woverride-module]
   1 warning generated.
-  /usr/bin/ld: /tmp/build_98e354_dune/test012-afdcf0.o: in function `TIG_main':
+  /usr/bin/ld: /tmp/build_fdda9f_dune/test012-f41b94.o: in function `TIG_main':
   :(.text+0x8f): undefined reference to `TIG_makeptrarray'
   clang-18: error: linker command failed with exit code 1 (use -v to see invocation)
   
@@ -1093,4 +1093,32 @@
   error: test029.tig:4:14: a field named `a' belonging to the type `t' was expected here
   
   *** END test029.tig ***
+  
+  
+  *** BEGIN test030.tig ***
+  
+  /* ERR: too many fields */
+  let
+    type t = {a:int}
+    var x := t {a=42, b=56}
+  in
+  end
+  
+  error: test030.tig:4:12: too many fields for type `t': b
+  
+  *** END test030.tig ***
+  
+  
+  *** BEGIN test031.tig ***
+  
+  /* ERR: missing fields */
+  let
+    type t = {a:int}
+    var x := t {}
+  in
+  end
+  
+  error: test031.tig:4:12: some fields belonging to the type `t' are missing: a
+  
+  *** END test031.tig ***
   

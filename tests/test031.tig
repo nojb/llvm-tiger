@@ -1,0 +1,6 @@
+/* ERR: missing fields */
+let
+  type t = {a:int}
+  var x := t {}
+in
+end

@@ -1,0 +1,6 @@
+/* ERR: too many fields */
+let
+  type t = {a:int}
+  var x := t {a=42, b=56}
+in
+end
