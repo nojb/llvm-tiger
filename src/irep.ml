@@ -23,6 +23,7 @@ type operation =
   | Pdivint
   | Pgep of ty
   | Pcmpint of Tabs.comparison
+  | Pand
   | Pzext
   | Ialloca of ty * bool
   | Iapply of string
@@ -146,6 +147,8 @@ let transl_operation env op args =
         | Clt -> Icmp.Slt | Cge -> Icmp.Sge | Cgt -> Icmp.Sgt
       in
       build_icmp c r1 r2 "" env.b
+  | Pand, [r1; r2] ->
+      build_and r1 r2 "" env.b
   | Pzext, [r] ->
       build_zext r (intptr_type env.c) "" env.b
   | Pgep ty, (r0 :: rl) ->
@@ -169,21 +172,16 @@ let transl_operation env op args =
       let lltype = function_type (transl_ty env ty) (Array.of_list (List.map (transl_ty env) tys)) in
       let f = declare_function f lltype env.m in
       build_call lltype f (Array.of_list args) "" env.b
-  | Imakearray ty, [size; init] ->
-      let fname, argty =
-        match ty with
-        | Int -> "TIG_makeintarray", Tint 64
-        | Pointer -> "TIG_makeptrarray", Tpointer
-      in
-      let ty = function_type (pointer_type env.c) [|intptr_type env.c; transl_ty env argty|] in
-      let f = declare_function fname ty env.m in
+  | Imakearray _ty, [size; init] ->
+      let ty = function_type (pointer_type env.c) [|intptr_type env.c; intptr_type env.c|] in
+      let f = declare_function "TIG_makearray" ty env.m in
       build_call ty f [|size; init|] "" env.b
   | Imakerecord n, [] ->
       let ty = function_type (pointer_type env.c) [|i32_type env.c|] in
       let f = declare_function "TIG_makerecord" ty env.m in
       build_call ty f [|const_int (i32_type env.c) n|] "" env.b
   | (Pconstint _ | Pconststring _ | Pnull | Paddint | Psubint | Pmulint | Pdivint | Pcmpint _ |
-     Pzext | Pgep _ | Ialloca _ | Imakearray _ |
+     Pand | Pzext | Pgep _ | Ialloca _ | Imakearray _ |
      Imakerecord _ ), _ ->
       assert false
 

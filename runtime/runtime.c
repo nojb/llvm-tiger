@@ -55,10 +55,11 @@ void TIG_print(char *s)
   fputs(s, stdout);
 }
 
-intptr_t* TIG_makeintarray(ssize_t n, intptr_t x)
+intptr_t* TIG_makearray(ssize_t n, intptr_t x)
 {
-  intptr_t *arr = calloc(n, sizeof(intptr_t));
-  for (int i = 0; i < n; i ++) {
+  intptr_t *arr = calloc(n+1, sizeof(intptr_t));
+  arr[0] = n;
+  for (int i = 1; i <= n; i ++) {
     arr[i] = x;
   }
   return arr;
@@ -73,6 +74,13 @@ intptr_t* TIG_makerecord(ssize_t n)
 void TIG_nil_error(char *filename, intptr_t lineno, intptr_t column)
 {
   fprintf(stderr, "%s:%ld:%ld: variable is nil\n", filename, lineno, column);
+  fflush(stderr);
+  exit(2);
+}
+
+void TIG_bounds_error(char *filename, intptr_t lineno, intptr_t column)
+{
+  fprintf(stderr, "%s:%ld:%ld: out of bounds\n", filename, lineno, column);
   fflush(stderr);
   exit(2);
 }

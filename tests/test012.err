@@ -1,4 +1,6 @@
 
+@0 = private unnamed_addr constant [12 x i8] c"test012.tig\00", align 1
+
 define void @TIG_main() gc "shadow-stack" {
 entry:
   %0 = alloca ptr, align 8
@@ -10,37 +12,78 @@ entry:
   %2 = alloca ptr, align 8
   store ptr null, ptr %2, align 8
   call void @llvm.gcroot(ptr %2, ptr null)
-  %3 = call ptr @TIG_makeintarray(i64 43, i64 3)
+  %3 = call ptr @TIG_makearray(i64 43, i64 3)
   store ptr %3, ptr %1, align 8
   %4 = load ptr, ptr %1, align 8
-  %5 = call ptr @TIG_makeptrarray(i64 10, ptr %4)
+  %5 = call ptr @TIG_makearray(i64 10, ptr %4)
   store ptr %5, ptr %0, align 8
   %6 = load ptr, ptr %0, align 8
   store ptr %6, ptr %2, align 8
   %7 = load ptr, ptr %2, align 8
-  %8 = getelementptr ptr, ptr %7, i64 3
-  %9 = load ptr, ptr %8, align 8
-  %10 = getelementptr i64, ptr %9, i64 5
-  store i64 123, ptr %10, align 4
-  %11 = load ptr, ptr %2, align 8
-  %12 = getelementptr ptr, ptr %11, i64 3
-  %13 = load ptr, ptr %12, align 8
-  %14 = getelementptr i64, ptr %13, i64 5
-  %15 = load i64, ptr %14, align 4
-  call void @TIG_printi(i64 %15)
+  %8 = getelementptr { i64, [0 x ptr] }, ptr %7, i64 0, i64 0
+  %9 = load i64, ptr %8, align 4
+  %10 = icmp slt i64 3, %9
+  %11 = and i1 true, %10
+  br i1 %11, label %12, label %39
+
+12:                                               ; preds = %entry
+  %13 = getelementptr { i64, [0 x ptr] }, ptr %7, i64 0, i64 1, i64 3
+  %14 = load ptr, ptr %13, align 8
+  %15 = getelementptr { i64, [0 x i64] }, ptr %14, i64 0, i64 0
+  %16 = load i64, ptr %15, align 4
+  %17 = icmp slt i64 5, %16
+  %18 = and i1 true, %17
+  br i1 %18, label %19, label %38
+
+19:                                               ; preds = %12
+  %20 = getelementptr { i64, [0 x i64] }, ptr %14, i64 0, i64 1, i64 5
+  store i64 123, ptr %20, align 4
+  %21 = load ptr, ptr %2, align 8
+  %22 = getelementptr { i64, [0 x ptr] }, ptr %21, i64 0, i64 0
+  %23 = load i64, ptr %22, align 4
+  %24 = icmp slt i64 3, %23
+  %25 = and i1 true, %24
+  br i1 %25, label %26, label %37
+
+26:                                               ; preds = %19
+  %27 = getelementptr { i64, [0 x ptr] }, ptr %21, i64 0, i64 1, i64 3
+  %28 = load ptr, ptr %27, align 8
+  %29 = getelementptr { i64, [0 x i64] }, ptr %28, i64 0, i64 0
+  %30 = load i64, ptr %29, align 4
+  %31 = icmp slt i64 5, %30
+  %32 = and i1 true, %31
+  br i1 %32, label %33, label %36
+
+33:                                               ; preds = %26
+  %34 = getelementptr { i64, [0 x i64] }, ptr %28, i64 0, i64 1, i64 5
+  %35 = load i64, ptr %34, align 4
+  call void @TIG_printi(i64 %35)
   ret void
+
+36:                                               ; preds = %26
+  call void @TIG_bounds_error(ptr @0, i64 7, i64 15)
+  unreachable
+
+37:                                               ; preds = %19
+  call void @TIG_bounds_error(ptr @0, i64 7, i64 12)
+  unreachable
+
+38:                                               ; preds = %12
+  call void @TIG_bounds_error(ptr @0, i64 6, i64 8)
+  unreachable
+
+39:                                               ; preds = %entry
+  call void @TIG_bounds_error(ptr @0, i64 6, i64 5)
+  unreachable
 }
 
 ; Function Attrs: nounwind
 declare void @llvm.gcroot(ptr %0, ptr %1) #0
 
-declare ptr @TIG_makeintarray(i64 %0, i64 %1)
-
-declare ptr @TIG_makeptrarray(i64 %0, ptr %1)
+declare ptr @TIG_makearray(i64 %0, i64 %1)
 
 declare void @TIG_printi(i64 %0)
 
+declare void @TIG_bounds_error(ptr %0, i64 %1, i64 %2)
+
 attributes #0 = { nounwind }
-/usr/bin/ld: test012.o: in function `TIG_main':
-:(.text+0x60): undefined reference to `TIG_makeptrarray'
-collect2: error: ld returned 1 exit status

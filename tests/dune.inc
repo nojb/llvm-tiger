@@ -96,6 +96,18 @@
  (action (diff test007.err test007.err.gen)))
 
 (rule
+ (targets test033.out.gen test033.err.gen)
+ (action (run ../tools/run_test.exe -cmd %{dep:../src/main.exe} -runtime %{dep:../runtime/runtime.c} -out test033.out.gen -err test033.err.gen %{dep:test033.tig})))
+
+(rule
+ (alias runtest)
+ (action (diff test033.out test033.out.gen)))
+
+(rule
+ (alias runtest)
+ (action (diff test033.err test033.err.gen)))
+
+(rule
  (targets test031.out.gen test031.err.gen)
  (action (run ../tools/run_test.exe -cmd %{dep:../src/main.exe} -runtime %{dep:../runtime/runtime.c} -out test031.out.gen -err test031.err.gen %{dep:test031.tig})))
 

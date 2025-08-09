@@ -21,6 +21,7 @@ type operation =
   | Pdivint
   | Pgep of ty
   | Pcmpint of Tabs.comparison
+  | Pand
   | Pzext
   | Ialloca of ty * bool (* gcroot *)
   | Iapply of string

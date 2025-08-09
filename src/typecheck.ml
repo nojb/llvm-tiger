@@ -220,8 +220,9 @@ and variable env v : statement * variable =
   | Vsubscript (v, x) ->
       let s1, v' = variable env v in
       let t' = get_array_type env v.loc v'.ty in
-      let s2, x = expression' env x Tint in
-      seq s1 s2, {desc = Vsubscript (v', x); ty = t'}
+      let s2, x' = expression' env x Tint in
+      let loc = loc_of_variable x in
+      seq s1 s2, {desc = Vsubscript (loc, v', x'); ty = t'}
   | Vfield (v, x) ->
       let s, v' = variable env v in
       let cstr, xts = get_record_type env v.loc v'.ty in

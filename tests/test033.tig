@@ -1,0 +1,6 @@
+let
+  type t = array of int
+  var x := t [10] of 0
+in
+  printi(x[10])
+end

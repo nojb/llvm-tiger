@@ -46,7 +46,7 @@ type 'a typed =
 
 type variable' =
   | Vsimple of ident
-  | Vsubscript of variable * expression
+  | Vsubscript of loc * variable * expression
   | Vfield of loc * variable * int
   | Vup of int * int
 

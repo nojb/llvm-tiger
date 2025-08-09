@@ -98,10 +98,11 @@ let type_id : type_id -> ty = function
 let type_structure env : type_id -> ty = function
   | Tint | Tstring -> assert false
   | Tconstr cstr ->
-      begin match type_structure env cstr with
-      | Tarray tid -> type_id tid
-      | Trecord l -> Tstruct (List.map (fun (_, tid) -> type_id tid) l)
-      end
+      Tstruct (
+        match type_structure env cstr with
+        | Tarray tid -> [Tint 64; Tarray (type_id tid, 0)]
+        | Trecord l -> List.map (fun (_, tid) -> type_id tid) l
+      )
 
 let load env ty r next =
   let r' = new_reg env in
@@ -138,15 +139,38 @@ let null_check env loc v next =
   op env (Pcmpint Ceq) [v; z] @@ fun c ->
   Iifthenelse (c, lnull, lnext)
 
+let bounds_error env loc =
+  string env loc.filename @@ fun filename ->
+  int env loc.lineno @@ fun lineno ->
+  int env loc.column @@ fun column ->
+  op env
+    (Iexternal ("TIG_bounds_error", ([Tpointer; Tint 64; Tint 64], Tvoid)))
+    [filename; lineno; column] (fun _ -> Iunreachable)
+
+let bounds_check env loc ty v' i' next =
+  let lnext = label_instr env next in
+  let louts = label_instr env (bounds_error env loc) in
+  int env 0 @@ fun z' ->
+  op env (Pgep ty) [v'; z'; z'] @@ fun n' ->
+  load env (Tint 64) n' @@ fun n' ->
+  op env (Pcmpint Cge) [i'; z'] @@ fun c1' ->
+  op env (Pcmpint Clt) [i'; n'] @@ fun c2' ->
+  op env Pand [c1'; c2'] @@ fun c' ->
+  Iifthenelse (c', lnext, louts)
+
 let rec variable env v next =
   match v.desc with
   | Vsimple x ->
       next (reg_of_var env x)
-  | Vsubscript (v, i) ->
+  | Vsubscript (loc, v, i) ->
       variable env v @@ fun v' ->
       expression env i @@ fun i' ->
       load env Tpointer v' @@ fun v' ->
-      op env (Pgep (type_structure env v.ty)) [v'; i'] next
+      let ty = type_structure env v.ty in
+      bounds_check env loc ty v' i' @@
+      int env 0 @@ fun zero' ->
+      int env 1 @@ fun one' ->
+      op env (Pgep ty) [v'; zero'; one'; i'] next
   | Vfield (loc, v, i) ->
       variable env v @@ fun v' ->
       int env i @@ fun i' ->
