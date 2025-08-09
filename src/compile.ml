@@ -260,11 +260,10 @@ and statement env lexit s next =
   | Sreturn None ->
       Ireturn None
   | Sarray (v, size, init) ->
-      let kind = match init.ty with Tstring | Tconstr _ -> Pointer | Tint -> Int in
       expression env size @@ fun rsize ->
       expression env init @@ fun rinit ->
       variable env v @@ fun rv ->
-      op env (Imakearray kind) [rsize; rinit] @@ fun rd ->
+      op env Imakearray [rsize; rinit] @@ fun rd ->
       Istore (rd, rv, next)
   | Srecord (v, fl) ->
       let n = List.length fl in

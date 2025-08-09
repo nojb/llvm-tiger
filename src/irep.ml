@@ -10,9 +10,6 @@ type ty =
 
 type signature = ty list * ty
 
-type array_kind =
-  | Int | Pointer
-
 type operation =
   | Pconstint of int64
   | Pconststring of string
@@ -26,9 +23,8 @@ type operation =
   | Pand
   | Pzext
   | Ialloca of ty * bool
-  | Iapply of string
   | Iexternal of string * signature
-  | Imakearray of array_kind
+  | Imakearray
   | Imakerecord of int
 
 module Reg = struct
@@ -160,19 +156,11 @@ let transl_operation env op args =
         gcroot env v;
       end;
       v
-  | Iapply f, _ ->
-      let _f =
-        match lookup_function f env.m with
-        | None -> assert false
-        | Some f -> f
-      in
-      assert false
-  (* [|build_call _ f arg "" b|] *)
   | Iexternal (f, (tys, ty)), args ->
       let lltype = function_type (transl_ty env ty) (Array.of_list (List.map (transl_ty env) tys)) in
       let f = declare_function f lltype env.m in
       build_call lltype f (Array.of_list args) "" env.b
-  | Imakearray _ty, [size; init] ->
+  | Imakearray, [size; init] ->
       let ty = function_type (pointer_type env.c) [|intptr_type env.c; intptr_type env.c|] in
       let f = declare_function "TIG_makearray" ty env.m in
       build_call ty f [|size; init|] "" env.b
@@ -181,7 +169,7 @@ let transl_operation env op args =
       let f = declare_function "TIG_makerecord" ty env.m in
       build_call ty f [|const_int (i32_type env.c) n|] "" env.b
   | (Pconstint _ | Pconststring _ | Pnull | Paddint | Psubint | Pmulint | Pdivint | Pcmpint _ |
-     Pand | Pzext | Pgep _ | Ialloca _ | Imakearray _ |
+     Pand | Pzext | Pgep _ | Ialloca _ | Imakearray |
      Imakerecord _ ), _ ->
       assert false
 

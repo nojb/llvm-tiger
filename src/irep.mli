@@ -8,9 +8,6 @@ type ty =
 
 type signature = ty list * ty
 
-type array_kind =
-  | Int | Pointer
-
 type operation =
   | Pconstint of int64
   | Pconststring of string
@@ -24,9 +21,8 @@ type operation =
   | Pand
   | Pzext
   | Ialloca of ty * bool (* gcroot *)
-  | Iapply of string
   | Iexternal of string * signature
-  | Imakearray of array_kind
+  | Imakearray
   | Imakerecord of int
 
 module Reg: sig
