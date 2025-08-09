@@ -1,3 +1,4 @@
+/* ERR: Wrong number of fields */
 let
   type t = {a : int, b : string}
   var x := t{a = 42}

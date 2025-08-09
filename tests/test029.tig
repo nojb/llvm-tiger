@@ -1,3 +1,4 @@
+/* ERR: unexpected field */
 let
   type t = {a: int}
   var x := t{b = 42}

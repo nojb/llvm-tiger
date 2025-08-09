@@ -1,3 +1,4 @@
+/* ERR: not a record */
 let
   var x := 42
 in

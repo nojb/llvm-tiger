@@ -1,1 +1,2 @@
+/* ERR: wrong arity */
 printi(42, 56)

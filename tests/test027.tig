@@ -1,3 +1,4 @@
+/* ERR: value expected */
 let
   var x := 42
   var y := (x := 0)

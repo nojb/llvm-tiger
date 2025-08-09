@@ -1,3 +1,4 @@
+/* ERR: illegal nil */
 let
   var x := nil
 in

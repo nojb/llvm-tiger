@@ -1,3 +1,4 @@
+/* Valid nil */
 let
   type t = { a : int }
   var x := t { a = 42 }

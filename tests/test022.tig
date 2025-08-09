@@ -1,3 +1,4 @@
+/* ERR: not an array */
 let
   var x := 43
 in

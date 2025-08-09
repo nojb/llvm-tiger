@@ -1,2 +1,3 @@
+/* ERR: statement expected */
 while 1 do
   43
