@@ -495,9 +495,9 @@ and add_functions env fdefs =
 let program (p : Tabs.program) =
   let env = toplevel_env () in
   let body = statement env p.body in
-  let p_funs =
+  let funs =
     {fn_name = Main; fn_rtyp = None; fn_args = []; fn_vars = !(env.vars); fn_esca = !(env.escapes); fn_body = body} ::
     !(env.funs)
   in
-  let p_cstr = Hashtbl.fold (fun id ts accu -> (id, ts) :: accu) env.cstr [] in
-  {p_cstr; p_funs}
+  let cstr = Hashtbl.fold (fun id ts accu -> (id, ts) :: accu) env.cstr [] in
+  {cstr; funs}

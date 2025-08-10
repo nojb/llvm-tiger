@@ -96,6 +96,6 @@ type fundef =
 
 type program =
   {
-    p_cstr: (ident * type_structure) list;
-    p_funs: fundef list;
+    cstr: (ident * type_structure) list;
+    funs: fundef list;
   }

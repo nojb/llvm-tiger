@@ -266,7 +266,7 @@ let fundef cstrs fundef =
   in
   { name = fundef.fn_name; signature; code = env.blocks; entrypoint }
 
-let program (p : Typing.program) =
-  let cstrs = Ident.Map.of_list p.p_cstr in
-  let funs = List.map (fundef cstrs) p.p_funs in
+let program { cstr; funs } =
+  let cstrs = Ident.Map.of_list cstr in
+  let funs = List.map (fundef cstrs) funs in
   { funs }
