@@ -487,7 +487,7 @@ and add_functions env fdefs =
             let s, e = expression' env fdef.fn_body ty in
             seq s (Sreturn (Some e))
       in
-      let fdef = {fn_name; fn_rtyp; fn_args; fn_vars = !vars; fn_body} in
+      let fdef = {fn_name; fn_rtyp; fn_args; fn_vars = !vars; fn_esca = !escapes; fn_body} in
       env.funs := fdef :: !(env.funs)
     ) (List.rev names) fdefs;
   {env with venv}
@@ -496,7 +496,7 @@ let program (p : Tabs.program) =
   let env = toplevel_env () in
   let body = statement env p.body in
   let p_funs =
-    {fn_name = Main; fn_rtyp = None; fn_args = []; fn_vars = !(env.vars); fn_body = body} ::
+    {fn_name = Main; fn_rtyp = None; fn_args = []; fn_vars = !(env.vars); fn_esca = !(env.escapes); fn_body = body} ::
     !(env.funs)
   in
   let p_cstr = Hashtbl.fold (fun id ts accu -> (id, ts) :: accu) env.cstr [] in

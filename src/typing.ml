@@ -91,6 +91,7 @@ type fundef =
     fn_rtyp: type_id option;
     fn_args: (ident * type_id) list;
     fn_vars: (ident * type_id) list;
+    fn_esca: Ident.Set.t;
     fn_body: statement }
 
 type program =
