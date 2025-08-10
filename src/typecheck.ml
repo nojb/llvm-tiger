@@ -7,13 +7,14 @@ let seq s1 s2 =
   | _ -> Sseq (s1, s2)
 
 type value =
-  | Var of type_id * Typing.ident
+  | Var of {ty: type_id; id: Typing.ident; escapes: Ident.Set.t ref}
   | Fun of signature * implem
 
 module StringMap = Map.Make(String)
 
 type env =
   {
+    escapes: Ident.Set.t ref;
     vars: (Typing.ident * type_id) list ref;
     funs: Typing.fundef list ref;
     cstr: (Typing.ident, type_structure) Hashtbl.t;
@@ -51,7 +52,8 @@ let toplevel_env () =
       StringMap.add name (Fun ((args, res), External ("TIG_" ^ name))) venv in
     List.fold_left f StringMap.empty base_venv
   in
-  { vars = ref [];
+  { escapes = ref Ident.Set.empty;
+    vars = ref [];
     funs = ref [];
     cstr = Hashtbl.create 0;
     venv;
@@ -99,14 +101,16 @@ let string_of_error = function
 
 exception Error of error loc
 
-let find_var id env =
+let find_var env id =
   match StringMap.find_opt id.desc env.venv with
-  | Some (Var (tid, id)) -> tid, id
+  | Some (Var {ty; id; escapes}) ->
+      if escapes != env.escapes then escapes := Ident.Set.add id !escapes;
+      ty, id
   | Some (Fun _) | None -> raise (Error {id with desc = Unbound_variable id.desc})
 
-let find_fun id env =
+let find_fun env id =
   match StringMap.find_opt id.desc env.venv with
-  | Some (Fun (sign, impl)) -> sign, impl
+  | Some (Fun (sg, impl)) -> sg, impl
   | Some (Var _) | None -> raise (Error {id with desc = Unknown_function id.desc})
 
 let find_type env id =
@@ -135,7 +139,8 @@ let get_array_type env loc = function
 let add_var env (x : ident) tid =
   let id = Ident.create env.next_ident x.desc in
   env.vars := (id, tid) :: !(env.vars);
-  {desc = Typing.Vsimple id; ty = tid}, {env with venv = StringMap.add x.desc (Var (tid, id)) env.venv}
+  {desc = Typing.Vsimple id; ty = tid},
+  {env with venv = StringMap.add x.desc (Var {ty = tid; id; escapes = env.escapes}) env.venv}
 
 let add_fresh_var env tid =
   let id = Ident.create env.next_ident "tmp" in
@@ -229,7 +234,7 @@ let rec statement env e =
 and variable env v : statement * variable =
   match v.desc with
   | Vsimple x ->
-      let tid, id = find_var x env in
+      let tid, id = find_var env x in
       Sskip, {desc = Vsimple id; ty = tid}
   | Vsubscript (v, x) ->
       let s1, v' = variable env v in
@@ -365,7 +370,7 @@ and expression env e : statement * expression option =
       let s2, e = expression' env e v.ty in
       seq s1 (seq s2 (Sassign (v, e))), None
   | Ecall (fn, params) ->
-      let (args, res) as sign, impl = find_fun fn env in
+      let args, res as sg, impl = find_fun env fn in
       let num_expected = List.length args in
       let num_actual = List.length params in
       if num_expected <> num_actual then raise (Error {fn with desc = Wrong_arity (num_expected, num_actual)});
@@ -375,7 +380,7 @@ and expression env e : statement * expression option =
       in
       let v = Option.map (add_fresh_var env) res in
       let s', e' =
-        Scall (v, impl, List.rev params, sign),
+        Scall (v, impl, List.rev params, sg),
         match v with None -> None | Some v -> Some {ty = v.ty; desc = Typing.Evar v}
       in
       seq s s', e'
@@ -465,14 +470,15 @@ and add_functions env fdefs =
       ) ([], env.venv) fdefs
   in
   List.iter2 (fun (fn_name, fn_args, fn_rtyp) fdef ->
+      let escapes = ref Ident.Set.empty in
       let (fn_args, venv) =
         List.fold_left2 (fun (args, venv) (name, _) ty ->
             let id = Ident.create env.next_ident name.desc in
-            (id, ty) :: args, StringMap.add name.desc (Var (ty, id)) venv
+            (id, ty) :: args, StringMap.add name.desc (Var {ty; id; escapes}) venv
           ) ([], venv) fdef.fn_args fn_args
       in
       let vars = ref [] in
-      let env = {env with vars; venv} in
+      let env = {env with vars; venv; escapes} in
       let fn_body =
         match fn_rtyp with
         | None ->

@@ -117,8 +117,6 @@ let rec variable env v next =
       load env Tpointer v' @@ fun v' ->
       null_check env loc v' @@
       op env (Pgep (type_structure env v.ty)) [v'; zero'; i'] next
-  | Vup _ ->
-      assert false
 
 and expression env (e : expression) (next : reg -> instruction) =
   match e.desc with

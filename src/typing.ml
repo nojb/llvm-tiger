@@ -6,6 +6,7 @@ module Ident: sig
   val name: t -> string
   val unique_name: t -> string
   val equal: t -> t -> bool
+  module Set: Set.S with type elt = t
   module Map: Map.S with type key = t
 end = struct
   type t = { name: string; id: int }
@@ -16,6 +17,7 @@ end = struct
   let unique_name { name; id } = Printf.sprintf "%s_%i" name id
   let compare t1 t2 = Int.compare t1.id t2.id
   let equal t1 t2 = Int.equal t1.id t2.id
+  module Set = Set.Make(struct type nonrec t = t let compare = compare end)
   module Map = Map.Make(struct type nonrec t = t let compare = compare end)
 end
 
@@ -54,7 +56,6 @@ type variable' =
   | Vsimple of ident
   | Vsubscript of loc * variable * expression
   | Vfield of loc * variable * int
-  | Vup of int * int
 
 and variable =
   variable' typed
