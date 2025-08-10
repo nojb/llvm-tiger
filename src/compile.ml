@@ -10,9 +10,6 @@ type env =
     vars: reg Ident.Map.t;
   }
 
-let type_structure env tid =
-  Ident.Map.find tid env.cstrs
-
 let reg_of_var env id =
   Ident.Map.find id env.vars
 
@@ -38,10 +35,13 @@ let type_structure env : type_id -> ty = function
   | Tint | Tstring -> assert false
   | Tconstr cstr ->
       Tstruct (
-        match type_structure env cstr with
+        match Ident.Map.find cstr env.cstrs with
         | Tarray tid -> [Tint 64; Tarray (type_id tid, 0)]
         | Trecord l -> List.map (fun (_, tid) -> type_id tid) l
       )
+
+let signature (args, res) =
+  List.map type_id args, match res with None -> Tvoid | Some t -> type_id t
 
 let load env ty r next =
   let r' = new_reg env in
@@ -189,12 +189,7 @@ and statement env lexit s next =
             in
             let op =
               match impl with
-              | External s ->
-                  let sg =
-                    let (args, res) = sg in
-                    List.map type_id args, match res with None -> Tvoid | Some t -> type_id t
-                  in
-                  Iexternal (s, sg)
+              | External s -> Iexternal (s, signature sg)
               | Internal id -> Icall id
             in
             Iop (op, List.rev rl, r, next)
@@ -258,13 +253,8 @@ let fundef cstrs fundef =
         i+1, Iop (Ialloca (type_id tid, root), [], Ident.Map.find name vars, next)
       ) (0, entrypoint) fundef.fn_args
   in
-  let signature =
-    List.map (fun (_, ty) -> type_id ty) fundef.fn_args,
-    match fundef.fn_rtyp with
-    | None -> Tvoid
-    | Some ty -> type_id ty
-  in
-  { name = fundef.fn_name; signature; code = env.blocks; entrypoint }
+  let sg = List.map (fun (_, ty) -> ty) fundef.fn_args, fundef.fn_rtyp in
+  { name = fundef.fn_name; signature = signature sg; code = env.blocks; entrypoint }
 
 let program { cstr; funs } =
   let cstrs = Ident.Map.of_list cstr in
