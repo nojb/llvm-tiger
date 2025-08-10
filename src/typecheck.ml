@@ -23,12 +23,39 @@ type env =
     next_ident: Ident.state;
   }
 
-let empty_env venv tenv =
+
+let base_tenv =
+  [
+    "int", Tint;
+    "string", Tstring;
+  ]
+
+let base_venv =
+  [
+    "printi", [Tint], None;
+    "print", [Tstring], None;
+    "flush", [], None;
+    "not", [Tint], Some Tint;
+    "exit", [Tint], None;
+    (* "getchar", [], Some Tstring;
+       "ord", [Tstring], Some Tint;
+       "chr", [Tint], Some Tstring;
+       "size", [Tstring], Some Tint;
+       "substring", [Tstring; Tint; Tint], Some Tstring;
+       "concat", [Tstring; Tstring], Some Tstring; *)
+  ]
+
+let toplevel_env () =
+  let venv =
+    let f venv (name, args, res) =
+      StringMap.add name (Fun ((args, res), External ("TIG_" ^ name))) venv in
+    List.fold_left f StringMap.empty base_venv
+  in
   { vars = ref [];
     funs = ref [];
     cstr = Hashtbl.create 0;
     venv;
-    tenv;
+    tenv = StringMap.of_list base_tenv;
     loop = false;
     next_ident = Ident.new_state () }
 
@@ -459,36 +486,8 @@ and add_functions env fdefs =
     ) (List.rev names) fdefs;
   {env with venv}
 
-let base_tenv =
-  [
-    "int", Tint;
-    "string", Tstring;
-  ]
-
-let base_venv =
-  [
-    "printi", [Tint], None;
-    "print", [Tstring], None;
-    "flush", [], None;
-    "not", [Tint], Some Tint;
-    "exit", [Tint], None;
-    (* "getchar", [], Some Tstring;
-       "ord", [Tstring], Some Tint;
-       "chr", [Tint], Some Tstring;
-       "size", [Tstring], Some Tint;
-       "substring", [Tstring; Tint; Tint], Some Tstring;
-       "concat", [Tstring; Tstring], Some Tstring; *)
-  ]
-
 let program (p : Tabs.program) =
-  let env =
-    let base_venv =
-      let f venv (name, args, res) =
-        StringMap.add name (Fun ((args, res), External ("TIG_" ^ name))) venv in
-      List.fold_left f StringMap.empty base_venv
-    in
-    empty_env base_venv (StringMap.of_list base_tenv)
-  in
+  let env = toplevel_env () in
   let body = statement env p.body in
   let p_funs =
     {fn_name = Main; fn_rtyp = None; fn_args = []; fn_vars = !(env.vars); fn_body = body} ::
